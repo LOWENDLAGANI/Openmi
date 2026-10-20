@@ -1,0 +1,42 @@
+{
+  "name": "openmi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenMi — mobile-first, serverless vibe-coding agent that commits to your GitHub repo.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "wrangler dev --port 8787 --ip 0.0.0.0",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:bundle": "wrangler deploy --dry-run --outdir=.wrangler/dry-run",
+    "verify": "npm run typecheck && npm run test && npm run build && npm run check:bundle"
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.1",
+    "@supabase/supabase-js": "^2.118.0",
+    "hono": "^4.13.13",
+    "jose": "^6.2.13",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261019.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.2"
+  }
+}
