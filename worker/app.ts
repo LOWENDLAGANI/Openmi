@@ -5,6 +5,7 @@ import { requestContext, requireAuth, type AppEnv } from './auth/middleware';
 import { toAppError } from './lib/errors';
 import { log } from './lib/logger';
 import { githubAppRoutes } from './routes/github-app';
+import { internalRoutes } from './routes/internal';
 import { githubRoutes } from './routes/github';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
@@ -51,6 +52,8 @@ app.route('/', healthRoutes);
 // GitHub App callback + webhook authenticate themselves (signed state / HMAC),
 // so they sit outside the bearer-token prefix below.
 app.route('/', githubAppRoutes);
+// Runner + cron endpoints: authenticated by internal/cron secrets, not sessions.
+app.route('/', internalRoutes);
 
 // Authenticated endpoints. Registered per prefix: Hono's `use()` takes exactly
 // one path followed by handlers, so a spread path list would be treated as
@@ -74,7 +77,10 @@ app.notFound((c) => {
     );
   }
   // Hand non-API misses to the asset handler so SPA routes still resolve.
-  return c.env.ASSETS.fetch(c.req.raw);
+  // On Vercel the function only ever receives /api/* requests; static paths are
+  // served by the platform, so a missing binding is not an error there.
+  if (c.env.ASSETS) return c.env.ASSETS.fetch(c.req.raw);
+  return c.text('Not Found', 404);
 });
 
 app.onError((error, c) => {

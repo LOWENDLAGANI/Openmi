@@ -4,8 +4,9 @@ Mobile-first cloud vibe-coding. You type a prompt on your phone; a durable backg
 your GitHub repository and commits it — even after you close the tab.
 
 **Status:** Phase 0 (walking skeleton), Phase 1 (auth, database, quota, durable agent, atomic
-GitHub commits) and Phase 2 (GitHub App installation tokens, webhooks, token caching) are
-implemented. See [Roadmap](#roadmap) for what is deliberately deferred.
+GitHub commits), Phase 2 (GitHub App installation tokens, webhooks, token caching) and Phase 2.5
+(Vercel runtime: serverless runner, leases, cron recovery) are implemented and tested. See
+[Roadmap](#roadmap) for what is deliberately deferred and the current completion estimate.
 
 ---
 
@@ -15,29 +16,32 @@ implemented. See [Roadmap](#roadmap) for what is deliberately deferred.
 phone browser
     │  Supabase session (GitHub OAuth)
     ▼
-Next-free SPA  ──/api/*──►  Cloudflare Worker (Hono)
-                              │  verify Supabase JWT (JWKS, local)
-                              │  reserve daily quota (atomic SQL)
-                              ▼
-                        Cloudflare Workflow  ── durable steps, survives tab close
-                              │
-                ┌─────────────┼──────────────┬─────────────┐
-                ▼             ▼              ▼             ▼
-          Supabase PG    GitHub tree     OpenRouter      GitHub
-          (task state)   + blobs         / Groq         atomic commit
+Vite SPA  ──/api/*──►  Vercel Function (Hono, Node 22)
+                          │  verify Supabase JWT (JWKS, local)
+                          │  reserve daily quota (atomic SQL)
+                          │  POST /api/internal/run-task  (self-dispatch, 202)
+                          ▼
+                    runner invocation ── steps, lease, re-dispatch on timeout
+                          │
+            ┌─────────────┼──────────────┬─────────────┐
+            ▼             ▼              ▼             ▼
+      Supabase PG    GitHub tree     OpenRouter      GitHub
+      (task state)   + blobs         / Groq         atomic commit
 ```
 
-Every unit of work is a Workflow step, so a lost connection, a locked screen, or a closed browser
-does not interrupt generation. Task state lives in Postgres, not in the client.
+Every stage is a step with an idempotency guard, so a lost connection, a locked screen, a closed
+browser or a timed-out function does not lose work: the task is re-dispatched and resumes from
+persisted state. Task state lives in Postgres, not in the client.
 
-Full design and trade-offs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The same code runs on Cloudflare Workers, where `TaskWorkflow` executes the identical pipeline as a
+durable Workflow — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Stack
 
 | Layer | Choice |
 | --- | --- |
-| Runtime | Cloudflare Workers (`workerd`) |
-| Orchestration | Cloudflare Workflows (`WorkflowEntrypoint`, durable steps) |
+| Runtime | Vercel Functions (Node.js 22) — Cloudflare Workers supported as an alternative |
+| Orchestration | Step pipeline with database leases + self re-dispatch; Cloudflare Workflows on CF |
 | API | Hono + TypeScript |
 | Frontend | Vite + React 19 + Tailwind CSS v4 (mobile-first SPA) |
 | Database / Auth | Supabase Postgres + GitHub OAuth provider + RLS |
@@ -50,88 +54,118 @@ Full design and trade-offs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ### 1. Install
 
 ```bash
+git clone https://github.com/LOWENDLAGANI/Openmi.git
+cd Openmi
 npm install
 ```
 
 ### 2. Create the database
 
-In a new Supabase project, run the migrations in order (SQL editor, or `supabase db push`):
+In a new Supabase project, run the migrations in filename order (SQL editor, or `supabase db push`):
 
 ```
 supabase/migrations/20261020000100_init.sql
 supabase/migrations/20261020000200_quota.sql
+supabase/migrations/20261020000300_github_app.sql
+supabase/migrations/20261020000400_task_leases.sql
 ```
 
 Then enable **Authentication → Providers → GitHub** and add `repo read:user` to the scopes.
-Set the redirect URL to your app origin (`http://localhost:3000` for local dev).
+Set the redirect URL to your app origin (`http://localhost:3000` for local dev). Full details:
+[supabase/README.md](supabase/README.md).
 
-### 3. Configure the Worker
+### 3. Configure the environment
 
-Public config lives in `wrangler.jsonc` `vars`. Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+Copy [.env.example](.env.example) to `.dev.vars` (Node dev server) or `.env.local` (`vercel dev`),
+then fill in:
 
-Secrets never go in the repo:
+- `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- `GITHUB_TOKEN_ENC_KEY` — `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+- `OPENROUTER_API_KEY`
+- `INTERNAL_TASK_TOKEN` — any random string ≥ 32 chars (`openssl rand -hex 32`)
+- `CRON_SECRET` — any random string
+- `APP_ORIGIN` — `http://localhost:8787` locally
 
-```bash
-cp .dev.vars.example .dev.vars      # local development
-# then, for the deployed Worker:
-npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-npx wrangler secret put GITHUB_TOKEN_ENC_KEY   # base64 of 32 random bytes
-npx wrangler secret put OPENROUTER_API_KEY
-```
-
-Generate the token-encryption key:
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-```
-
-### 3b. GitHub App (recommended)
+### 4. GitHub App (recommended)
 
 Create a GitHub App (Settings → Developer settings → GitHub Apps):
 
 | Setting | Value |
 | --- | --- |
 | Repository permissions | Contents: **read & write**, Pull requests: **read & write**, Metadata: read |
-| Setup URL | `https://<your-origin>/api/github-app/callback` |
-| Webhook URL | `https://<your-origin>/api/webhooks/github` |
-| Webhook secret | any strong random string |
+| Setup URL | `https://<your-domain>/api/github-app/callback` |
+| Webhook URL | `https://<your-domain>/api/webhooks/github` |
+| Webhook secret | the value of `GITHUB_APP_WEBHOOK_SECRET` |
 
-Put the public ids in `wrangler.jsonc` (`GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_SLUG`)
-and the secrets on the Worker:
+Add `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`
+(PKCS#8 PEM: `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem`) and
+`GITHUB_APP_WEBHOOK_SECRET` to the same environment as step 3.
 
-```bash
-openssl pkcs8 -topk8 -nocrypt -in downloaded-app.pem -out app-pkcs8.pem
-npx wrangler secret put GITHUB_APP_PRIVATE_KEY < app-pkcs8.pem
-npx wrangler secret put GITHUB_APP_WEBHOOK_SECRET
-```
+With the App configured, repo writes use short-lived installation tokens scoped to the repositories
+the user installed the App on — no OAuth token needed. The OAuth path remains as a fallback.
 
-With the App configured, repo writes use short-lived installation tokens scoped to the
-repositories the user installed the App on — no OAuth token needed. The OAuth path remains as a
-fallback and is what `/api/github/link` stores.
-
-### 4. Run locally
-
-Two processes, exactly like production topology (the SPA never talks to Supabase from the server):
+### 5. Run locally
 
 ```bash
-npm run dev:api   # wrangler dev + Workflows emulation on :8787
+npm run dev:api   # Node API server on :8787 (same handler Vercel runs)
 npm run dev       # Vite on :3000, proxies /api -> :8787
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3000`. `npm run dev:api:worker` is the Cloudflare equivalent (workerd on
+:8788) if you want to exercise that runtime.
 
-### 5. Deploy
+### 6. Deploy to Vercel
 
 ```bash
-npm run build          # SPA -> dist/
-npx wrangler deploy    # Worker + Workflows + static assets
+npm i -g vercel        # once
+vercel link            # create/link the project
 ```
+
+Add the environment variables from step 3 to **Production** and **Preview**
+(Vercel → Project → Settings → Environment Variables, or `vercel env add <NAME>`; put
+`GITHUB_APP_PRIVATE_KEY` in as a single line with `\n` escapes). Then:
+
+```bash
+vercel --prod
+```
+
+After the first deploy, set:
+
+| Variable | Value |
+| --- | --- |
+| `APP_ORIGIN` | `https://<your-production-domain>` (inferred from `VERCEL_PROJECT_PRODUCTION_URL` when omitted) |
+| `INTERNAL_TASK_TOKEN` | same random value as local |
+| `CRON_SECRET` | same random value as local |
+| `RUN_BUDGET_SECONDS` | optional, default `240` (must stay under `maxDuration`) |
+
+Then redeploy so the values take effect, and point the GitHub App's Setup/Webhook URLs and the
+Supabase redirect URLs at the Vercel domain.
+
+**Deployment Protection:** internal dispatch posts to your own deployment. If Vercel Authentication
+protects preview deployments, set `INTERNAL_DISPATCH_URL` to an unprotected alias or test on
+Production. Cron jobs are exempt from protection.
+
+**Local Vercel emulation:** `vercel dev` works too; it serves the SPA and `/api/*` from
+`.env.local`. Do not run it on port 8787 at the same time as `npm run dev:api`.
+
+### 7. Cloudflare Workers (alternative)
+
+The original runtime is kept and tested:
+
+```bash
+npm run build
+npx wrangler deploy
+```
+
+Public values live in `wrangler.jsonc` `vars`; secrets go through `npx wrangler secret put <NAME>`
+(see `.dev.vars.example`). No `INTERNAL_TASK_TOKEN` is needed there: the `TASK_WORKFLOW` binding is
+used instead of HTTP dispatch.
 
 ## Environment variables
 
 | Name | Where | Purpose |
 | --- | --- | --- |
-| `SUPABASE_URL` | var | Project URL; also used as the JWT issuer base |
+| `SUPABASE_URL` | var | Project URL; also the JWT issuer base |
 | `SUPABASE_ANON_KEY` | var | Public key handed to the browser via `/api/config` |
 | `SUPABASE_SERVICE_ROLE_KEY` | secret | Server-side DB access; bypasses RLS |
 | `SUPABASE_JWT_SECRET` | secret (dev only) | Legacy HS256 fallback for local integration tests |
@@ -142,6 +176,11 @@ npx wrangler deploy    # Worker + Workflows + static assets
 | `DAILY_TASK_LIMIT` | var | Free-tier tasks per user per UTC day (default 5) |
 | `MAX_CONCURRENT_TASKS` | var | In-flight tasks per user (default 2) |
 | `DEFAULT_COMMIT_MODE` | var | `direct` or `pull_request` fallback for new projects |
+| `APP_ORIGIN` | var (Vercel) | Base URL the runner is dispatched to; inferred on Vercel |
+| `INTERNAL_TASK_TOKEN` | secret (Vercel) | Authenticates `POST /api/internal/run-task` |
+| `INTERNAL_DISPATCH_URL` | var (optional) | Dispatch to a specific deployment instead of `APP_ORIGIN` |
+| `CRON_SECRET` | secret (Vercel) | Vercel sends `Authorization: Bearer $CRON_SECRET` to cron |
+| `RUN_BUDGET_SECONDS` | var (optional) | Wall-clock budget per runner invocation (default 240) |
 | `GITHUB_APP_ID` | var | GitHub App id (enables installation auth when set) |
 | `GITHUB_APP_CLIENT_ID` | var | Preferred JWT issuer for App requests; falls back to the app id |
 | `GITHUB_APP_SLUG` | var | App slug used to build the install URL |
@@ -151,8 +190,9 @@ npx wrangler deploy    # Worker + Workflows + static assets
 
 ## API
 
-All routes are under `/api`. Everything except `/api/health` and `/api/config` requires
-`Authorization: Bearer <supabase access token>`.
+All routes are under `/api`. Everything except `/api/health`, `/api/config`, the GitHub App
+callback/webhook and the runner/cron endpoints requires `Authorization: Bearer <supabase access
+token>`.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -167,8 +207,10 @@ All routes are under `/api`. Everything except `/api/health` and `/api/config` r
 | `GET` | `/api/projects` | Connected projects |
 | `POST` | `/api/projects` | Connect a repo (`repoFullName`, optional `commitMode`) |
 | `GET` | `/api/projects/:id/tasks` | Recent tasks for a project |
-| `POST` | `/api/tasks` | Accept a prompt (202) → quota reserved → workflow started |
+| `POST` | `/api/tasks` | Accept a prompt (202) → quota reserved → runner dispatched |
 | `GET` | `/api/tasks/:id` | Task detail + agent timeline |
+| `POST` | `/api/internal/run-task` | **Internal.** Runs one task invocation (`x-openmi-internal`) |
+| `GET` | `/api/cron/recover` | **Internal.** Re-dispatches stale tasks (`Bearer $CRON_SECRET`) |
 
 ## Safety model
 
@@ -186,8 +228,29 @@ Four independent layers keep a prompt from damaging a repository:
    with `GITHUB_CONFLICT` instead of clobbering the human edit.
 
 Cost guardrails: an atomic `consume_task_quota` RPC (`INSERT … ON CONFLICT … WHERE tasks_started <
-limit`) makes the daily budget race-free, concurrent-task limits stop workflow stampedes, and
+limit`) makes the daily budget race-free, concurrent-task limits stop dispatch stampedes, and
 failures caused by the system (provider/config/internal) refund the reserved slot.
+
+## Durable execution on serverless
+
+Cloudflare has a Workflow engine; Vercel does not. The pipeline is therefore written against a tiny
+`StepRunner` interface (`worker/pipeline/step-runner.ts`) with two implementations:
+
+1. **Workflow steps** (`WorkflowStep.do`) on Cloudflare — replay-backed, per-instance serialized.
+2. **Inline steps** on Vercel — bounded retries, exponential backoff, and a wall-clock deadline.
+
+Durability on Vercel comes from three properties instead of an engine:
+
+- **Leases.** `tasks.lease_expires_at` decides which invocation owns a task; a crashed invocation's
+  lease expires instead of blocking recovery forever.
+- **Idempotent stages.** Every stage re-reads the row and skips work already persisted (pinned base,
+  stored patch, recorded commit), so replay never commits twice.
+- **Re-dispatch.** On deadline the runner releases the lease and posts a fresh invocation, which
+  continues from the last completed stage. A daily cron sweep (`/api/cron/recover`) plus an
+  opportunistic sweep on task creation catches tasks whose runner died without handing off.
+
+Runner authentication uses a shared `INTERNAL_TASK_TOKEN` and constant-time comparison, never a user
+session. The endpoint is excluded from the SPA rewrite and always reaches the function.
 
 ## GitHub App access (Phase 2)
 
@@ -208,41 +271,54 @@ body with `X-Hub-Signature-256` and keep the installation table in sync (`create
 ## Verification
 
 ```bash
-npm run typecheck    # worker, SPA, and build-tool configs
+npm run typecheck    # API, SPA, build tooling and test configs
 npm test             # unit, workflow, and API tests
 npm run build        # SPA bundle
-npm run check:bundle # wrangler dry-run: Worker + Workflows + assets
+npm run check:node   # the Vercel handler loads on plain Node (no Worker-only imports)
+npm run check:bundle # wrangler dry-run: Worker + Workflows + assets (CF target)
 npm run verify       # all of the above
 ```
 
 Tests cover the patch policy, the no-deletion invariant, stale-base detection, context budgeting,
 token envelope encryption, model-output parsing, quota windows, API routing/auth gates, the
-workflow pipeline (step order, replay safety, refund-on-our-failure, no-refund-on-conflict), App
-JWT claims, install-state signing, webhook HMAC verification, installation-token caching, and the
-App-vs-OAuth resolution order.
+pipeline (step order, replay safety, refund-on-our-failure, no-refund-on-conflict), the inline step
+runner (retries, deadline handoff), runner selection and HTTP dispatch, runner/cron endpoint auth,
+App JWT claims, install-state signing, webhook HMAC verification, installation-token caching, and
+the App-vs-OAuth resolution order.
 
-Local end-to-end checks against `wrangler dev` (real `workerd`): `/api/health`, `/api/config`,
-401s for missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, SPA deep-link fallback, and
-static asset serving.
+Local end-to-end checks against the Node API server: `/api/health`, `/api/config`, 401s for
+missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, runner/cron 401 and 422 responses, and
+`npm run check:node` proving the Vercel entry has no `cloudflare:*` imports.
 
-Not covered without live credentials: real Supabase reads/writes, a full GitHub OAuth round trip,
-and an actual commit. Those are the first things to exercise once secrets are configured.
+Not covered without live credentials: real Supabase reads/writes and migrations, a full GitHub
+OAuth round trip, a real App installation + token mint, webhook-driven DB writes, and an actual
+commit. The browser UI is not exercised by automated tests.
 
 ## Roadmap
 
-- **Phase 2 (done)** — GitHub App installation tokens, webhook lifecycle sync, encrypted token
-  cache, install flow with signed state.
-- **Phase 3** — repository file browser; re-run failed tasks; streaming agent progress
-  (Workflows + SSE); multi-file preview builds; PR review comments; per-user token budget.
-- **Phase 4** — team workspaces, billing via Stripe, usage analytics.
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 0 | Walking skeleton: SPA, Worker, Supabase auth, health/config | 100% |
+| 1 | Quota, durable agent, atomic commits, timeline, commit link | 100% |
+| 2 | GitHub App install tokens, signed install state, webhooks, token cache | 100% |
+| 2.5 | Vercel runtime: step runner, leases, HTTP dispatch, cron recovery | 95% (deploy unverified) |
+| 3 | Repo file browser, live streaming progress, retry failed tasks, preview builds, PR review comments, per-user token budget | 0% |
+| 4 | Team workspaces, Stripe billing, usage analytics | 0% |
+
+Rough completion: **~100% of the Phase 0–2 MVP**, **~95% of a deployable production site** (blocked
+only on your accounts and a first deploy), and **~55% of the full roadmap**.
 
 ## Repo layout
 
 ```
-worker/            Worker: routes, auth, db, agent, github, workflows
+api/               Vercel function entry + env adapter
+worker/            API: routes, auth, db, agent, github, pipeline, platform, workflows
+scripts/           Local Node API server
 src/               SPA: pages, components, lib
 shared/            Wire types shared by both runtimes
-supabase/          SQL migrations (schema + quota RPCs)
+supabase/          SQL migrations (schema, quota RPCs, App tables, leases)
 tests/             Vitest suites
 docs/              Architecture notes
+vercel.json        Function routing, SPA fallback, cron, maxDuration
+wrangler.jsonc     Cloudflare Workers configuration (alternative runtime)
 ```

@@ -70,6 +70,7 @@ export interface TaskRow {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  lease_expires_at: string | null;
 }
 
 export interface TaskEventRow {

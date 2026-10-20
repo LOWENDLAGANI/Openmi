@@ -158,18 +158,99 @@ export async function listProjectTasks(
   return ((data ?? []) as TaskRow[]).map(toTaskSummary);
 }
 
-/** Idempotently moves a queued task to running. Safe to replay. */
-export async function claimTask(env: Env, taskId: string): Promise<TaskRow> {
-  const { data, error } = await db(env)
+/**
+ * Claims (or re-claims) a task for this invocation.
+ *
+ * Queued tasks transition to running; a running task is only claimable when its
+ * lease has expired, which is what lets a crashed serverless invocation be
+ * recovered without two runners working on the same task.
+ */
+export async function leaseTask(
+  env: Env,
+  taskId: string,
+  leaseMs: number,
+): Promise<{ row: TaskRow; claimed: boolean }> {
+  const nowIso = new Date().toISOString();
+  const leaseUntil = new Date(Date.now() + leaseMs).toISOString();
+
+  const { data: queued, error } = await db(env)
     .from('tasks')
-    .update({ status: 'running', started_at: new Date().toISOString() })
+    .update({ status: 'running', started_at: nowIso, lease_expires_at: leaseUntil })
     .eq('id', taskId)
     .eq('status', 'queued')
     .select('*')
     .maybeSingle();
 
-  if (error) dbError('tasks.claim', error);
-  return (data as TaskRow | null) ?? (await getTaskRow(env, taskId));
+  if (error) dbError('tasks.lease_queued', error);
+  if (queued) return { row: queued as TaskRow, claimed: true };
+
+  const { data: stale, error: staleError } = await db(env)
+    .from('tasks')
+    .update({ lease_expires_at: leaseUntil })
+    .eq('id', taskId)
+    .eq('status', 'running')
+    .or(`lease_expires_at.is.null,lease_expires_at.lt.${nowIso}`)
+    .select('*')
+    .maybeSingle();
+
+  if (staleError) dbError('tasks.lease_running', staleError);
+  if (stale) return { row: stale as TaskRow, claimed: true };
+
+  return { row: await getTaskRow(env, taskId), claimed: false };
+}
+
+/** Releases the lease so the next dispatch can pick the task up immediately. */
+export async function requeueTask(env: Env, taskId: string): Promise<void> {
+  const { error } = await db(env)
+    .from('tasks')
+    .update({ lease_expires_at: null })
+    .eq('id', taskId)
+    .eq('status', 'running');
+
+  if (error) dbError('tasks.requeue', error);
+}
+
+export interface StaleTaskRef {
+  id: string;
+  owner_id: string;
+  project_id: string;
+}
+
+/** Tasks whose lease (or initial dispatch) never completed. */
+export async function listStaleTasks(
+  env: Env,
+  staleBeforeIso: string,
+  limit = 10,
+): Promise<StaleTaskRef[]> {
+  const [queued, running] = await Promise.all([
+    db(env)
+      .from('tasks')
+      .select('id, owner_id, project_id')
+      .eq('status', 'queued')
+      .lt('created_at', staleBeforeIso)
+      .order('created_at', { ascending: true })
+      .limit(limit),
+    db(env)
+      .from('tasks')
+      .select('id, owner_id, project_id')
+      .eq('status', 'running')
+      .or(`lease_expires_at.is.null,lease_expires_at.lt.${staleBeforeIso}`)
+      .order('created_at', { ascending: true })
+      .limit(limit),
+  ]);
+
+  if (queued.error) dbError('tasks.stale_queued', queued.error);
+  if (running.error) dbError('tasks.stale_running', running.error);
+
+  const seen = new Set<string>();
+  const merged: StaleTaskRef[] = [];
+  for (const row of [...(queued.data ?? []), ...(running.data ?? [])] as StaleTaskRef[]) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    merged.push(row);
+    if (merged.length >= limit) break;
+  }
+  return merged;
 }
 
 export async function setTaskBase(

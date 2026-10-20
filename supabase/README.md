@@ -9,7 +9,9 @@ supabase db push
 # Or paste each file into the SQL editor, in filename order
 ```
 
-Order matters: `_init.sql` creates the schema, `_quota.sql` adds the RPCs and grants.
+Order matters: `_init.sql` creates the schema, `_quota.sql` adds the RPCs and grants,
+`_github_app.sql` adds App installations + the token cache, and `_task_leases.sql` adds the
+serverless runner's lease column and index.
 
 ## Auth provider
 
@@ -27,7 +29,7 @@ Order matters: `_init.sql` creates the schema, `_quota.sql` adds the RPCs and gr
 | `profiles` | GitHub login/avatar cache, created on first `/api/me` |
 | `github_credentials` | Encrypted OAuth token + granted scopes (no client access via RLS) |
 | `projects` | Connected repositories and their commit mode |
-| `tasks` | Prompt, pinned base commit, patch set, result, token usage |
+| `tasks` | Prompt, pinned base commit, patch set, result, token usage, runner lease |
 | `task_events` | Append-only agent timeline shown in the UI |
 | `usage_daily` | Daily budget ledger |
 | `github_installations` | GitHub App installations, linked to a user by the signed install state |
@@ -51,6 +53,13 @@ A partial unique index enforces one linked installation per user.
 Clients get `select` only, always scoped to `auth.uid()`. They cannot write: every mutation is
 performed by the Worker with the service role after authorization. `github_credentials` is readable
 by nobody through the anon key, by design.
+
+## Serverless runner lease
+
+`tasks.lease_expires_at` exists for the Vercel runtime: a function that dies mid-task leaves an
+expired lease rather than a permanently stuck `running` row. Recovery treats `running` rows with a
+null or expired lease as claimable, and `requeue_task` (implemented in `worker/db/tasks.ts`) clears
+the lease on deadline handoff. No cron job is needed for correctness — it only shortens latency.
 
 ## Verifying the quota function
 

@@ -21,6 +21,9 @@ import { AppError } from '../lib/errors';
 import { readJson } from '../lib/http';
 import { log } from '../lib/logger';
 import { nextUtcMidnight } from '../lib/time';
+import { background } from '../platform/background';
+import { startTaskRun } from '../platform/dispatch';
+import { recoverStaleTasks } from '../platform/recovery';
 
 export const taskRoutes = new Hono<AppEnv>();
 
@@ -72,11 +75,19 @@ taskRoutes.post('/tasks', async (c) => {
     });
     taskId = task.id;
 
-    const instance = await c.env.TASK_WORKFLOW.create({
-      params: { taskId: task.id, userId: user.id, projectId: project.id },
+    const dispatch = await startTaskRun(c.env, {
+      taskId: task.id,
+      userId: user.id,
+      projectId: project.id,
     });
-    await setWorkflowInstance(c.env, task.id, instance.id);
+    if (dispatch.instanceId) {
+      await setWorkflowInstance(c.env, task.id, dispatch.instanceId);
+    }
     await addTaskEvent(c.env, task.id, 'Queued for the background agent');
+
+    // Opportunistic recovery keeps the queue moving even on plans whose cron
+    // only runs daily. Bounded so it never delays the response.
+    background(recoverStaleTasks(c.env, { limit: 3 }), 'recovery-sweep');
 
     const response: CreateTaskResponse = {
       task: toTaskSummary({ ...task, status: 'queued' }),

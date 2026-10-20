@@ -12,19 +12,30 @@ POST /api/tasks
   ├─ count active tasks                          -> 429 TOO_MANY_RUNNING_TASKS
   ├─ consume_task_quota(user, limit)  [atomic SQL]-> 429 QUOTA_EXCEEDED
   ├─ INSERT tasks row (status=queued)
-  ├─ env.TASK_WORKFLOW.create({ taskId, userId, projectId })
+  ├─ startTaskRun(): Workflow binding (CF) or POST /api/internal/run-task (Vercel)
   └─ 202 { task, quota }
 ```
 
 The response returns before any model call happens. The phone can go to sleep immediately.
 
-## Durable workflow
+On Vercel the dispatch is a self-invocation of the same function: the runner endpoint answers `202`
+immediately, then executes the pipeline inside `waitUntil`, bounded by `maxDuration`.
 
-`worker/workflows/task-workflow.ts` is the heart of the product. Steps:
+## One pipeline, two runtimes
+
+`worker/pipeline/run-task.ts` is the heart of the product; it knows nothing about a platform. It
+takes a `StepRunner`:
+
+| Runner | Platform | Durability model |
+| --- | --- | --- |
+| `WorkflowStepRunner` | Cloudflare Workflows | Engine-persisted step results, per-instance serialization, automatic replay |
+| `createInlineStepRunner` | Vercel / Node | Bounded retries + exponential backoff + wall-clock deadline, with database leases and re-dispatch |
+
+Steps:
 
 | Step | What it does | Idempotency guard |
 | --- | --- | --- |
-| `claim task` | queued → running, verifies GitHub link | Skips terminal tasks |
+| `claim task` | queued → running, takes the lease, verifies GitHub link | Skips terminal tasks; lease update is atomic |
 | `resolve base commit` | pins `baseSha` + tree sha of the branch head | Immutable base, stored on the row |
 | `read repository context` | bounded file selection, contents fetched by blob sha | Pure read |
 | `generate patch set` | model call + schema/policy validation, patch stored in Postgres | Writes a full patch set, replaceable |
@@ -35,9 +46,29 @@ Failure handling is itself a step: it records the error, writes a timeline entry
 quota only for failures that were ours (`CONFIG_ERROR`, `AI_*`, `GITHUB_AUTH_EXPIRED`,
 `GITHUB_UNAVAILABLE`, `INTERNAL`). A task that already committed is never marked failed.
 
+### Durable execution without an engine
+
+Vercel has no Workflow equivalent, so durability is a property of the data rather than the runtime:
+
+- **Lease.** `leaseTask` flips `queued → running` and stamps `lease_expires_at` in one conditional
+  update; only the winner runs. A second invocation sees a live lease and exits. Expired leases are
+  fair game, which is what makes crash recovery possible.
+- **Resumption markers.** The pinned base sha, the stored patch set and `commit_sha` are write-once
+  guards. Every stage reads the row first and skips what already happened, so any invocation can
+  pick up any partially completed task.
+- **Deadline handoff.** `RUN_BUDGET_SECONDS` (default 240, under the 300 s `maxDuration`) is the
+  invocation's budget. When a step would exceed it, the runner throws `DeadlineExceededError`
+  *before* starting the step, the lease is released, and a new invocation is dispatched with a
+  fresh budget. Work already persisted is not repeated.
+- **Recovery.** A daily Vercel Cron hits `/api/cron/recover`, which finds tasks whose lease expired
+  or which were never claimed, and re-dispatches them. Task creation also triggers a bounded sweep
+  so a daily cron is not the only safety net.
+- **Dispatch auth.** The runner endpoint trusts only `INTERNAL_TASK_TOKEN`, compared in constant
+  time. It is not behind the user-session middleware and never accepts a browser session.
+
 ### Why step return values stay small
 
-Workflow state is capped (~1 MiB per step result) and is replayed on recovery. So:
+Step results are capped and replayed on recovery (and re-fetched after a Vercel re-dispatch). So:
 
 - The GitHub token is **never** returned from a step; it is decrypted from Postgres inside each step
   that needs it.
@@ -47,9 +78,10 @@ Workflow state is capped (~1 MiB per step result) and is replayed on recovery. S
 ### Fail-fast versus retry
 
 `AppError.retryable` drives a single classification point. Non-retryable business/policy failures
-are rethrown as `NonRetryableError` (from `cloudflare:workflows`) so the engine does not burn
-retries — and, in the AI step, does not burn money — on something that cannot succeed. Transient
-failures (DB blips, provider 5xx) use exponential backoff.
+are rethrown as `NonRetryableError` (from `cloudflare:workflows`) on Cloudflare and short-circuited
+by the inline runner elsewhere, so neither burns retries — and, in the AI step, neither burns
+money — on something that cannot succeed. Transient failures (DB blips, provider 5xx) use
+exponential backoff.
 
 ## Trust boundaries
 
@@ -60,8 +92,9 @@ failures (DB blips, provider 5xx) use exponential backoff.
 2. **Worker → Postgres.** Service role, and every query is additionally scoped by `owner_id`. RLS is
    enabled anyway: `github_credentials` is `select … using (false)` for clients, so a leaked anon key
    cannot read stored tokens.
-3. **Worker → GitHub.** The user's OAuth token, encrypted at rest with AES-256-GCM (random IV per
-   record, key from Worker secret). Only used inside workflow steps; never logged, never returned.
+3. **Worker → GitHub.** The user's OAuth token or App installation token, encrypted at rest with
+   AES-256-GCM (random IV per record, key from a Worker secret). Only used inside pipeline steps;
+   never logged, never returned.
 4. **Model output.** Untrusted by construction. Every file path passes `assertSafePath`, every
    operation is reconciled against the real tree, and content is size-checked before a blob exists.
 5. **GitHub App webhooks.** Verified with HMAC over the raw body and matched against the configured
@@ -135,6 +168,9 @@ task_events        append-only timeline (ordered by identity column)
 usage_daily        (user_id, day) counters; the quota ledger
 ```
 
+`tasks.lease_expires_at` is the ownership marker used by the serverless runner (see
+[Durable execution without an engine](#durable-execution-without-an-engine)).
+
 `usage_daily` is the single source of truth for budget. The RPC does the check and increment in one
 statement; a separate row-per-day key makes the "resets at midnight UTC" promise trivial and keeps
 historical usage for future analytics.
@@ -161,10 +197,15 @@ historical usage for future analytics.
 
 ## Known constraints
 
-- The AI step must complete within one step attempt (6 min timeout). Large refactors need task
-  splitting; that is a Phase 2 feature.
+- The AI step must complete within one step attempt (6 min timeout on Cloudflare, and within
+  `RUN_BUDGET_SECONDS` on Vercel). Large refactors need task splitting.
+- Vercel self-dispatch requires the deployment to be reachable by the function itself; deployments
+  behind Vercel Authentication need `INTERNAL_DISPATCH_URL` or must run on Production.
+- Cron runs at most daily on the Hobby plan, so recovery latency between cron sweeps relies on the
+  opportunistic sweep at task creation and on the deadline handoff.
 - Repos with an enormous tree rely on GitHub's `base_tree` semantics and a truncated-tree fallback
   check. The full superset assertion is skipped (and logged) when the base tree comes back truncated.
 - The SPA bundle includes `@supabase/supabase-js` (~470 KB raw / 133 KB gzipped). Route-level code
   splitting is the obvious next optimization.
 - Octokit pushes the Worker bundle to ~336 KB gzipped, under the Workers limit but worth watching.
+  On Vercel the same code is bundled per function instead, where size only affects cold starts.

@@ -4,7 +4,8 @@ import type { Env } from '../worker/env';
 import type { TaskWorkflowParams } from '../worker/workflows/types';
 
 const mocks = vi.hoisted(() => ({
-  claimTask: vi.fn(),
+  leaseTask: vi.fn(),
+  setTaskBase: vi.fn(),
   addTaskEvent: vi.fn(),
   completeTask: vi.fn(),
   failTask: vi.fn(),
@@ -19,13 +20,15 @@ const mocks = vi.hoisted(() => ({
   getRepoTree: vi.fn(),
   commitPatchSet: vi.fn(),
   resolveGithubAuth: vi.fn(),
+  hasGithubAuth: vi.fn(),
   generatePatch: vi.fn(),
   selectContextFiles: vi.fn(),
   truncateFileContent: vi.fn(),
 }));
 
 vi.mock('../worker/db/tasks', () => ({
-  claimTask: mocks.claimTask,
+  leaseTask: mocks.leaseTask,
+  setTaskBase: mocks.setTaskBase,
   addTaskEvent: mocks.addTaskEvent,
   completeTask: mocks.completeTask,
   failTask: mocks.failTask,
@@ -36,7 +39,6 @@ vi.mock('../worker/db/tasks', () => ({
 vi.mock('../worker/db/projects', () => ({ getProject: mocks.getProject }));
 
 vi.mock('../worker/db/users', () => ({
-  getGithubCredential: mocks.getGithubCredential,
   refundTaskQuota: mocks.refundTaskQuota,
 }));
 
@@ -52,7 +54,10 @@ vi.mock('../worker/github/repo', () => ({
 }));
 
 vi.mock('../worker/github/commit', () => ({ commitPatchSet: mocks.commitPatchSet }));
-vi.mock('../worker/github/auth', () => ({ resolveGithubAuth: mocks.resolveGithubAuth }));
+vi.mock('../worker/github/auth', () => ({
+  resolveGithubAuth: mocks.resolveGithubAuth,
+  hasGithubAuth: mocks.hasGithubAuth,
+}));
 vi.mock('../worker/agent/generate', () => ({ generatePatch: mocks.generatePatch }));
 vi.mock('../worker/agent/context', () => ({
   selectContextFiles: mocks.selectContextFiles,
@@ -81,6 +86,23 @@ const taskRow = {
   files_changed: 0,
   patch: null,
 };
+
+interface RowState {
+  id: string;
+  project_id: string;
+  owner_id: string;
+  prompt: string;
+  status: string;
+  commit_sha: string | null;
+  commit_url: string | null;
+  branch: string | null;
+  files_changed: number;
+  patch: unknown;
+  summary?: string | null;
+  model?: string | null;
+}
+
+let rowState: RowState;
 
 const project = {
   id: payload.projectId,
@@ -133,9 +155,13 @@ async function runWorkflow() {
 beforeEach(() => {
   vi.clearAllMocks();
 
-  mocks.claimTask.mockResolvedValue({ ...taskRow, status: 'running' });
-  mocks.getGithubCredential.mockResolvedValue({ user_id: payload.userId });
+  mocks.setTaskBase.mockResolvedValue(undefined);
+  mocks.leaseTask.mockResolvedValue({
+    row: { ...taskRow, status: 'running', lease_expires_at: null },
+    claimed: true,
+  });
   mocks.getProject.mockResolvedValue(project);
+  mocks.hasGithubAuth.mockResolvedValue(true);
   mocks.resolveGithubAuth.mockResolvedValue({
     kind: 'github_app',
     token: 'ghs_installation_token',
@@ -178,24 +204,33 @@ beforeEach(() => {
     filesChanged: 1,
     mode: 'direct',
   });
-  mocks.getTaskRow.mockResolvedValue({
-    ...taskRow,
-    patch: {
-      summary: 'Adds a share button.',
-      files: [
-        {
-          path: 'src/App.tsx',
-          operation: 'update',
-          content: 'export const App = () => <button>Share</button>;',
-          baseBlobSha: 'blob-app',
-        },
-      ],
+  // Model the task row as a tiny in-memory store so resume guards and commit
+  // replay exercise the real persistence flow instead of a fixed fixture.
+  rowState = { ...taskRow, patch: null };
+  mocks.getTaskRow.mockImplementation(async () => ({ ...rowState }));
+  mocks.saveTaskPatch.mockImplementation(
+    async (_env: unknown, _id: string, input: { patch: unknown; summary: string; model: string; filesChanged: number }) => {
+      rowState.patch = input.patch;
+      rowState.summary = input.summary;
+      rowState.model = input.model;
+      rowState.files_changed = input.filesChanged;
     },
-  });
+  );
+  mocks.completeTask.mockImplementation(
+    async (
+      _env: unknown,
+      _id: string,
+      input: { commitSha: string; commitUrl: string; branch: string; filesChanged: number },
+    ) => {
+      rowState.status = 'succeeded';
+      rowState.commit_sha = input.commitSha;
+      rowState.commit_url = input.commitUrl;
+      rowState.branch = input.branch;
+      rowState.files_changed = input.filesChanged;
+    },
+  );
   mocks.addTaskEvent.mockResolvedValue(undefined);
-  mocks.completeTask.mockResolvedValue(undefined);
   mocks.failTask.mockResolvedValue(undefined);
-  mocks.saveTaskPatch.mockResolvedValue(undefined);
   mocks.refundTaskQuota.mockResolvedValue(undefined);
 });
 
@@ -239,7 +274,11 @@ describe('TaskWorkflow happy path', () => {
   });
 
   it('skips work entirely for an already-finished task', async () => {
-    mocks.claimTask.mockResolvedValue({ ...taskRow, status: 'succeeded' });
+    mocks.setTaskBase.mockResolvedValue(undefined);
+  mocks.leaseTask.mockResolvedValue({
+    row: { ...taskRow, status: 'succeeded' },
+    claimed: true,
+  });
 
     const { error, names } = await runWorkflow();
 
@@ -249,6 +288,14 @@ describe('TaskWorkflow happy path', () => {
   });
 
   it('never commits twice when the task already has a commit', async () => {
+    rowState.patch = {
+      summary: 'done',
+      files: [],
+    };
+    rowState.commit_sha = 'existing-sha';
+    rowState.commit_url = 'https://github.com/octocat/demo/commit/existing-sha';
+    rowState.branch = 'main';
+    rowState.files_changed = 1;
     mocks.getTaskRow.mockResolvedValue({
       ...taskRow,
       patch: { summary: 'done', files: [] },
@@ -261,11 +308,27 @@ describe('TaskWorkflow happy path', () => {
     await runWorkflow();
 
     expect(mocks.commitPatchSet).not.toHaveBeenCalled();
-    expect(mocks.addTaskEvent).toHaveBeenCalledWith(
+    // A resumed commit must not duplicate the timeline entry either.
+    expect(mocks.addTaskEvent).not.toHaveBeenCalledWith(
       env,
       payload.taskId,
-      expect.stringContaining('Committed existin'),
+      expect.stringContaining('Committed'),
     );
+  });
+
+  it('does nothing when another invocation holds the lease', async () => {
+    mocks.leaseTask.mockResolvedValue({
+      row: { ...taskRow, status: 'running' },
+      claimed: false,
+    });
+
+    const { error, names } = await runWorkflow();
+
+    expect(error).toBeUndefined();
+    expect(names).toEqual(['claim task']);
+    expect(mocks.getProject).not.toHaveBeenCalled();
+    expect(mocks.generatePatch).not.toHaveBeenCalled();
+    expect(mocks.commitPatchSet).not.toHaveBeenCalled();
   });
 });
 
@@ -322,7 +385,7 @@ describe('TaskWorkflow failure handling', () => {
   });
 
   it('refuses to start when GitHub is not connected', async () => {
-    mocks.getGithubCredential.mockResolvedValue(null);
+    mocks.hasGithubAuth.mockResolvedValue(false);
 
     const { error, names } = await runWorkflow();
 

@@ -1,5 +1,6 @@
-# Local development secrets for `wrangler dev`.
+# Local development secrets for `wrangler dev` and `npm run dev:api`.
 # Copy to .dev.vars (gitignored) and fill in. Never commit real values.
+# For `vercel dev` use the same keys in .env.local instead.
 
 # Supabase project (Settings -> API). URL + anon key are public; also set them
 # in wrangler.jsonc "vars" so the built SPA can read SUPABASE_URL at runtime.
@@ -34,3 +35,14 @@ GITHUB_APP_PRIVATE_KEY=""
 GITHUB_APP_WEBHOOK_SECRET=""
 # Optional: separate secret for signing install state (defaults to webhook secret).
 GITHUB_APP_STATE_SECRET=""
+
+# --- Background runner (required for the Node/Vercel runtime) ----------------
+# `npm run dev:api` and Vercel dispatch tasks by POSTing to the runner endpoint.
+# Cloudflare ignores these: the TASK_WORKFLOW binding is used instead.
+APP_ORIGIN="http://localhost:8787"
+# Random 32+ chars shared with the internal runner endpoint.
+INTERNAL_TASK_TOKEN=""
+# Vercel Cron sends `Authorization: Bearer $CRON_SECRET` to /api/cron/recover.
+CRON_SECRET=""
+# Seconds one invocation may spend on a task before handing off (default 240).
+RUN_BUDGET_SECONDS="240"

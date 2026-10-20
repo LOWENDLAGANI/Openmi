@@ -7,8 +7,17 @@ import { AppError } from './lib/errors';
  * instead of crashing at import time.
  */
 export interface Env {
-  ASSETS: Fetcher;
-  TASK_WORKFLOW: Workflow<TaskWorkflowParams>;
+  // Platform bindings. Present on Cloudflare; absent on Vercel, where static
+  // assets are served by the platform and tasks run through HTTP dispatch.
+  ASSETS?: Fetcher;
+  TASK_WORKFLOW?: Workflow<TaskWorkflowParams>;
+
+  // Platform runner configuration (Vercel / self-hosted Node)
+  APP_ORIGIN?: string;
+  INTERNAL_DISPATCH_URL?: string;
+  INTERNAL_TASK_TOKEN?: string;
+  CRON_SECRET?: string;
+  RUN_BUDGET_SECONDS?: string;
 
   // Public config (wrangler vars)
   SUPABASE_URL: string;

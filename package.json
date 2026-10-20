@@ -9,17 +9,21 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:api": "wrangler dev --port 8787 --ip 0.0.0.0",
+    "dev:api": "node --env-file=.dev.vars --import tsx scripts/dev-node.ts",
+    "dev:api:worker": "wrangler dev --port 8788 --ip 0.0.0.0",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "check:bundle": "wrangler deploy --dry-run --outdir=.wrangler/dry-run",
-    "verify": "npm run typecheck && npm run test && npm run build && npm run check:bundle"
+    "check:node": "node --import tsx -e \"import('./api/index.ts').then((m) => { if (typeof m.default !== 'function') throw new Error('Vercel handler is not a function'); console.log('vercel handler: ok'); })\"",
+    "verify": "npm run typecheck && npm run test && npm run build && npm run check:node && npm run check:bundle"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.5",
     "@octokit/rest": "^22.0.1",
     "@supabase/supabase-js": "^2.118.0",
+    "@vercel/functions": "^3.10.1",
     "hono": "^4.13.13",
     "jose": "^6.2.13",
     "react": "^19.3.1",
@@ -34,6 +38,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.5",
