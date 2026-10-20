@@ -5,56 +5,102 @@ import { Banner, Button, Card } from '@/components/ui';
 import { GithubMark, Lock } from '@/components/icons';
 
 /**
- * Shown when the session exists but no GitHub token is stored — e.g. the user
- * signed in before granting repo scope, or the token was revoked on GitHub.
+ * Shown when the session exists but there is no GitHub credential yet.
+ *
+ * Preferred path is the GitHub App: per-repository, revocable, no re-auth. The
+ * OAuth path stays available for deployments without an App configured and for
+ * users who only need to browse repositories.
  */
 export function GrantGithub() {
-  const { supabase, signOut, error } = useApp();
-  const [loading, setLoading] = useState(false);
+  const { supabase, config, api, signOut, error } = useApp();
+  const [busy, setBusy] = useState<'app' | 'oauth' | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  async function grant() {
-    setLoading(true);
+  const appEnabled = config.githubApp.enabled;
+
+  async function installApp() {
+    setBusy('app');
+    setLocalError(null);
+    try {
+      const url = await api.startGithubAppInstall();
+      window.location.assign(url);
+    } catch (installError) {
+      setLocalError(
+        installError instanceof Error ? installError.message : 'Could not start the install flow',
+      );
+      setBusy(null);
+    }
+  }
+
+  async function authorizeOauth() {
+    setBusy('oauth');
     setLocalError(null);
     try {
       await signInWithGithub(supabase);
     } catch (signInError) {
       setLocalError(signInError instanceof Error ? signInError.message : 'Sign-in failed');
-      setLoading(false);
+      setBusy(null);
     }
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-5 pb-safe pt-safe">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-5 pt-safe pb-safe">
       <div>
         <div className="flex size-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-emerald-300">
           <Lock className="size-5" />
         </div>
-        <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white">
-          Grant repository access
-        </h1>
+        <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white">Connect GitHub</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-zinc-400">
-          OpenMi needs a GitHub token with <code className="text-zinc-200">repo</code> scope so the
-          background agent can read your files and push commits while your phone is asleep.
+          The background agent needs write access to commit on your behalf. Install the OpenMi app on
+          only the repositories you want it to touch — you can revoke access at any time.
         </p>
       </div>
 
       <Card className="space-y-2 p-4">
-        <p className="text-[12px] font-semibold text-zinc-200">What the token is used for</p>
+        <p className="text-[12px] font-semibold text-zinc-200">What the agent can do</p>
         <ul className="space-y-1.5 text-[12px] leading-relaxed text-zinc-500">
-          <li>· Reading the file tree and file contents of repos you select</li>
-          <li>· Creating one atomic commit per prompt</li>
-          <li>· Never force-pushing, deleting, or changing repo settings</li>
+          <li>· Read the file tree and contents of repositories you select</li>
+          <li>· Create one atomic commit per prompt</li>
+          <li>· Never force-push, delete files, or change repository settings</li>
         </ul>
       </Card>
 
       {localError ?? error ? <Banner>{localError ?? error}</Banner> : null}
 
       <div className="space-y-3">
-        <Button fullWidth loading={loading} onClick={() => void grant()} className="min-h-14">
-          <GithubMark className="size-5" />
-          Authorize GitHub
-        </Button>
+        {appEnabled ? (
+          <>
+            <Button
+              fullWidth
+              loading={busy === 'app'}
+              disabled={busy !== null}
+              onClick={() => void installApp()}
+              className="min-h-14"
+            >
+              <GithubMark className="size-5" />
+              Install the OpenMi GitHub App
+            </Button>
+            <button
+              type="button"
+              onClick={() => void authorizeOauth()}
+              disabled={busy !== null}
+              className="w-full py-2 text-[12px] font-medium text-zinc-400 underline-offset-4 active:underline disabled:opacity-60"
+            >
+              {busy === 'oauth' ? 'Redirecting…' : 'Use a personal OAuth token instead'}
+            </button>
+          </>
+        ) : (
+          <Button
+            fullWidth
+            loading={busy === 'oauth'}
+            onClick={() => void authorizeOauth()}
+            className="min-h-14"
+          >
+            <GithubMark className="size-5" />
+            Authorize GitHub
+          </Button>
+        )}
+
         <Button variant="ghost" fullWidth onClick={() => void signOut()}>
           Use a different account
         </Button>

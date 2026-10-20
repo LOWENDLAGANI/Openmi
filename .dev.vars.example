@@ -20,3 +20,17 @@ GITHUB_TOKEN_ENC_KEY=""
 # AI provider. OpenRouter is primary; Groq is an optional fallback.
 OPENROUTER_API_KEY=""
 GROQ_API_KEY=""
+
+# --- GitHub App (Phase 2, optional but recommended) -------------------------
+# Create the App in GitHub settings, then set the public ids in wrangler.jsonc
+# (GITHUB_APP_ID / GITHUB_APP_CLIENT_ID / GITHUB_APP_SLUG) and the secrets here.
+# The setup URL is https://<your-origin>/api/github-app/callback and the webhook
+# URL is https://<your-origin>/api/webhooks/github.
+#
+# Private key: PKCS#8 PEM. Literal \n escapes are accepted.
+# Generate one from the PKCS#1 file GitHub gives you:
+#   openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem
+GITHUB_APP_PRIVATE_KEY=""
+GITHUB_APP_WEBHOOK_SECRET=""
+# Optional: separate secret for signing install state (defaults to webhook secret).
+GITHUB_APP_STATE_SECRET=""

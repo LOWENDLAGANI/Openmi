@@ -21,6 +21,24 @@ export interface ProjectRow {
   updated_at: string;
 }
 
+export interface GithubInstallationRow {
+  installation_id: number;
+  user_id: string | null;
+  account_login: string;
+  account_type: string | null;
+  repository_selection: 'all' | 'selected';
+  suspended: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InstallationTokenRow {
+  installation_id: number;
+  token_ciphertext: string;
+  expires_at: string;
+  updated_at: string;
+}
+
 export interface GithubCredentialRow {
   user_id: string;
   github_login: string;

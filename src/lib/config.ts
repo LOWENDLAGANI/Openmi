@@ -4,6 +4,10 @@ export interface RuntimeConfig {
   version: string;
   ready: boolean;
   missing: string[];
+  githubApp: {
+    enabled: boolean;
+    slug: string | null;
+  };
 }
 
 let cached: Promise<RuntimeConfig> | null = null;
@@ -26,6 +30,7 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
       version?: string;
       ready?: boolean;
       missing?: string[];
+      githubApp?: { enabled?: boolean; slug?: string | null };
     };
 
     return {
@@ -34,6 +39,10 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
       version: body.version ?? '0.0.0',
       ready: Boolean(body.ready),
       missing: Array.isArray(body.missing) ? body.missing : [],
+      githubApp: {
+        enabled: Boolean(body.githubApp?.enabled),
+        slug: body.githubApp?.slug ?? null,
+      },
     };
   })();
 

@@ -1,3 +1,4 @@
+import { base64UrlToBytes, bytesToBase64Url } from './base64';
 import { AppError } from './errors';
 
 /**
@@ -12,21 +13,6 @@ const TAG_BITS = 128;
 
 const keyCache = new Map<string, Promise<CryptoKey>>();
 
-function base64ToBytes(value: string): Uint8Array {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 async function getKey(base64Key: string): Promise<CryptoKey> {
   const cached = keyCache.get(base64Key);
   if (cached) return cached;
@@ -34,7 +20,7 @@ async function getKey(base64Key: string): Promise<CryptoKey> {
   const created = (async () => {
     let raw: Uint8Array;
     try {
-      raw = base64ToBytes(base64Key);
+      raw = base64UrlToBytes(base64Key);
     } catch {
       throw new AppError('CONFIG_ERROR', 'GITHUB_TOKEN_ENC_KEY is not valid base64', {
         status: 503,
@@ -78,9 +64,9 @@ export async function decryptSecret(base64Key: string, payload: string): Promise
 
   try {
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: base64ToBytes(ivPart), tagLength: TAG_BITS },
+      { name: 'AES-GCM', iv: base64UrlToBytes(ivPart), tagLength: TAG_BITS },
       key,
-      base64ToBytes(cipherPart),
+      base64UrlToBytes(cipherPart),
     );
     return new TextDecoder().decode(plaintext);
   } catch (cause) {

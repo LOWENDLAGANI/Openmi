@@ -67,10 +67,14 @@ export interface CreateTaskResponse {
   quota: QuotaView;
 }
 
+export type GithubAuthKind = 'github_app' | 'oauth';
+
 export interface GithubConnectionView {
   login: string;
   scopes: string[];
   updatedAt: string;
+  kind: GithubAuthKind;
+  installationId?: number;
 }
 
 export interface MeView {
@@ -98,6 +102,18 @@ export interface ConfigStatusView {
   ok: boolean;
   version: string;
   missing: string[];
+}
+
+export interface RuntimeConfigView {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  version: string;
+  ready: boolean;
+  missing: string[];
+  githubApp: {
+    enabled: boolean;
+    slug: string | null;
+  };
 }
 
 export interface ApiErrorBody {

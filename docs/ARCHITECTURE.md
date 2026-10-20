@@ -64,6 +64,8 @@ failures (DB blips, provider 5xx) use exponential backoff.
    record, key from Worker secret). Only used inside workflow steps; never logged, never returned.
 4. **Model output.** Untrusted by construction. Every file path passes `assertSafePath`, every
    operation is reconciled against the real tree, and content is size-checked before a blob exists.
+5. **GitHub App webhooks.** Verified with HMAC over the raw body and matched against the configured
+   `app_id` before any database write.
 
 ## GitHub commit protocol
 
@@ -80,11 +82,53 @@ failures (DB blips, provider 5xx) use exponential backoff.
    GitHub regardless of our own logic — the final backstop against history rewriting.
 7. `pull_request` mode instead creates `openmi/task-<id>` and a PR, leaving the base branch alone.
 
+## GitHub App authentication (Phase 2)
+
+### Resolution order
+
+`worker/github/auth.ts` is the only place that answers "how may this user's agent write to GitHub?":
+
+```
+App configured? -> installation for user? -> not suspended? -> installation token (1h)
+                                  |
+                                  +-- missing/suspended/dead --> OAuth credential
+```
+
+Transient failures (`GITHUB_UNAVAILABLE`, rate limits) propagate instead of silently downgrading to
+OAuth, so a GitHub outage cannot masquerade as "no installation". A revoked installation
+(`GITHUB_AUTH_EXPIRED` / `GITHUB_NOT_FOUND`) does fall back when an OAuth token exists.
+
+### Trust of the install callback
+
+GitHub warns that the `installation_id` query parameter on the setup redirect can be spoofed, so
+attribution uses a different channel: `POST /api/github/app/install` (authenticated) returns an
+install URL carrying an HMAC-signed state `{userId, expiry, nonce}` (15 min). The public callback
+verifies that state, then re-reads the installation from `/app/installations/{id}` with an App JWT
+to confirm this App owns it before linking it to the user. Without the signed state an attacker
+could bind somebody else's installation to their own account.
+
+### Token lifecycle
+
+Installation tokens last ~1 hour and may be reused concurrently. They are cached at two levels:
+per-isolate `Map` (free, warm) and Postgres with AES-256-GCM ciphertext (shared across isolates,
+which matters because every Workflow step may land elsewhere). Concurrent cold misses are collapsed
+with an in-isolate single-flight promise, and a token is treated as stale five minutes before its
+`expires_at`. A rejected token is evicted and re-minted once; tokens are opaque, never parsed.
+
+### Webhooks
+
+`POST /api/webhooks/github` is public by necessity and authenticates itself: HMAC-SHA-256 over the
+raw body, compared with `crypto.subtle.verify` (constant time). Only the `installation` event is
+acted on, and the payload's `app_id` must match the configured App. `created` keeps an existing
+user link instead of clearing it, because the webhook can arrive before the browser callback.
+
 ## Data model
 
 ```
-profiles           1:1 with auth.users
-github_credentials 1:1 with auth.users; ciphertext + scopes
+profiles             1:1 with auth.users
+github_credentials   1:1 with auth.users; OAuth ciphertext + scopes (fallback path)
+github_installations App installations; user_id nullable until the callback claims it
+github_installation_tokens  encrypted 1h tokens, keyed by installation
 projects           owner_id, repo_full_name (unique per owner), default_branch, commit_mode
 tasks              prompt, status, pinned base, patch jsonb, commit info, error, token usage
 task_events        append-only timeline (ordered by identity column)
@@ -109,7 +153,7 @@ historical usage for future analytics.
 
 | Deferred | Reason | Migration path |
 | --- | --- | --- |
-| GitHub App tokens | OAuth tokens are broad and long-lived | Installation tokens scoped per repo; same `getGithubToken` seam |
+| ~~GitHub App tokens~~ | Done in Phase 2 | `resolveGithubAuth` prefers installations; OAuth is the fallback |
 | Repo-wide context (embeddings) | Phase 1 repos are small; deterministic selection is cheaper | Add a vector index step before `generate patch set` |
 | Streaming progress | Polling is enough at ≤5 tasks/day | Workflow events + SSE; the timeline table already models the data |
 | Diff-based patches | Full-file content is safer for small models | Keep full-file output, add diff application only for large files |

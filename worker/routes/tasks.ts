@@ -14,7 +14,8 @@ import {
   toTaskDetail,
   toTaskSummary,
 } from '../db/tasks';
-import { countActiveTasks, consumeTaskQuota, getGithubCredential, refundTaskQuota } from '../db/users';
+import { countActiveTasks, consumeTaskQuota, refundTaskQuota } from '../db/users';
+import { hasGithubAuth } from '../github/auth';
 import { loadConfig } from '../env';
 import { AppError } from '../lib/errors';
 import { readJson } from '../lib/http';
@@ -40,8 +41,7 @@ taskRoutes.post('/tasks', async (c) => {
 
   const project = await getProject(c.env, user.id, body.projectId);
 
-  const credential = await getGithubCredential(c.env, user.id);
-  if (!credential) {
+  if (!(await hasGithubAuth(c.env, user.id))) {
     throw new AppError('GITHUB_NOT_CONNECTED', 'Connect GitHub before running a task');
   }
 

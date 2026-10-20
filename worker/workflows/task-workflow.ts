@@ -11,7 +11,7 @@ import { getGithubCredential, refundTaskQuota } from '../db/users';
 import { createOctokit } from '../github/client';
 import { getBranchHead, getCommitTreeSha, getBlobText, getRepoTree } from '../github/repo';
 import { commitPatchSet } from '../github/commit';
-import { getGithubToken } from '../github/token';
+import { resolveGithubAuth } from '../github/auth';
 import { generatePatch } from '../agent/generate';
 import { selectContextFiles, truncateFileContent } from '../agent/context';
 import type {
@@ -109,7 +109,7 @@ export class TaskWorkflow extends WorkflowEntrypoint<Env, TaskWorkflowParams> {
         async () => {
           try {
             const project = await getProject(env, userId, projectId);
-            const token = await getGithubToken(env, userId);
+            const { token } = await resolveGithubAuth(env, userId);
             const octokit = createOctokit(token);
             const baseSha = await getBranchHead(
               octokit,
@@ -143,7 +143,7 @@ export class TaskWorkflow extends WorkflowEntrypoint<Env, TaskWorkflowParams> {
         { retries: { limit: 2, delay: '3 seconds', backoff: 'exponential' }, timeout: '3 minutes' },
         async (): Promise<RepoContext> => {
           try {
-            const token = await getGithubToken(env, userId);
+            const { token } = await resolveGithubAuth(env, userId);
             const octokit = createOctokit(token);
             const tree = await getRepoTree(octokit, base.repoFullName, base.treeSha);
             const selection = selectContextFiles(tree.entries, prompt);
@@ -204,7 +204,7 @@ export class TaskWorkflow extends WorkflowEntrypoint<Env, TaskWorkflowParams> {
         { retries: { limit: 1, delay: '5 seconds', backoff: 'exponential' }, timeout: '6 minutes' },
         async () => {
           try {
-            const token = await getGithubToken(env, userId);
+            const { token } = await resolveGithubAuth(env, userId);
             const octokit = createOctokit(token);
             // Fresh tree read for path policy: we validate against reality, not the prompt.
             const tree = await getRepoTree(octokit, base.repoFullName, base.treeSha);
@@ -260,7 +260,7 @@ export class TaskWorkflow extends WorkflowEntrypoint<Env, TaskWorkflowParams> {
 
             const stored = parseStoredPatch(row.patch);
             const project = await getProject(env, userId, projectId);
-            const token = await getGithubToken(env, userId);
+            const { token } = await resolveGithubAuth(env, userId);
 
             const result = await commitPatchSet({
               token,

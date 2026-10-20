@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { ProjectView } from '../../shared/types';
 import type { AppEnv } from '../auth/middleware';
 import { createProject, listProjects, toProjectView } from '../db/projects';
+import { resolveGithubAuth } from '../github/auth';
 import { getRepoInfo } from '../github/repo';
-import { getGithubToken } from '../github/token';
 import { AppError } from '../lib/errors';
 import { readJson } from '../lib/http';
 
@@ -25,9 +25,9 @@ projectRoutes.get('/projects', async (c) => {
 projectRoutes.post('/projects', async (c) => {
   const user = c.var.user;
   const body = await readJson(c, createProjectSchema);
-  const token = await getGithubToken(c.env, user.id);
+  const auth = await resolveGithubAuth(c.env, user.id);
 
-  const repo = await getRepoInfo(token, body.repoFullName);
+  const repo = await getRepoInfo(auth.token, body.repoFullName);
   if (!repo.canPush) {
     throw new AppError(
       'GITHUB_FORBIDDEN',

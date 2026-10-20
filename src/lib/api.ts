@@ -28,6 +28,7 @@ interface ErrorBody {
 export interface ApiClient {
   me(): Promise<MeView>;
   linkGithub(providerToken: string): Promise<GithubConnectionView>;
+  startGithubAppInstall(): Promise<string>;
   repos(): Promise<GithubRepoView[]>;
   projects(): Promise<ProjectView[]>;
   createProject(input: {
@@ -89,6 +90,8 @@ export function createApiClient(supabase: SupabaseClient): ApiClient {
         method: 'POST',
         body: JSON.stringify({ providerToken }),
       }),
+    startGithubAppInstall: async () =>
+      (await request<{ url: string }>('/github/app/install', { method: 'POST' })).url,
     repos: async () => (await request<{ repos: GithubRepoView[] }>('/github/repos')).repos,
     projects: async () => (await request<{ projects: ProjectView[] }>('/projects')).projects,
     createProject: async (input) =>

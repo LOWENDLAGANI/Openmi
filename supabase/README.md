@@ -30,9 +30,21 @@ Order matters: `_init.sql` creates the schema, `_quota.sql` adds the RPCs and gr
 | `tasks` | Prompt, pinned base commit, patch set, result, token usage |
 | `task_events` | Append-only agent timeline shown in the UI |
 | `usage_daily` | Daily budget ledger |
+| `github_installations` | GitHub App installations, linked to a user by the signed install state |
+| `github_installation_tokens` | Encrypted 1h installation tokens (cache); no client access |
 | `consume_task_quota(uuid, int)` | Atomic check-and-increment; `service_role` only |
 | `refund_task_quota(uuid)` | Returns a slot when a failure was the system's fault |
 | `record_ai_call(uuid)` | Per-day AI call counter for future cost dashboards |
+
+## GitHub App setup
+
+Create a GitHub App with **Contents: read & write**, **Pull requests: read & write**, and **Metadata:
+read**, then point its **Setup URL** at `https://<origin>/api/github-app/callback` and its **Webhook
+URL** at `https://<origin>/api/webhooks/github`. Subscribe to the `installation` event.
+
+`github_installations.user_id` is nullable on purpose: the webhook can arrive before the browser
+callback that carries the signed state, so the row is created first and claimed by the callback.
+A partial unique index enforces one linked installation per user.
 
 ## RLS model
 

@@ -17,11 +17,17 @@ export interface Env {
   DAILY_TASK_LIMIT: string;
   MAX_CONCURRENT_TASKS: string;
   DEFAULT_COMMIT_MODE: string;
+  GITHUB_APP_ID?: string;
+  GITHUB_APP_CLIENT_ID?: string;
+  GITHUB_APP_SLUG?: string;
 
   // Secrets (wrangler secret / .dev.vars)
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_JWT_SECRET?: string;
   GITHUB_TOKEN_ENC_KEY?: string;
+  GITHUB_APP_PRIVATE_KEY?: string;
+  GITHUB_APP_WEBHOOK_SECRET?: string;
+  GITHUB_APP_STATE_SECRET?: string;
   OPENROUTER_API_KEY?: string;
   GROQ_API_KEY?: string;
 }
@@ -36,6 +42,17 @@ const REQUIRED_SECRETS = [
 
 export type ConfigKey = (typeof REQUIRED_SECRETS)[number];
 
+export interface GithubAppConfig {
+  enabled: boolean;
+  appId: string | null;
+  /** Preferred JWT issuer; falls back to the app id. */
+  clientId: string | null;
+  slug: string | null;
+  privateKeyPem: string | null;
+  webhookSecret: string | null;
+  stateSecret: string | null;
+}
+
 export interface AppConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
@@ -47,6 +64,7 @@ export interface AppConfig {
   dailyTaskLimit: number;
   maxConcurrentTasks: number;
   defaultCommitMode: 'direct' | 'pull_request';
+  githubApp: GithubAppConfig;
 }
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -54,11 +72,39 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function trimmed(value: string | undefined): string | null {
+  const next = value?.trim();
+  return next ? next : null;
+}
+
+/** PEMs pasted into dashboards often keep literal `\n` sequences. */
+function normalizePem(value: string | null): string | null {
+  return value ? value.replace(/\\n/g, '\n') : null;
+}
+
 export function missingConfig(env: Env): ConfigKey[] {
   return REQUIRED_SECRETS.filter((key) => {
     const value = env[key];
     return typeof value !== 'string' || value.trim() === '';
   });
+}
+
+export function resolveGithubAppConfig(env: Env): GithubAppConfig {
+  const appId = trimmed(env.GITHUB_APP_ID);
+  const privateKeyPem = normalizePem(trimmed(env.GITHUB_APP_PRIVATE_KEY));
+  const slug = trimmed(env.GITHUB_APP_SLUG);
+  const webhookSecret = trimmed(env.GITHUB_APP_WEBHOOK_SECRET);
+
+  return {
+    enabled: Boolean(appId && privateKeyPem && slug),
+    appId,
+    clientId: trimmed(env.GITHUB_APP_CLIENT_ID) ?? appId,
+    slug,
+    privateKeyPem,
+    webhookSecret,
+    // Reuses the webhook secret when no dedicated state secret is set.
+    stateSecret: trimmed(env.GITHUB_APP_STATE_SECRET) ?? webhookSecret,
+  };
 }
 
 /**
@@ -86,5 +132,6 @@ export function loadConfig(env: Env): AppConfig {
     dailyTaskLimit: positiveInt(env.DAILY_TASK_LIMIT, 5),
     maxConcurrentTasks: positiveInt(env.MAX_CONCURRENT_TASKS, 2),
     defaultCommitMode: commitMode,
+    githubApp: resolveGithubAppConfig(env),
   };
 }

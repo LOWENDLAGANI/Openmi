@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { MeView, QuotaView } from '../../shared/types';
 import type { AppEnv } from '../auth/middleware';
+import { getInstallationForUser } from '../db/installations';
 import { ensureProfile, getDailyUsage, getGithubCredential } from '../db/users';
 import { loadConfig } from '../env';
 import { nextUtcMidnight } from '../lib/time';
@@ -16,9 +17,10 @@ meRoutes.get('/me', async (c) => {
     login: user.login,
     avatarUrl: user.avatarUrl,
   });
-  const [used, credential] = await Promise.all([
+  const [used, credential, installation] = await Promise.all([
     getDailyUsage(c.env, user.id),
     getGithubCredential(c.env, user.id),
+    getInstallationForUser(c.env, user.id),
   ]);
 
   const quota: QuotaView = {
@@ -36,13 +38,22 @@ meRoutes.get('/me', async (c) => {
       avatarUrl: profile.avatar_url ?? user.avatarUrl,
     },
     quota,
-    github: credential
+    github: installation && !installation.suspended
       ? {
-          login: credential.github_login,
-          scopes: Array.isArray(credential.scopes) ? credential.scopes : [],
-          updatedAt: credential.updated_at,
+          login: installation.account_login,
+          scopes: [],
+          updatedAt: installation.updated_at,
+          kind: 'github_app',
+          installationId: installation.installation_id,
         }
-      : null,
+      : credential
+        ? {
+            login: credential.github_login,
+            scopes: Array.isArray(credential.scopes) ? credential.scopes : [],
+            updatedAt: credential.updated_at,
+            kind: 'oauth',
+          }
+        : null,
   };
 
   c.header('cache-control', 'private, no-store');

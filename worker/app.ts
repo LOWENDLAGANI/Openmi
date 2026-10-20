@@ -4,6 +4,7 @@ import type { ApiErrorBody } from '../shared/types';
 import { requestContext, requireAuth, type AppEnv } from './auth/middleware';
 import { toAppError } from './lib/errors';
 import { log } from './lib/logger';
+import { githubAppRoutes } from './routes/github-app';
 import { githubRoutes } from './routes/github';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
@@ -47,6 +48,9 @@ app.use('*', securityHeaders);
 
 // Public endpoints
 app.route('/', healthRoutes);
+// GitHub App callback + webhook authenticate themselves (signed state / HMAC),
+// so they sit outside the bearer-token prefix below.
+app.route('/', githubAppRoutes);
 
 // Authenticated endpoints. Registered per prefix: Hono's `use()` takes exactly
 // one path followed by handlers, so a spread path list would be treated as

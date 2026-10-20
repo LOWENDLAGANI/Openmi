@@ -103,6 +103,11 @@ export function Home() {
               <span className="text-[11px] font-medium text-zinc-300">
                 {me.user.login ?? 'Account'}
               </span>
+              {me.github?.kind === 'github_app' ? (
+                <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-emerald-300 uppercase">
+                  App
+                </span>
+              ) : null}
             </button>
           ) : null}
         </div>

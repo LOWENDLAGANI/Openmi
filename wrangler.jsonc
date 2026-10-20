@@ -27,7 +27,10 @@
     "OPENMI_MODEL": "qwen/qwen3-coder",
     "DAILY_TASK_LIMIT": "5",
     "MAX_CONCURRENT_TASKS": "2",
-    "DEFAULT_COMMIT_MODE": "direct"
+    "DEFAULT_COMMIT_MODE": "direct",
+    "GITHUB_APP_ID": "",
+    "GITHUB_APP_CLIENT_ID": "",
+    "GITHUB_APP_SLUG": ""
   },
   "dev": {
     "port": 8787

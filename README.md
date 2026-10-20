@@ -3,8 +3,9 @@
 Mobile-first cloud vibe-coding. You type a prompt on your phone; a durable background agent edits
 your GitHub repository and commits it — even after you close the tab.
 
-**Status:** Phase 0 (walking skeleton) and Phase 1 (auth, database, quota, durable agent,
-atomic GitHub commits) are implemented. See [Roadmap](#roadmap) for what is deliberately deferred.
+**Status:** Phase 0 (walking skeleton), Phase 1 (auth, database, quota, durable agent, atomic
+GitHub commits) and Phase 2 (GitHub App installation tokens, webhooks, token caching) are
+implemented. See [Roadmap](#roadmap) for what is deliberately deferred.
 
 ---
 
@@ -42,6 +43,7 @@ Full design and trade-offs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Database / Auth | Supabase Postgres + GitHub OAuth provider + RLS |
 | Models | OpenRouter (`qwen/qwen3-coder` default), optional Groq fallback |
 | GitHub | `@octokit/rest` — Git Data API, `base_tree` commits, `force: false` ref updates |
+| GitHub auth | GitHub App installation tokens (per-repo, revocable) with OAuth fallback |
 
 ## Quickstart
 
@@ -83,6 +85,30 @@ Generate the token-encryption key:
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
+### 3b. GitHub App (recommended)
+
+Create a GitHub App (Settings → Developer settings → GitHub Apps):
+
+| Setting | Value |
+| --- | --- |
+| Repository permissions | Contents: **read & write**, Pull requests: **read & write**, Metadata: read |
+| Setup URL | `https://<your-origin>/api/github-app/callback` |
+| Webhook URL | `https://<your-origin>/api/webhooks/github` |
+| Webhook secret | any strong random string |
+
+Put the public ids in `wrangler.jsonc` (`GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_SLUG`)
+and the secrets on the Worker:
+
+```bash
+openssl pkcs8 -topk8 -nocrypt -in downloaded-app.pem -out app-pkcs8.pem
+npx wrangler secret put GITHUB_APP_PRIVATE_KEY < app-pkcs8.pem
+npx wrangler secret put GITHUB_APP_WEBHOOK_SECRET
+```
+
+With the App configured, repo writes use short-lived installation tokens scoped to the
+repositories the user installed the App on — no OAuth token needed. The OAuth path remains as a
+fallback and is what `/api/github/link` stores.
+
 ### 4. Run locally
 
 Two processes, exactly like production topology (the SPA never talks to Supabase from the server):
@@ -116,6 +142,12 @@ npx wrangler deploy    # Worker + Workflows + static assets
 | `DAILY_TASK_LIMIT` | var | Free-tier tasks per user per UTC day (default 5) |
 | `MAX_CONCURRENT_TASKS` | var | In-flight tasks per user (default 2) |
 | `DEFAULT_COMMIT_MODE` | var | `direct` or `pull_request` fallback for new projects |
+| `GITHUB_APP_ID` | var | GitHub App id (enables installation auth when set) |
+| `GITHUB_APP_CLIENT_ID` | var | Preferred JWT issuer for App requests; falls back to the app id |
+| `GITHUB_APP_SLUG` | var | App slug used to build the install URL |
+| `GITHUB_APP_PRIVATE_KEY` | secret | PKCS#8 PEM; signs the App JWT |
+| `GITHUB_APP_WEBHOOK_SECRET` | secret | Verifies `X-Hub-Signature-256` |
+| `GITHUB_APP_STATE_SECRET` | secret (optional) | HMAC key for install state; defaults to the webhook secret |
 
 ## API
 
@@ -128,7 +160,10 @@ All routes are under `/api`. Everything except `/api/health` and `/api/config` r
 | `GET` | `/api/config` | Public runtime config for the SPA |
 | `GET` | `/api/me` | Profile, GitHub link state, remaining daily quota |
 | `POST` | `/api/github/link` | Store the OAuth token (encrypted) from sign-in |
-| `GET` | `/api/github/repos` | Repositories the token can write to |
+| `POST` | `/api/github/app/install` | Mint a signed GitHub App install URL |
+| `GET` | `/api/github-app/callback` | Public App setup redirect (signed state) |
+| `POST` | `/api/webhooks/github` | Public webhook (HMAC verified) for install lifecycle |
+| `GET` | `/api/github/repos` | Repositories the agent can write to (installation or OAuth) |
 | `GET` | `/api/projects` | Connected projects |
 | `POST` | `/api/projects` | Connect a repo (`repoFullName`, optional `commitMode`) |
 | `GET` | `/api/projects/:id/tasks` | Recent tasks for a project |
@@ -154,19 +189,37 @@ Cost guardrails: an atomic `consume_task_quota` RPC (`INSERT … ON CONFLICT …
 limit`) makes the daily budget race-free, concurrent-task limits stop workflow stampedes, and
 failures caused by the system (provider/config/internal) refund the reserved slot.
 
+## GitHub App access (Phase 2)
+
+`resolveGithubAuth()` is the single seam that decides how the agent may act on GitHub:
+
+1. **App installation** — short-lived (1 h) installation tokens, scoped to the repositories the
+   user installed the App on, revocable at any time. Tokens are cached in Postgres (encrypted) and
+   in-isolate, refreshed 5 minutes before expiry, and re-minted exactly once on a dead token.
+2. **OAuth fallback** — the Phase 1 token, for deployments without an App and for users who have
+   not installed it yet.
+
+Install attribution never trusts the `installation_id` query parameter: GitHub's redirect carries a
+signed, 15-minute `state` issued only to an authenticated session, and the App then re-reads the
+installation from the API to confirm it belongs to this App. Webhooks are verified over the raw
+body with `X-Hub-Signature-256` and keep the installation table in sync (`created`, `deleted`,
+`suspend`, `unsuspend`).
+
 ## Verification
 
 ```bash
 npm run typecheck    # worker, SPA, and build-tool configs
-npm test             # 60 unit, workflow, and API tests
+npm test             # unit, workflow, and API tests
 npm run build        # SPA bundle
 npm run check:bundle # wrangler dry-run: Worker + Workflows + assets
 npm run verify       # all of the above
 ```
 
 Tests cover the patch policy, the no-deletion invariant, stale-base detection, context budgeting,
-token envelope encryption, model-output parsing, quota windows, API routing/auth gates, and the
-workflow pipeline itself (step order, replay safety, refund-on-our-failure, no-refund-on-conflict).
+token envelope encryption, model-output parsing, quota windows, API routing/auth gates, the
+workflow pipeline (step order, replay safety, refund-on-our-failure, no-refund-on-conflict), App
+JWT claims, install-state signing, webhook HMAC verification, installation-token caching, and the
+App-vs-OAuth resolution order.
 
 Local end-to-end checks against `wrangler dev` (real `workerd`): `/api/health`, `/api/config`,
 401s for missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, SPA deep-link fallback, and
@@ -177,10 +230,10 @@ and an actual commit. Those are the first things to exercise once secrets are co
 
 ## Roadmap
 
-- **Phase 2** — GitHub App installation tokens (per-repo, revocable) instead of OAuth tokens;
-  repository file browser; re-run failed tasks; per-user token/streaming budget.
-- **Phase 3** — streaming agent progress (Workflows + SSE), multi-file preview builds, PR review
-  comments, project templates.
+- **Phase 2 (done)** — GitHub App installation tokens, webhook lifecycle sync, encrypted token
+  cache, install flow with signed state.
+- **Phase 3** — repository file browser; re-run failed tasks; streaming agent progress
+  (Workflows + SSE); multi-file preview builds; PR review comments; per-user token budget.
 - **Phase 4** — team workspaces, billing via Stripe, usage analytics.
 
 ## Repo layout

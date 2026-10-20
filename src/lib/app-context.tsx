@@ -125,6 +125,31 @@ export function AppProvider({
     await refresh(session);
   }, [refresh, session]);
 
+  // GitHub redirects back with a result flag; reflect it once, then clean the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const flag = params.get('github_app');
+    if (!flag) return;
+
+    params.delete('github_app');
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    );
+
+    if (flag === 'error') {
+      setError('GitHub App installation could not be verified. Start the install again.');
+    } else if (flag === 'suspended') {
+      setError('That GitHub App installation is suspended on GitHub.');
+    } else if (flag === 'pending') {
+      setError('Installation requested — an organization owner still needs to approve it.');
+    } else if (session) {
+      void refresh(session);
+    }
+  }, [session, refresh]);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setMe(null);

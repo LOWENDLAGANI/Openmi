@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   getBlobText: vi.fn(),
   getRepoTree: vi.fn(),
   commitPatchSet: vi.fn(),
-  getGithubToken: vi.fn(),
+  resolveGithubAuth: vi.fn(),
   generatePatch: vi.fn(),
   selectContextFiles: vi.fn(),
   truncateFileContent: vi.fn(),
@@ -52,7 +52,7 @@ vi.mock('../worker/github/repo', () => ({
 }));
 
 vi.mock('../worker/github/commit', () => ({ commitPatchSet: mocks.commitPatchSet }));
-vi.mock('../worker/github/token', () => ({ getGithubToken: mocks.getGithubToken }));
+vi.mock('../worker/github/auth', () => ({ resolveGithubAuth: mocks.resolveGithubAuth }));
 vi.mock('../worker/agent/generate', () => ({ generatePatch: mocks.generatePatch }));
 vi.mock('../worker/agent/context', () => ({
   selectContextFiles: mocks.selectContextFiles,
@@ -136,7 +136,12 @@ beforeEach(() => {
   mocks.claimTask.mockResolvedValue({ ...taskRow, status: 'running' });
   mocks.getGithubCredential.mockResolvedValue({ user_id: payload.userId });
   mocks.getProject.mockResolvedValue(project);
-  mocks.getGithubToken.mockResolvedValue('gho_token');
+  mocks.resolveGithubAuth.mockResolvedValue({
+    kind: 'github_app',
+    token: 'ghs_installation_token',
+    login: 'octocat',
+    installationId: 42,
+  });
   mocks.getBranchHead.mockResolvedValue('base-sha');
   mocks.getCommitTreeSha.mockResolvedValue('tree-sha');
   mocks.getRepoTree.mockResolvedValue({

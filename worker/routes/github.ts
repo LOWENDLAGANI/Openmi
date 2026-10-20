@@ -3,26 +3,28 @@ import { z } from 'zod';
 import type { GithubRepoView } from '../../shared/types';
 import type { AppEnv } from '../auth/middleware';
 import { ensureProfile, saveGithubCredential } from '../db/users';
-import { createOctokit, mapGithubError } from '../github/client';
-import { getAuthenticatedLogin, listUserRepos } from '../github/repo';
-import { getGithubToken } from '../github/token';
-import { encryptSecret } from '../lib/crypto';
 import { loadConfig } from '../env';
 import { AppError } from '../lib/errors';
+import { encryptSecret } from '../lib/crypto';
 import { readJson } from '../lib/http';
+import { createOctokit, mapGithubError } from '../github/client';
+import { listInstallationRepos } from '../github/app';
+import { resolveGithubAuth } from '../github/auth';
+import { getAuthenticatedLogin, listUserRepos } from '../github/repo';
+import { signInstallState } from '../github/state';
 
 export const githubRoutes = new Hono<AppEnv>();
 
 const linkSchema = z.object({
-  providerToken: z.string().min(20).max(500),
+  providerToken: z.string().min(20).max(800),
 });
 
 /**
  * Persists the GitHub OAuth token obtained during Supabase sign-in.
  *
- * Phase 2 replaces this with a GitHub App installation token so access is
- * per-repository and revocable without re-authenticating. Until then, tokens
- * are encrypted with AES-256-GCM and only ever decrypted inside a workflow step.
+ * This remains as the fallback path for users without a GitHub App
+ * installation. When the App is configured, repo writes use installation
+ * tokens instead and this credential is only used to list repositories.
  */
 githubRoutes.post('/github/link', async (c) => {
   const user = c.var.user;
@@ -36,7 +38,8 @@ githubRoutes.post('/github/link', async (c) => {
     throw mapGithubError(error, 'github.link');
   }
 
-  const hasRepoScope = identity.scopes.includes('repo') || identity.scopes.includes('public_repo');
+  const hasRepoScope =
+    identity.scopes.includes('repo') || identity.scopes.includes('public_repo');
   if (!hasRepoScope) {
     throw new AppError(
       'GITHUB_FORBIDDEN',
@@ -59,13 +62,34 @@ githubRoutes.post('/github/link', async (c) => {
     login: credential.github_login,
     scopes: credential.scopes,
     updatedAt: credential.updated_at,
+    kind: 'oauth' as const,
   });
 });
 
+/** Returns a GitHub-hosted install URL carrying our signed attribution state. */
+githubRoutes.post('/github/app/install', async (c) => {
+  const config = loadConfig(c.env);
+  if (!config.githubApp.enabled || !config.githubApp.slug || !config.githubApp.stateSecret) {
+    throw new AppError('CONFIG_ERROR', 'GitHub App is not configured on this deployment', {
+      status: 503,
+    });
+  }
+
+  const state = await signInstallState(config.githubApp.stateSecret, c.var.user.id);
+  const url = `https://github.com/apps/${encodeURIComponent(config.githubApp.slug)}/installations/new?state=${encodeURIComponent(state)}`;
+
+  c.header('cache-control', 'private, no-store');
+  return c.json({ url });
+});
+
 githubRoutes.get('/github/repos', async (c) => {
-  const user = c.var.user;
-  const token = await getGithubToken(c.env, user.id);
-  const repos: GithubRepoView[] = await listUserRepos(token);
+  const auth = await resolveGithubAuth(c.env, c.var.user.id);
+
+  // Installation tokens can only see repositories the App was granted.
+  const repos: GithubRepoView[] =
+    auth.kind === 'github_app'
+      ? await listInstallationRepos(auth.token)
+      : await listUserRepos(auth.token);
 
   c.header('cache-control', 'private, no-store');
   return c.json({ repos });

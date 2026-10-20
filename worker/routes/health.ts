@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { ConfigStatusView } from '../../shared/types';
 import type { AppEnv } from '../auth/middleware';
-import { missingConfig } from '../env';
+import { missingConfig, resolveGithubAppConfig } from '../env';
 
 export const healthRoutes = new Hono<AppEnv>();
 
@@ -11,6 +11,7 @@ export const healthRoutes = new Hono<AppEnv>();
  */
 healthRoutes.get('/config', (c) => {
   const missing = missingConfig(c.env);
+  const githubApp = resolveGithubAppConfig(c.env);
   return c.json(
     {
       supabaseUrl: c.env.SUPABASE_URL ?? '',
@@ -18,6 +19,7 @@ healthRoutes.get('/config', (c) => {
       version: '0.1.0',
       ready: missing.length === 0,
       missing,
+      githubApp: { enabled: githubApp.enabled, slug: githubApp.slug },
     },
     200,
     { 'cache-control': 'public, max-age=60' },
