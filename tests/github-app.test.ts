@@ -39,7 +39,9 @@ afterEach(() => {
 
 describe('createAppJwt', () => {
   it('signs an RS256 app JWT with the documented claims', async () => {
-    const now = Date.parse('2026-10-20T12:00:00Z');
+    // Relative clock: a hard-coded date turns into an expired token once that
+    // date passes, because jwtVerify validates exp against the real clock.
+    const now = Date.now();
     const token = await createAppJwt(app, now);
 
     const { payload, protectedHeader } = await jwtVerify(token, await importSPKI(publicKey, 'RS256'));

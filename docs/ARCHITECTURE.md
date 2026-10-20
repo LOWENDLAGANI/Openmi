@@ -85,9 +85,10 @@ exponential backoff.
 
 ## Trust boundaries
 
-1. **Browser → Worker.** Verified Supabase JWT only. Asymmetric keys (ES256/RS256) via the project
-   JWKS; algorithms are pinned per branch, and HS256 exists solely for local tests behind
-   `SUPABASE_JWT_SECRET`. Issuer and audience are validated. No token is ever trusted for identity
+1. **Browser → Worker.** Verified Firebase Auth ID token only. `firebase-admin`'s
+   `verifyIdToken` validates signature, issuer, audience and expiry against Google's cached public
+   keys. Malformed tokens are rejected by a local shape check before any network call. No token is
+   ever trusted for identity
    fields supplied by the client.
 2. **Worker → Postgres.** Service role, and every query is additionally scoped by `owner_id`. RLS is
    enabled anyway: `github_credentials` is `select … using (false)` for clients, so a leaked anon key
@@ -205,7 +206,8 @@ historical usage for future analytics.
   opportunistic sweep at task creation and on the deadline handoff.
 - Repos with an enormous tree rely on GitHub's `base_tree` semantics and a truncated-tree fallback
   check. The full superset assertion is skipped (and logged) when the base tree comes back truncated.
-- The SPA bundle includes `@supabase/supabase-js` (~470 KB raw / 133 KB gzipped). Route-level code
+- The SPA bundle includes the Firebase client SDK (auth only; no Firestore client — all data flows
+  through the API). Route-level code
   splitting is the obvious next optimization.
 - Octokit pushes the Worker bundle to ~336 KB gzipped, under the Workers limit but worth watching.
   On Vercel the same code is bundled per function instead, where size only affects cold starts.

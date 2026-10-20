@@ -104,9 +104,16 @@ export interface ConfigStatusView {
   missing: string[];
 }
 
+export interface FirebaseClientConfigView {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+  messagingSenderId: string;
+}
+
 export interface RuntimeConfigView {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
+  firebase: FirebaseClientConfigView;
   version: string;
   ready: boolean;
   missing: string[];

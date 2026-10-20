@@ -1,29 +1,58 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
+import { getAuth, type Auth } from 'firebase-admin/auth';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { loadConfig, type Env } from '../env';
 
 /**
- * Service-role Supabase client. Never expose this client or its key to the
- * browser; every query in this codebase is additionally scoped by owner id.
+ * Firebase Admin (service-role) clients. Never expose the service account or
+ * these clients to the browser; every query in this codebase is additionally
+ * scoped by owner id.
+ *
+ * firebase-admin requires a Node runtime (Vercel / self-hosted Node). The
+ * Cloudflare Workers deployment path is not supported with this SDK.
  */
-const clients = new Map<string, SupabaseClient>();
+interface FirebaseBundle {
+  app: App;
+  auth: Auth;
+  db: Firestore;
+}
 
-export function db(env: Env): SupabaseClient {
+const bundles = new Map<string, FirebaseBundle>();
+
+export function firebase(env: Env): FirebaseBundle {
   const config = loadConfig(env);
-  const cacheKey = `${config.supabaseUrl}|${config.supabaseServiceRoleKey.slice(-12)}`;
-  const cached = clients.get(cacheKey);
+  const cached = bundles.get(config.firebaseProjectId);
   if (cached) return cached;
 
-  const client = createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-    global: {
-      headers: { 'x-openmi-runtime': 'worker' },
-    },
-  });
+  const existing = getApps().find((app) => app.name === config.firebaseProjectId);
+  const app =
+    existing ??
+    initializeApp(
+      {
+        credential: cert({
+          projectId: config.firebaseProjectId,
+          clientEmail: config.firebaseClientEmail,
+          privateKey: config.firebasePrivateKey,
+        }),
+      },
+      config.firebaseProjectId,
+    );
 
-  clients.set(cacheKey, client);
-  return client;
+  const bundle: FirebaseBundle = {
+    app,
+    auth: getAuth(app),
+    db: getFirestore(app),
+  };
+  bundles.set(config.firebaseProjectId, bundle);
+  return bundle;
+}
+
+/** Firestore (service role). All writes go through here. */
+export function firestore(env: Env): Firestore {
+  return firebase(env).db;
+}
+
+/** Firebase Auth admin (verifyIdToken, user lookup). */
+export function firebaseAuth(env: Env): Auth {
+  return firebase(env).auth;
 }

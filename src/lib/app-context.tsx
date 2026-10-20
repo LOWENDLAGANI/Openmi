@@ -8,17 +8,17 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import { getRedirectResult, onAuthStateChanged, signOut as firebaseSignOut, type User } from 'firebase/auth';
 import type { MeView, ProjectView } from '@shared/types';
 import { createApiClient, type ApiClient } from './api';
 import type { RuntimeConfig } from './config';
-import { createSupabaseClient } from './supabase';
+import { githubProviderTokenFrom, initFirebase, type Auth } from './firebase';
 
 interface AppContextValue {
   config: RuntimeConfig;
-  supabase: SupabaseClient;
+  auth: Auth;
   api: ApiClient;
-  session: Session | null;
+  user: User | null;
   authReady: boolean;
   me: MeView | null;
   projects: ProjectView[];
@@ -32,7 +32,6 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
-
 const ACTIVE_PROJECT_KEY = 'openmi.activeProjectId';
 
 export function AppProvider({
@@ -42,13 +41,22 @@ export function AppProvider({
   config: RuntimeConfig;
   children: ReactNode;
 }) {
-  const supabase = useMemo(
-    () => createSupabaseClient(config.supabaseUrl, config.supabaseAnonKey),
-    [config.supabaseUrl, config.supabaseAnonKey],
-  );
-  const api = useMemo(() => createApiClient(supabase), [supabase]);
+  const { auth } = useMemo(() => initFirebase(config.firebase), [config.firebase]);
+  const userRef = useRef<User | null>(null);
+  const linkedTokenRef = useRef<string | null>(null);
+  const pendingProviderTokenRef = useRef<string | null>(null);
 
-  const [session, setSession] = useState<Session | null>(null);
+  const getToken = useCallback(
+    async (forceRefresh = false): Promise<string> => {
+      const current = userRef.current;
+      if (!current) throw new Error('Not signed in');
+      return current.getIdToken(forceRefresh);
+    },
+    [],
+  );
+
+  const api = useMemo(() => createApiClient(getToken), [getToken]);
+  const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [me, setMe] = useState<MeView | null>(null);
   const [projects, setProjects] = useState<ProjectView[]>([]);
@@ -57,23 +65,23 @@ export function AppProvider({
   const [activeProjectId, setActiveProjectIdState] = useState<string | null>(
     () => window.localStorage.getItem(ACTIVE_PROJECT_KEY),
   );
-  const linkedTokenRef = useRef<string | null>(null);
 
   const refresh = useCallback(
-    async (currentSession: Session | null) => {
-      if (!currentSession) {
+    async (currentUser: User | null) => {
+      if (!currentUser) {
         setMe(null);
         setProjects([]);
         return;
       }
-
       setBooting(true);
       try {
-        // A GitHub OAuth token is only handed to the client on the sign-in
-        // response, so persist it server-side the first time we see it.
-        const providerToken = currentSession.provider_token;
+        // A GitHub OAuth provider token is only handed to the client on the
+        // sign-in redirect result, so persist it server-side the first time
+        // we see it.
+        const providerToken = pendingProviderTokenRef.current;
         if (providerToken && linkedTokenRef.current !== providerToken) {
           linkedTokenRef.current = providerToken;
+          pendingProviderTokenRef.current = null;
           try {
             await api.linkGithub(providerToken);
           } catch (linkError) {
@@ -84,12 +92,13 @@ export function AppProvider({
             );
           }
         }
-
         const [nextMe, nextProjects] = await Promise.all([api.me(), api.projects()]);
         setMe(nextMe);
         setProjects(nextProjects);
       } catch (refreshError) {
-        setError(refreshError instanceof Error ? refreshError.message : 'Could not load your account');
+        setError(
+          refreshError instanceof Error ? refreshError.message : 'Could not load your account',
+        );
       } finally {
         setBooting(false);
       }
@@ -99,38 +108,45 @@ export function AppProvider({
 
   useEffect(() => {
     let active = true;
+    // Capture the GitHub provider token from a just-completed OAuth redirect.
+    // This must run once on mount; the token is unavailable afterwards.
+    getRedirectResult(auth)
+      .then((result) => {
+        if (!active || !result) return;
+        const token = githubProviderTokenFrom(result);
+        if (token) pendingProviderTokenRef.current = token;
+      })
+      .catch(() => {
+        // A failed/cancelled redirect leaves no token; sign-in state is still
+        // reported by onAuthStateChanged below.
+      });
 
-    supabase.auth.getSession().then(({ data }) => {
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       if (!active) return;
-      setSession(data.session);
+      userRef.current = nextUser;
+      setUser(nextUser);
       setAuthReady(true);
+      if (nextUser) void refresh(nextUser);
     });
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      if (nextSession) void refresh(nextSession);
-    });
-
     return () => {
       active = false;
-      subscription.subscription.unsubscribe();
+      unsubscribe();
     };
-  }, [supabase, refresh]);
+  }, [auth, refresh]);
 
   useEffect(() => {
-    if (session) void refresh(session);
-  }, [session?.access_token, refresh]);
+    if (user) void refresh(user);
+  }, [user?.uid, refresh]);
 
   const reload = useCallback(async () => {
-    await refresh(session);
-  }, [refresh, session]);
+    await refresh(user);
+  }, [refresh, user]);
 
   // GitHub redirects back with a result flag; reflect it once, then clean the URL.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const flag = params.get('github_app');
     if (!flag) return;
-
     params.delete('github_app');
     const query = params.toString();
     window.history.replaceState(
@@ -138,24 +154,25 @@ export function AppProvider({
       '',
       `${window.location.pathname}${query ? `?${query}` : ''}`,
     );
-
     if (flag === 'error') {
       setError('GitHub App installation could not be verified. Start the install again.');
     } else if (flag === 'suspended') {
       setError('That GitHub App installation is suspended on GitHub.');
     } else if (flag === 'pending') {
       setError('Installation requested — an organization owner still needs to approve it.');
-    } else if (session) {
-      void refresh(session);
+    } else if (user) {
+      void refresh(user);
     }
-  }, [session, refresh]);
+  }, [user, refresh]);
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    await firebaseSignOut(auth);
+    userRef.current = null;
     setMe(null);
     setProjects([]);
     linkedTokenRef.current = null;
-  }, [supabase]);
+    pendingProviderTokenRef.current = null;
+  }, [auth]);
 
   const setActiveProjectId = useCallback((id: string) => {
     window.localStorage.setItem(ACTIVE_PROJECT_KEY, id);
@@ -170,9 +187,9 @@ export function AppProvider({
 
   const value: AppContextValue = {
     config,
-    supabase,
+    auth,
     api,
-    session,
+    user,
     authReady,
     me,
     projects,
@@ -184,7 +201,6 @@ export function AppProvider({
     activeProject,
     setActiveProjectId,
   };
-
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

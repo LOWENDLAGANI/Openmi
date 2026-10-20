@@ -1,21 +1,21 @@
 import { Hono } from 'hono';
 import type { ConfigStatusView } from '../../shared/types';
 import type { AppEnv } from '../auth/middleware';
-import { missingConfig, resolveGithubAppConfig } from '../env';
+import { firebaseClientConfig, missingConfig, resolveGithubAppConfig } from '../env';
 
 export const healthRoutes = new Hono<AppEnv>();
 
 /**
- * Public liveness/config probe. Never reveals secret values, only which
- * configuration keys are still missing so setup failures are obvious.
+ * Public liveness/config probe. Never reveals secret values (service account
+ * email/private key), only the public Firebase web config and which keys are
+ * still missing so setup failures are obvious.
  */
 healthRoutes.get('/config', (c) => {
   const missing = missingConfig(c.env);
   const githubApp = resolveGithubAppConfig(c.env);
   return c.json(
     {
-      supabaseUrl: c.env.SUPABASE_URL ?? '',
-      supabaseAnonKey: c.env.SUPABASE_ANON_KEY ?? '',
+      firebase: firebaseClientConfig(c.env),
       version: '0.1.0',
       ready: missing.length === 0,
       missing,

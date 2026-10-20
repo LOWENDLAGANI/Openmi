@@ -20,7 +20,7 @@ export const requestContext = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 /**
- * Verifies the Supabase access token and exposes the principal as `c.var.user`.
+ * Verifies the Firebase Auth ID token and exposes the principal as `c.var.user`.
  * All app routes that touch user data must sit behind this middleware.
  */
 export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {

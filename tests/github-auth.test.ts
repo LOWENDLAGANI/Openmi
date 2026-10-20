@@ -28,9 +28,10 @@ const USER = '11111111-1111-4111-8111-111111111111';
 
 function makeEnv(appEnabled: boolean): Env {
   return {
-    SUPABASE_URL: 'https://test.supabase.co',
-    SUPABASE_ANON_KEY: 'anon',
-    SUPABASE_SERVICE_ROLE_KEY: 'service',
+    FIREBASE_PROJECT_ID: 'test-project',
+    FIREBASE_API_KEY: 'test-api-key',
+    FIREBASE_CLIENT_EMAIL: 'firebase-adminsdk@test-project.iam.gserviceaccount.com',
+    FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n',
     GITHUB_TOKEN_ENC_KEY: ENC_KEY,
     OPENROUTER_API_KEY: 'key',
     OPENMI_MODEL: 'test',

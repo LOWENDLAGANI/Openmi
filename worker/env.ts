@@ -19,9 +19,12 @@ export interface Env {
   CRON_SECRET?: string;
   RUN_BUDGET_SECONDS?: string;
 
-  // Public config (wrangler vars)
-  SUPABASE_URL: string;
-  SUPABASE_ANON_KEY: string;
+  // Public config (wrangler vars / Vercel env). Handed to the browser via
+  // /api/config so the Firebase client SDK can initialize.
+  FIREBASE_PROJECT_ID: string;
+  FIREBASE_API_KEY: string;
+  FIREBASE_AUTH_DOMAIN?: string;
+  FIREBASE_APP_ID?: string;
   OPENMI_MODEL: string;
   DAILY_TASK_LIMIT: string;
   MAX_CONCURRENT_TASKS: string;
@@ -30,9 +33,11 @@ export interface Env {
   GITHUB_APP_CLIENT_ID?: string;
   GITHUB_APP_SLUG?: string;
 
-  // Secrets (wrangler secret / .dev.vars)
-  SUPABASE_SERVICE_ROLE_KEY?: string;
-  SUPABASE_JWT_SECRET?: string;
+  // Secrets (wrangler secret / Vercel env / .dev.vars)
+  // Firebase Admin service account. Generate at:
+  //   Project settings -> Service accounts -> Generate new private key
+  FIREBASE_CLIENT_EMAIL?: string;
+  FIREBASE_PRIVATE_KEY?: string;
   GITHUB_TOKEN_ENC_KEY?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_APP_WEBHOOK_SECRET?: string;
@@ -42,13 +47,13 @@ export interface Env {
 }
 
 const REQUIRED_SECRETS = [
-  'SUPABASE_URL',
-  'SUPABASE_ANON_KEY',
-  'SUPABASE_SERVICE_ROLE_KEY',
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_API_KEY',
+  'FIREBASE_CLIENT_EMAIL',
+  'FIREBASE_PRIVATE_KEY',
   'GITHUB_TOKEN_ENC_KEY',
   'OPENROUTER_API_KEY',
 ] as const;
-
 export type ConfigKey = (typeof REQUIRED_SECRETS)[number];
 
 export interface GithubAppConfig {
@@ -62,10 +67,21 @@ export interface GithubAppConfig {
   stateSecret: string | null;
 }
 
+export interface FirebaseClientConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+  messagingSenderId: string;
+}
+
 export interface AppConfig {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
-  supabaseServiceRoleKey: string;
+  firebaseProjectId: string;
+  firebaseApiKey: string;
+  firebaseAuthDomain: string;
+  firebaseAppId: string;
+  firebaseClientEmail: string;
+  firebasePrivateKey: string;
   githubTokenEncKey: string;
   openRouterApiKey: string;
   groqApiKey: string | null;
@@ -103,7 +119,6 @@ export function resolveGithubAppConfig(env: Env): GithubAppConfig {
   const privateKeyPem = normalizePem(trimmed(env.GITHUB_APP_PRIVATE_KEY));
   const slug = trimmed(env.GITHUB_APP_SLUG);
   const webhookSecret = trimmed(env.GITHUB_APP_WEBHOOK_SECRET);
-
   return {
     enabled: Boolean(appId && privateKeyPem && slug),
     appId,
@@ -113,6 +128,20 @@ export function resolveGithubAppConfig(env: Env): GithubAppConfig {
     webhookSecret,
     // Reuses the webhook secret when no dedicated state secret is set.
     stateSecret: trimmed(env.GITHUB_APP_STATE_SECRET) ?? webhookSecret,
+  };
+}
+
+/** Public client config handed to the browser. Never includes secrets. */
+export function firebaseClientConfig(env: Env): FirebaseClientConfig {
+  const projectId = (env.FIREBASE_PROJECT_ID ?? '').trim();
+  return {
+    apiKey: (env.FIREBASE_API_KEY ?? '').trim(),
+    authDomain:
+      trimmed(env.FIREBASE_AUTH_DOMAIN) ?? `${projectId}.firebaseapp.com`,
+    projectId,
+    appId: trimmed(env.FIREBASE_APP_ID) ?? '',
+    // Project number is not needed for auth; leave empty when unset.
+    messagingSenderId: '',
   };
 }
 
@@ -127,13 +156,16 @@ export function loadConfig(env: Env): AppConfig {
       status: 503,
     });
   }
-
   const commitMode = env.DEFAULT_COMMIT_MODE === 'pull_request' ? 'pull_request' : 'direct';
-
+  const projectId = env.FIREBASE_PROJECT_ID.trim();
   return {
-    supabaseUrl: env.SUPABASE_URL.replace(/\/+$/, ''),
-    supabaseAnonKey: env.SUPABASE_ANON_KEY,
-    supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY as string,
+    firebaseProjectId: projectId,
+    firebaseApiKey: env.FIREBASE_API_KEY.trim(),
+    firebaseAuthDomain:
+      trimmed(env.FIREBASE_AUTH_DOMAIN) ?? `${projectId}.firebaseapp.com`,
+    firebaseAppId: trimmed(env.FIREBASE_APP_ID) ?? '',
+    firebaseClientEmail: env.FIREBASE_CLIENT_EMAIL as string,
+    firebasePrivateKey: normalizePem(trimmed(env.FIREBASE_PRIVATE_KEY)) as string,
     githubTokenEncKey: env.GITHUB_TOKEN_ENC_KEY as string,
     openRouterApiKey: env.OPENROUTER_API_KEY as string,
     groqApiKey: env.GROQ_API_KEY?.trim() || null,

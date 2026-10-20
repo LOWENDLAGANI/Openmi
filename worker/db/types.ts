@@ -1,7 +1,16 @@
 import type { TaskStatus } from '../../shared/types';
 
-/** Row shapes mirror `supabase/migrations/*.sql` exactly. */
-
+/**
+ * Document shapes stored in Firestore. Field names are kept in snake_case to
+ * match the original Postgres schema; collections:
+ *   users/{uid}                      (profile)
+ *   github_credentials/{uid}
+ *   projects/{uuid}                  (+ project_index/{ownerId}:{repo} uniqueness)
+ *   tasks/{uuid}                     (+ tasks/{uuid}/events/{autoId})
+ *   usage_daily/{uid}:{YYYY-MM-DD}
+ *   github_installations/{installationId}
+ *   github_installation_tokens/{installationId}
+ */
 export interface ProfileRow {
   id: string;
   github_login: string | null;

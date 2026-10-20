@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '@/lib/app-context';
-import { signInWithGithub } from '@/lib/supabase';
+import { signInWithGithub } from '@/lib/firebase';
 import { Banner, Button, Card } from '@/components/ui';
 import { GithubMark, Lock } from '@/components/icons';
 
@@ -12,7 +12,7 @@ import { GithubMark, Lock } from '@/components/icons';
  * users who only need to browse repositories.
  */
 export function GrantGithub() {
-  const { supabase, config, api, signOut, error } = useApp();
+  const { auth, config, api, signOut, error } = useApp();
   const [busy, setBusy] = useState<'app' | 'oauth' | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -36,7 +36,7 @@ export function GrantGithub() {
     setBusy('oauth');
     setLocalError(null);
     try {
-      await signInWithGithub(supabase);
+      await signInWithGithub(auth);
     } catch (signInError) {
       setLocalError(signInError instanceof Error ? signInError.message : 'Sign-in failed');
       setBusy(null);

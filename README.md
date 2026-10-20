@@ -14,37 +14,39 @@ GitHub commits), Phase 2 (GitHub App installation tokens, webhooks, token cachin
 
 ```
 phone browser
-    │  Supabase session (GitHub OAuth)
+    │  Firebase session (GitHub OAuth)
     ▼
 Vite SPA  ──/api/*──►  Vercel Function (Hono, Node 22)
-                          │  verify Supabase JWT (JWKS, local)
-                          │  reserve daily quota (atomic SQL)
+                          │  verify Firebase ID token (firebase-admin)
+                          │  reserve daily quota (Firestore transaction)
                           │  POST /api/internal/run-task  (self-dispatch, 202)
                           ▼
                     runner invocation ── steps, lease, re-dispatch on timeout
                           │
             ┌─────────────┼──────────────┬─────────────┐
             ▼             ▼              ▼             ▼
-      Supabase PG    GitHub tree     OpenRouter      GitHub
+        Firestore     GitHub tree     OpenRouter      GitHub
       (task state)   + blobs         / Groq         atomic commit
 ```
 
 Every stage is a step with an idempotency guard, so a lost connection, a locked screen, a closed
 browser or a timed-out function does not lose work: the task is re-dispatched and resumes from
-persisted state. Task state lives in Postgres, not in the client.
+persisted state. Task state lives in Firestore, not in the client.
 
-The same code runs on Cloudflare Workers, where `TaskWorkflow` executes the identical pipeline as a
-durable Workflow — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Runtime note:** `firebase-admin` requires a Node runtime, so the Cloudflare Workers edge
+> deployment path is no longer supported. Vercel Functions (Node 22) is the sole runtime. The
+> `wrangler.jsonc` config is retained for reference only. See
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Stack
 
 | Layer | Choice |
 | --- | --- |
-| Runtime | Vercel Functions (Node.js 22) — Cloudflare Workers supported as an alternative |
-| Orchestration | Step pipeline with database leases + self re-dispatch; Cloudflare Workflows on CF |
+| Runtime | Vercel Functions (Node.js 22) |
+| Orchestration | Step pipeline with Firestore transaction leases + self re-dispatch |
 | API | Hono + TypeScript |
 | Frontend | Vite + React 19 + Tailwind CSS v4 (mobile-first SPA) |
-| Database / Auth | Supabase Postgres + GitHub OAuth provider + RLS |
+| Database / Auth | Firebase Auth (GitHub sign-in) + Firestore (admin SDK; rules deny client access) |
 | Models | OpenRouter (`qwen/qwen3-coder` default), optional Groq fallback |
 | GitHub | `@octokit/rest` — Git Data API, `base_tree` commits, `force: false` ref updates |
 | GitHub auth | GitHub App installation tokens (per-repo, revocable) with OAuth fallback |
@@ -59,27 +61,26 @@ cd Openmi
 npm install
 ```
 
-### 2. Create the database
+### 2. Create the Firebase project
 
-In a new Supabase project, run the migrations in filename order (SQL editor, or `supabase db push`):
+Create a Firebase project, enable **Authentication → Sign-in method → GitHub** (request
+`repo read:user` scopes) and **Cloud Firestore**, then deploy the rules and composite indexes:
 
+```bash
+cd firebase
+firebase deploy --only firestore:rules
+firebase deploy --only firestore:indexes
 ```
-supabase/migrations/20261020000100_init.sql
-supabase/migrations/20261020000200_quota.sql
-supabase/migrations/20261020000300_github_app.sql
-supabase/migrations/20261020000400_task_leases.sql
-```
 
-Then enable **Authentication → Providers → GitHub** and add `repo read:user` to the scopes.
-Set the redirect URL to your app origin (`http://localhost:3000` for local dev). Full details:
-[supabase/README.md](supabase/README.md).
+Generate a service account key (Project settings → Service accounts) and register a web app to get
+the public web config. Full walkthrough: [firebase/README.md](firebase/README.md).
 
 ### 3. Configure the environment
 
 Copy [.env.example](.env.example) to `.dev.vars` (Node dev server) or `.env.local` (`vercel dev`),
 then fill in:
 
-- `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (service account)
 - `GITHUB_TOKEN_ENC_KEY` — `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
 - `OPENROUTER_API_KEY`
 - `INTERNAL_TASK_TOKEN` — any random string ≥ 32 chars (`openssl rand -hex 32`)
@@ -139,7 +140,7 @@ After the first deploy, set:
 | `RUN_BUDGET_SECONDS` | optional, default `240` (must stay under `maxDuration`) |
 
 Then redeploy so the values take effect, and point the GitHub App's Setup/Webhook URLs and the
-Supabase redirect URLs at the Vercel domain.
+Firebase authorized domains at the Vercel domain.
 
 **Deployment Protection:** internal dispatch posts to your own deployment. If Vercel Authentication
 protects preview deployments, set `INTERNAL_DISPATCH_URL` to an unprotected alias or test on
@@ -148,14 +149,12 @@ Production. Cron jobs are exempt from protection.
 **Local Vercel emulation:** `vercel dev` works too; it serves the SPA and `/api/*` from
 `.env.local`. Do not run it on port 8787 at the same time as `npm run dev:api`.
 
-### 7. Cloudflare Workers (alternative)
+### 7. Cloudflare Workers (deprecated)
 
-The original runtime is kept and tested:
-
-```bash
-npm run build
-npx wrangler deploy
-```
+`firebase-admin` requires a Node runtime and cannot run on the Cloudflare Workers edge. The
+`wrangler.jsonc` config and `worker/index.ts` entry are retained for reference only and are not a
+supported deployment target after the Firebase pivot. Vercel Functions (Node 22) is the sole
+runtime.
 
 Public values live in `wrangler.jsonc` `vars`; secrets go through `npx wrangler secret put <NAME>`
 (see `.dev.vars.example`). No `INTERNAL_TASK_TOKEN` is needed there: the `TASK_WORKFLOW` binding is
@@ -165,10 +164,12 @@ used instead of HTTP dispatch.
 
 | Name | Where | Purpose |
 | --- | --- | --- |
-| `SUPABASE_URL` | var | Project URL; also the JWT issuer base |
-| `SUPABASE_ANON_KEY` | var | Public key handed to the browser via `/api/config` |
-| `SUPABASE_SERVICE_ROLE_KEY` | secret | Server-side DB access; bypasses RLS |
-| `SUPABASE_JWT_SECRET` | secret (dev only) | Legacy HS256 fallback for local integration tests |
+| `FIREBASE_PROJECT_ID` | var | Firebase project id; also exposed to the browser |
+| `FIREBASE_API_KEY` | var | Public web API key handed to the browser via `/api/config` |
+| `FIREBASE_AUTH_DOMAIN` | var (optional) | Defaults to `<project-id>.firebaseapp.com` |
+| `FIREBASE_APP_ID` | var (optional) | Web app id from the Firebase console |
+| `FIREBASE_CLIENT_EMAIL` | secret | Service account client email (server-only) |
+| `FIREBASE_PRIVATE_KEY` | secret | Service account PKCS#8 PEM (server-only) |
 | `GITHUB_TOKEN_ENC_KEY` | secret | AES-256-GCM key for stored GitHub tokens |
 | `OPENROUTER_API_KEY` | secret | Primary model provider |
 | `GROQ_API_KEY` | secret (optional) | Fallback provider |
@@ -191,7 +192,7 @@ used instead of HTTP dispatch.
 ## API
 
 All routes are under `/api`. Everything except `/api/health`, `/api/config`, the GitHub App
-callback/webhook and the runner/cron endpoints requires `Authorization: Bearer <supabase access
+callback/webhook and the runner/cron endpoints requires `Authorization: Bearer <Firebase ID
 token>`.
 
 | Method | Path | Description |
@@ -227,8 +228,8 @@ Four independent layers keep a prompt from damaging a repository:
    moved, GitHub rejects the update; if a file the agent touched changed meanwhile, the task aborts
    with `GITHUB_CONFLICT` instead of clobbering the human edit.
 
-Cost guardrails: an atomic `consume_task_quota` RPC (`INSERT … ON CONFLICT … WHERE tasks_started <
-limit`) makes the daily budget race-free, concurrent-task limits stop dispatch stampedes, and
+Cost guardrails: an atomic `consumeTaskQuota` Firestore transaction (check-and-increment inside a
+single transaction) makes the daily budget race-free, concurrent-task limits stop dispatch stampedes, and
 failures caused by the system (provider/config/internal) refund the reserved slot.
 
 ## Durable execution on serverless
@@ -257,7 +258,7 @@ session. The endpoint is excluded from the SPA rewrite and always reaches the fu
 `resolveGithubAuth()` is the single seam that decides how the agent may act on GitHub:
 
 1. **App installation** — short-lived (1 h) installation tokens, scoped to the repositories the
-   user installed the App on, revocable at any time. Tokens are cached in Postgres (encrypted) and
+   user installed the App on, revocable at any time. Tokens are cached in Firestore (encrypted) and
    in-isolate, refreshed 5 minutes before expiry, and re-minted exactly once on a dead token.
 2. **OAuth fallback** — the Phase 1 token, for deployments without an App and for users who have
    not installed it yet.
@@ -275,7 +276,7 @@ npm run typecheck    # API, SPA, build tooling and test configs
 npm test             # unit, workflow, and API tests
 npm run build        # SPA bundle
 npm run check:node   # the Vercel handler loads on plain Node (no Worker-only imports)
-npm run check:bundle # wrangler dry-run: Worker + Workflows + assets (CF target)
+npm run check:bundle # wrangler dry-run — reference-only (Cloudflare target is deprecated)
 npm run verify       # all of the above
 ```
 
@@ -290,15 +291,15 @@ Local end-to-end checks against the Node API server: `/api/health`, `/api/config
 missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, runner/cron 401 and 422 responses, and
 `npm run check:node` proving the Vercel entry has no `cloudflare:*` imports.
 
-Not covered without live credentials: real Supabase reads/writes and migrations, a full GitHub
-OAuth round trip, a real App installation + token mint, webhook-driven DB writes, and an actual
+Not covered without live credentials: real Firestore reads/writes and index deployment, a full
+GitHub OAuth round trip, a real App installation + token mint, webhook-driven DB writes, and an actual
 commit. The browser UI is not exercised by automated tests.
 
 ## Roadmap
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 0 | Walking skeleton: SPA, Worker, Supabase auth, health/config | 100% |
+| 0 | Walking skeleton: SPA, API, Firebase auth, health/config | 100% |
 | 1 | Quota, durable agent, atomic commits, timeline, commit link | 100% |
 | 2 | GitHub App install tokens, signed install state, webhooks, token cache | 100% |
 | 2.5 | Vercel runtime: step runner, leases, HTTP dispatch, cron recovery | 95% (deploy unverified) |
@@ -316,7 +317,7 @@ worker/            API: routes, auth, db, agent, github, pipeline, platform, wor
 scripts/           Local Node API server
 src/               SPA: pages, components, lib
 shared/            Wire types shared by both runtimes
-supabase/          SQL migrations (schema, quota RPCs, App tables, leases)
+firebase/          Firestore rules, composite indexes, setup walkthrough
 tests/             Vitest suites
 docs/              Architecture notes
 vercel.json        Function routing, SPA fallback, cron, maxDuration

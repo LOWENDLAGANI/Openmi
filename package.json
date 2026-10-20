@@ -22,8 +22,9 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "@octokit/rest": "^22.0.1",
-    "@supabase/supabase-js": "^2.118.0",
     "@vercel/functions": "^3.10.1",
+    "firebase": "^13.0.0",
+    "firebase-admin": "^14.5.0",
     "hono": "^4.13.13",
     "jose": "^6.2.13",
     "react": "^19.3.1",

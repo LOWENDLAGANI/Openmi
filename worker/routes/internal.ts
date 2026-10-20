@@ -23,9 +23,11 @@ import type { TaskWorkflowParams } from '../workflows/types';
  */
 export const internalRoutes = new Hono<AppEnv>();
 
+// taskId/projectId are server-generated UUIDs; userId is a Firebase Auth uid
+// (not a UUID), so it is validated only as a non-empty string.
 const paramsSchema = z.object({
   taskId: z.uuid(),
-  userId: z.uuid(),
+  userId: z.string().min(1),
   projectId: z.uuid(),
 });
 

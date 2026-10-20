@@ -7,7 +7,7 @@ import type {
 import type { Env } from '../env';
 import { AppError } from '../lib/errors';
 import { log } from '../lib/logger';
-import { db } from './client';
+import { firestore } from './client';
 import type { TaskEventRow, TaskRow } from './types';
 
 function dbError(context: string, error: { message: string } | null): never {
@@ -16,6 +16,10 @@ function dbError(context: string, error: { message: string } | null): never {
     retryable: true,
     cause: error,
   });
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
 }
 
 export function toTaskSummary(row: TaskRow): TaskSummary {
@@ -65,19 +69,40 @@ export async function createTask(
   env: Env,
   input: { projectId: string; ownerId: string; prompt: string },
 ): Promise<TaskRow> {
-  const { data, error } = await db(env)
-    .from('tasks')
-    .insert({
-      project_id: input.projectId,
-      owner_id: input.ownerId,
-      prompt: input.prompt,
-      status: 'queued',
-    })
-    .select('*')
-    .single();
-
-  if (error || !data) dbError('tasks.insert', error);
-  return data as TaskRow;
+  const db = firestore(env);
+  const now = nowIso();
+  const taskId = crypto.randomUUID();
+  const row: TaskRow = {
+    id: taskId,
+    project_id: input.projectId,
+    owner_id: input.ownerId,
+    prompt: input.prompt,
+    status: 'queued',
+    workflow_instance_id: null,
+    base_branch: null,
+    base_commit_sha: null,
+    model: null,
+    summary: null,
+    patch: null,
+    files_changed: 0,
+    commit_sha: null,
+    commit_url: null,
+    branch: null,
+    error_code: null,
+    error_message: null,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    created_at: now,
+    started_at: null,
+    finished_at: null,
+    lease_expires_at: null,
+  };
+  try {
+    await db.doc(`tasks/${taskId}`).set(row);
+    return row;
+  } catch (error) {
+    dbError('tasks.insert', error as { message: string });
+  }
 }
 
 export async function setWorkflowInstance(
@@ -85,24 +110,24 @@ export async function setWorkflowInstance(
   taskId: string,
   instanceId: string,
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('tasks')
-    .update({ workflow_instance_id: instanceId })
-    .eq('id', taskId);
-
-  if (error) dbError('tasks.set_workflow', error);
+  const db = firestore(env);
+  try {
+    await db.doc(`tasks/${taskId}`).update({ workflow_instance_id: instanceId });
+  } catch (error) {
+    dbError('tasks.set_workflow', error as { message: string });
+  }
 }
 
 export async function getTaskRow(env: Env, taskId: string): Promise<TaskRow> {
-  const { data, error } = await db(env)
-    .from('tasks')
-    .select('*')
-    .eq('id', taskId)
-    .maybeSingle();
-
-  if (error) dbError('tasks.get', error);
-  if (!data) throw new AppError('NOT_FOUND', 'Task not found');
-  return data as TaskRow;
+  const db = firestore(env);
+  try {
+    const snap = await db.doc(`tasks/${taskId}`).get();
+    if (!snap.exists) throw new AppError('NOT_FOUND', 'Task not found');
+    return snap.data() as TaskRow;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    dbError('tasks.get', error as { message: string });
+  }
 }
 
 export async function getTaskForOwner(
@@ -116,15 +141,22 @@ export async function getTaskForOwner(
 }
 
 export async function listTaskEvents(env: Env, taskId: string): Promise<TaskEventRow[]> {
-  const { data, error } = await db(env)
-    .from('task_events')
-    .select('*')
-    .eq('task_id', taskId)
-    .order('id', { ascending: true })
-    .limit(200);
-
-  if (error) dbError('task_events.list', error);
-  return (data ?? []) as TaskEventRow[];
+  const db = firestore(env);
+  try {
+    const snap = await db
+      .collection(`tasks/${taskId}/events`)
+      .orderBy('created_at', 'asc')
+      .limit(200)
+      .get();
+    // Firestore auto-ids are not monotonic; assign a synthetic sequence from
+    // the created_at ordering so the UI keeps a stable `seq` per event.
+    return snap.docs.map((doc, index) => {
+      const data = doc.data() as Omit<TaskEventRow, 'id'>;
+      return { ...data, id: index + 1, task_id: taskId };
+    });
+  } catch (error) {
+    dbError('task_events.list', error as { message: string });
+  }
 }
 
 export function toTaskDetail(row: TaskRow, events: TaskEventRow[]): TaskDetail {
@@ -146,20 +178,24 @@ export async function listProjectTasks(
   projectId: string,
   limit = 20,
 ): Promise<TaskSummary[]> {
-  const { data, error } = await db(env)
-    .from('tasks')
-    .select('*')
-    .eq('owner_id', ownerId)
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) dbError('tasks.list', error);
-  return ((data ?? []) as TaskRow[]).map(toTaskSummary);
+  const db = firestore(env);
+  try {
+    const snap = await db
+      .collection('tasks')
+      .where('owner_id', '==', ownerId)
+      .where('project_id', '==', projectId)
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .get();
+    return snap.docs.map((doc) => toTaskSummary(doc.data() as TaskRow));
+  } catch (error) {
+    dbError('tasks.list', error as { message: string });
+  }
 }
 
 /**
- * Claims (or re-claims) a task for this invocation.
+ * Claims (or re-claims) a task for this invocation, inside a Firestore
+ * transaction so two concurrent runners can never both acquire it.
  *
  * Queued tasks transition to running; a running task is only claimable when its
  * lease has expired, which is what lets a crashed serverless invocation be
@@ -170,44 +206,57 @@ export async function leaseTask(
   taskId: string,
   leaseMs: number,
 ): Promise<{ row: TaskRow; claimed: boolean }> {
-  const nowIso = new Date().toISOString();
+  const db = firestore(env);
+  const taskRef = db.doc(`tasks/${taskId}`);
+  const now = nowIso();
   const leaseUntil = new Date(Date.now() + leaseMs).toISOString();
-
-  const { data: queued, error } = await db(env)
-    .from('tasks')
-    .update({ status: 'running', started_at: nowIso, lease_expires_at: leaseUntil })
-    .eq('id', taskId)
-    .eq('status', 'queued')
-    .select('*')
-    .maybeSingle();
-
-  if (error) dbError('tasks.lease_queued', error);
-  if (queued) return { row: queued as TaskRow, claimed: true };
-
-  const { data: stale, error: staleError } = await db(env)
-    .from('tasks')
-    .update({ lease_expires_at: leaseUntil })
-    .eq('id', taskId)
-    .eq('status', 'running')
-    .or(`lease_expires_at.is.null,lease_expires_at.lt.${nowIso}`)
-    .select('*')
-    .maybeSingle();
-
-  if (staleError) dbError('tasks.lease_running', staleError);
-  if (stale) return { row: stale as TaskRow, claimed: true };
-
-  return { row: await getTaskRow(env, taskId), claimed: false };
+  try {
+    return await db.runTransaction(async (t) => {
+      const snap = await t.get(taskRef);
+      if (!snap.exists) {
+        throw new AppError('NOT_FOUND', 'Task not found');
+      }
+      const data = snap.data() as TaskRow;
+      if (data.status === 'queued') {
+        const next: TaskRow = {
+          ...data,
+          status: 'running',
+          started_at: now,
+          lease_expires_at: leaseUntil,
+        };
+        t.update(taskRef, {
+          status: 'running',
+          started_at: now,
+          lease_expires_at: leaseUntil,
+        });
+        return { row: next, claimed: true };
+      }
+      if (
+        data.status === 'running' &&
+        (!data.lease_expires_at || data.lease_expires_at < now)
+      ) {
+        const next: TaskRow = { ...data, lease_expires_at: leaseUntil };
+        t.update(taskRef, { lease_expires_at: leaseUntil });
+        return { row: next, claimed: true };
+      }
+      return { row: data, claimed: false };
+    });
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    dbError('tasks.lease', error as { message: string });
+  }
 }
 
 /** Releases the lease so the next dispatch can pick the task up immediately. */
 export async function requeueTask(env: Env, taskId: string): Promise<void> {
-  const { error } = await db(env)
-    .from('tasks')
-    .update({ lease_expires_at: null })
-    .eq('id', taskId)
-    .eq('status', 'running');
-
-  if (error) dbError('tasks.requeue', error);
+  const db = firestore(env);
+  try {
+    // Clearing an expired/absent lease is idempotent and harmless on
+    // terminal tasks, so a plain update (no conditional) is sufficient.
+    await db.doc(`tasks/${taskId}`).update({ lease_expires_at: null });
+  } catch (error) {
+    dbError('tasks.requeue', error as { message: string });
+  }
 }
 
 export interface StaleTaskRef {
@@ -216,41 +265,55 @@ export interface StaleTaskRef {
   project_id: string;
 }
 
-/** Tasks whose lease (or initial dispatch) never completed. */
+/**
+ * Tasks whose lease (or initial dispatch) never completed. Firestore cannot
+ * express `lease_expires_at IS NULL OR lease_expires_at < X` in one query, so
+ * the running set is fetched as two queries and merged with the queued set.
+ */
 export async function listStaleTasks(
   env: Env,
   staleBeforeIso: string,
   limit = 10,
 ): Promise<StaleTaskRef[]> {
-  const [queued, running] = await Promise.all([
-    db(env)
-      .from('tasks')
-      .select('id, owner_id, project_id')
-      .eq('status', 'queued')
-      .lt('created_at', staleBeforeIso)
-      .order('created_at', { ascending: true })
-      .limit(limit),
-    db(env)
-      .from('tasks')
-      .select('id, owner_id, project_id')
-      .eq('status', 'running')
-      .or(`lease_expires_at.is.null,lease_expires_at.lt.${staleBeforeIso}`)
-      .order('created_at', { ascending: true })
-      .limit(limit),
-  ]);
-
-  if (queued.error) dbError('tasks.stale_queued', queued.error);
-  if (running.error) dbError('tasks.stale_running', running.error);
-
-  const seen = new Set<string>();
-  const merged: StaleTaskRef[] = [];
-  for (const row of [...(queued.data ?? []), ...(running.data ?? [])] as StaleTaskRef[]) {
-    if (seen.has(row.id)) continue;
-    seen.add(row.id);
-    merged.push(row);
-    if (merged.length >= limit) break;
+  const db = firestore(env);
+  try {
+    const [queued, runningExpired, runningNull] = await Promise.all([
+      db
+        .collection('tasks')
+        .where('status', '==', 'queued')
+        .where('created_at', '<', staleBeforeIso)
+        .orderBy('created_at', 'asc')
+        .limit(limit)
+        .get(),
+      db
+        .collection('tasks')
+        .where('status', '==', 'running')
+        .where('lease_expires_at', '<', staleBeforeIso)
+        .orderBy('lease_expires_at', 'asc')
+        .limit(limit)
+        .get(),
+      db
+        .collection('tasks')
+        .where('status', '==', 'running')
+        .where('lease_expires_at', '==', null)
+        .limit(limit)
+        .get(),
+    ]);
+    const seen = new Set<string>();
+    const merged: StaleTaskRef[] = [];
+    for (const snap of [queued, runningExpired, runningNull]) {
+      for (const doc of snap.docs) {
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        const data = doc.data() as StaleTaskRef;
+        merged.push({ id: doc.id, owner_id: data.owner_id, project_id: data.project_id });
+        if (merged.length >= limit) return merged;
+      }
+    }
+    return merged;
+  } catch (error) {
+    dbError('tasks.stale', error as { message: string });
   }
-  return merged;
 }
 
 export async function setTaskBase(
@@ -258,15 +321,15 @@ export async function setTaskBase(
   taskId: string,
   input: { baseBranch: string; baseCommitSha: string },
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('tasks')
-    .update({
+  const db = firestore(env);
+  try {
+    await db.doc(`tasks/${taskId}`).update({
       base_branch: input.baseBranch,
       base_commit_sha: input.baseCommitSha,
-    })
-    .eq('id', taskId);
-
-  if (error) dbError('tasks.set_base', error);
+    });
+  } catch (error) {
+    dbError('tasks.set_base', error as { message: string });
+  }
 }
 
 export async function saveTaskPatch(
@@ -281,19 +344,19 @@ export async function saveTaskPatch(
     completionTokens: number;
   },
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('tasks')
-    .update({
+  const db = firestore(env);
+  try {
+    await db.doc(`tasks/${taskId}`).update({
       patch: input.patch,
       summary: input.summary,
       model: input.model,
       files_changed: input.filesChanged,
       prompt_tokens: input.promptTokens,
       completion_tokens: input.completionTokens,
-    })
-    .eq('id', taskId);
-
-  if (error) dbError('tasks.save_patch', error);
+    });
+  } catch (error) {
+    dbError('tasks.save_patch', error as { message: string });
+  }
 }
 
 export async function completeTask(
@@ -306,19 +369,19 @@ export async function completeTask(
     filesChanged: number;
   },
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('tasks')
-    .update({
+  const db = firestore(env);
+  try {
+    await db.doc(`tasks/${taskId}`).update({
       status: 'succeeded',
       commit_sha: input.commitSha,
       commit_url: input.commitUrl,
       branch: input.branch,
       files_changed: input.filesChanged,
-      finished_at: new Date().toISOString(),
-    })
-    .eq('id', taskId);
-
-  if (error) dbError('tasks.complete', error);
+      finished_at: nowIso(),
+    });
+  } catch (error) {
+    dbError('tasks.complete', error as { message: string });
+  }
 }
 
 export async function failTask(
@@ -326,17 +389,17 @@ export async function failTask(
   taskId: string,
   input: { code: string; message: string },
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('tasks')
-    .update({
+  const db = firestore(env);
+  try {
+    await db.doc(`tasks/${taskId}`).update({
       status: 'failed',
       error_code: input.code,
       error_message: input.message.slice(0, 800),
-      finished_at: new Date().toISOString(),
-    })
-    .eq('id', taskId);
-
-  if (error) dbError('tasks.fail', error);
+      finished_at: nowIso(),
+    });
+  } catch (error) {
+    dbError('tasks.fail', error as { message: string });
+  }
 }
 
 export async function addTaskEvent(
@@ -345,10 +408,18 @@ export async function addTaskEvent(
   message: string,
   level: TaskEventLevel = 'info',
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('task_events')
-    .insert({ task_id: taskId, level, message: message.slice(0, 500) });
-
-  // Timeline writes must never fail a task.
-  if (error) log.warn('task_events.insert_failed', { message: error.message, taskId });
+  const db = firestore(env);
+  try {
+    await db.collection(`tasks/${taskId}/events`).add({
+      level,
+      message: message.slice(0, 500),
+      created_at: nowIso(),
+    });
+  } catch (error) {
+    // Timeline writes must never fail a task.
+    log.warn('task_events.insert_failed', {
+      message: error instanceof Error ? error.message : String(error),
+      taskId,
+    });
+  }
 }

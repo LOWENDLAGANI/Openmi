@@ -21,9 +21,14 @@
       "class_name": "TaskWorkflow"
     }
   ],
+  // NOTE: firebase-admin requires a Node runtime and cannot run on the
+  // Cloudflare Workers edge. The Vercel/Node runtime (api/index.ts) is the
+  // supported deployment target after the Firebase pivot. wrangler config is
+  // retained for reference and is marked external so it still bundles.
+  "external": ["firebase-admin"],
   "vars": {
-    "SUPABASE_URL": "",
-    "SUPABASE_ANON_KEY": "",
+    "FIREBASE_PROJECT_ID": "",
+    "FIREBASE_API_KEY": "",
     "OPENMI_MODEL": "qwen/qwen3-coder",
     "DAILY_TASK_LIMIT": "5",
     "MAX_CONCURRENT_TASKS": "2",

@@ -26,21 +26,24 @@ export function Setup({ config }: { config: RuntimeConfig }) {
       </Banner>
 
       <Card className="space-y-3 p-4">
-        <SectionLabel>1 · Database</SectionLabel>
+        <SectionLabel>1 · Firebase project</SectionLabel>
         <p className="text-[13px] leading-relaxed text-zinc-400">
-          Apply the SQL migrations in <code className="text-zinc-200">supabase/migrations</code>,
-          then set <code className="text-zinc-200">SUPABASE_URL</code>,{' '}
-          <code className="text-zinc-200">SUPABASE_ANON_KEY</code> and the service role key.
+          Create a Firebase project, enable Firestore and GitHub sign-in (with the{' '}
+          <code>repo</code> scope), then deploy the rules and indexes in{' '}
+          <code className="text-zinc-200">firebase/</code>. Set{' '}
+          <code className="text-zinc-200">FIREBASE_PROJECT_ID</code>,{' '}
+          <code className="text-zinc-200">FIREBASE_API_KEY</code>, and a service account (
+          <code className="text-zinc-200">FIREBASE_CLIENT_EMAIL</code> +{' '}
+          <code className="text-zinc-200">FIREBASE_PRIVATE_KEY</code>).
         </p>
-        <SectionLabel>2 · Worker secrets</SectionLabel>
+        <SectionLabel>2 · Server secrets</SectionLabel>
         <p className="text-[13px] leading-relaxed text-zinc-400">
           <code className="text-zinc-200">GITHUB_TOKEN_ENC_KEY</code> (32 random bytes, base64) and{' '}
-          <code className="text-zinc-200">OPENROUTER_API_KEY</code> via{' '}
-          <code className="text-zinc-200">wrangler secret put</code>.
+          <code className="text-zinc-200">OPENROUTER_API_KEY</code> as Vercel environment variables.
         </p>
         <SectionLabel>3 · GitHub OAuth</SectionLabel>
         <p className="text-[13px] leading-relaxed text-zinc-400">
-          Enable the GitHub provider in Supabase Auth with the <code>repo</code> scope, then sign in.
+          Enable the GitHub provider in Firebase Auth with the <code>repo</code> scope, then sign in.
         </p>
       </Card>
 

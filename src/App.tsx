@@ -21,11 +21,11 @@ function Splash() {
 }
 
 export function App() {
-  const { authReady, session, me, projects, booting, error, reload } = useApp();
+  const { authReady, user, me, projects, booting, error, reload } = useApp();
   const pathname = usePathname();
 
   if (!authReady) return <Splash />;
-  if (!session) return <Landing />;
+  if (!user) return <Landing />;
 
   if (!me) {
     if (booting) return <Splash />;

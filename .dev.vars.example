@@ -2,22 +2,21 @@
 # Copy to .dev.vars (gitignored) and fill in. Never commit real values.
 # For `vercel dev` use the same keys in .env.local instead.
 
-# Supabase project (Settings -> API). URL + anon key are public; also set them
-# in wrangler.jsonc "vars" so the built SPA can read SUPABASE_URL at runtime.
-SUPABASE_URL="https://YOUR-PROJECT.supabase.co"
-SUPABASE_ANON_KEY="YOUR-ANON-KEY"
-
-# Server-only: bypasses RLS. Never expose to the browser.
-SUPABASE_SERVICE_ROLE_KEY="YOUR-SERVICE-ROLE-KEY"
-
-# DEV ONLY: legacy HS256 verification fallback for local JWT tests.
-# Leave empty to use asymmetric JWKS verification (the production path).
-SUPABASE_JWT_SECRET=""
+# Firebase project. Project id + web API key are public; also set them in
+# wrangler.jsonc "vars" so /api/config can hand the web config to the browser.
+FIREBASE_PROJECT_ID="your-project-id"
+FIREBASE_API_KEY="web-api-key"
+# Optional: defaults to <project-id>.firebaseapp.com
+# FIREBASE_AUTH_DOMAIN="your-project-id.firebaseapp.com"
+# FIREBASE_APP_ID="1:xxx:web:yyy"
+# Service account (server-only). Project settings -> Service accounts.
+# Never expose to the browser. Literal \n escapes in the PEM are accepted.
+FIREBASE_CLIENT_EMAIL="firebase-adminsdk-xxx@your-project-id.iam.gserviceaccount.com"
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 
 # base64-encoded 32-byte AES-GCM key used to encrypt stored GitHub tokens.
 # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 GITHUB_TOKEN_ENC_KEY=""
-
 # AI provider. OpenRouter is primary; Groq is an optional fallback.
 OPENROUTER_API_KEY=""
 GROQ_API_KEY=""

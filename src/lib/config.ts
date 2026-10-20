@@ -1,6 +1,7 @@
+import type { FirebaseClientConfigView } from '@shared/types';
+
 export interface RuntimeConfig {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
+  firebase: FirebaseClientConfigView;
   version: string;
   ready: boolean;
   missing: string[];
@@ -13,29 +14,32 @@ export interface RuntimeConfig {
 let cached: Promise<RuntimeConfig> | null = null;
 
 /**
- * Public runtime config. The anon key is designed to be public (RLS protects
- * the data); secrets never leave the Worker.
+ * Public runtime config. The Firebase web config (apiKey, authDomain,
+ * projectId) is designed to be public; Firestore security rules protect the
+ * data. Secrets (service account) never leave the server.
  */
 export function loadRuntimeConfig(): Promise<RuntimeConfig> {
   if (cached) return cached;
-
   cached = (async () => {
     const response = await fetch('/api/config', { headers: { accept: 'application/json' } });
     if (!response.ok) {
       throw new Error(`Config endpoint returned ${response.status}`);
     }
     const body = (await response.json()) as {
-      supabaseUrl?: string;
-      supabaseAnonKey?: string;
+      firebase?: Partial<FirebaseClientConfigView>;
       version?: string;
       ready?: boolean;
       missing?: string[];
       githubApp?: { enabled?: boolean; slug?: string | null };
     };
-
     return {
-      supabaseUrl: body.supabaseUrl ?? '',
-      supabaseAnonKey: body.supabaseAnonKey ?? '',
+      firebase: {
+        apiKey: body.firebase?.apiKey ?? '',
+        authDomain: body.firebase?.authDomain ?? '',
+        projectId: body.firebase?.projectId ?? '',
+        appId: body.firebase?.appId ?? '',
+        messagingSenderId: body.firebase?.messagingSenderId ?? '',
+      },
       version: body.version ?? '0.0.0',
       ready: Boolean(body.ready),
       missing: Array.isArray(body.missing) ? body.missing : [],
@@ -45,6 +49,5 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
       },
     };
   })();
-
   return cached;
 }

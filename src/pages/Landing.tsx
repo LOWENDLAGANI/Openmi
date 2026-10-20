@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { signInWithGithub } from '@/lib/supabase';
+import { signInWithGithub } from '@/lib/firebase';
 import { useApp } from '@/lib/app-context';
 import { Banner, Button } from '@/components/ui';
 import { Bolt, GithubMark, GitCommit, Lock } from '@/components/icons';
@@ -23,7 +23,7 @@ const GUARANTEES = [
 ];
 
 export function Landing() {
-  const { supabase } = useApp();
+  const { auth } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,7 +31,7 @@ export function Landing() {
     setLoading(true);
     setError(null);
     try {
-      await signInWithGithub(supabase);
+      await signInWithGithub(auth);
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : 'Sign-in failed');
       setLoading(false);

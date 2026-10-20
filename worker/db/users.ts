@@ -2,7 +2,7 @@ import type { Env } from '../env';
 import { AppError } from '../lib/errors';
 import { log } from '../lib/logger';
 import { nextUtcMidnight, todayUtc } from '../lib/time';
-import { db } from './client';
+import { firestore } from './client';
 import type { GithubCredentialRow, ProfileRow, UsageRow } from './types';
 
 function dbError(context: string, error: { message: string } | null): never {
@@ -21,102 +21,161 @@ export interface QuotaSnapshot {
   resetsAt: string;
 }
 
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
 export async function ensureProfile(
   env: Env,
   user: { id: string; login: string | null; avatarUrl: string | null },
 ): Promise<ProfileRow> {
-  const { data, error } = await db(env)
-    .from('profiles')
-    .upsert(
-      {
+  const db = firestore(env);
+  const ref = db.doc(`users/${user.id}`);
+  try {
+    const snap = await ref.get();
+    const now = nowIso();
+    if (snap.exists) {
+      const existing = snap.data() as ProfileRow;
+      const next: ProfileRow = {
         id: user.id,
-        github_login: user.login,
-        avatar_url: user.avatarUrl,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'id' },
-    )
-    .select('*')
-    .single();
-
-  if (error || !data) dbError('profiles.upsert', error);
-  return data as ProfileRow;
+        github_login: user.login ?? existing.github_login,
+        avatar_url: user.avatarUrl ?? existing.avatar_url,
+        created_at: existing.created_at,
+        updated_at: now,
+      };
+      await ref.set(
+        {
+          github_login: next.github_login,
+          avatar_url: next.avatar_url,
+          updated_at: now,
+        },
+        { merge: true },
+      );
+      return next;
+    }
+    const row: ProfileRow = {
+      id: user.id,
+      github_login: user.login,
+      avatar_url: user.avatarUrl,
+      created_at: now,
+      updated_at: now,
+    };
+    await ref.set(row);
+    return row;
+  } catch (error) {
+    dbError('users.upsert', error as { message: string });
+  }
 }
 
 export async function getDailyUsage(env: Env, userId: string): Promise<number> {
-  const today = todayUtc();
-  const { data, error } = await db(env)
-    .from('usage_daily')
-    .select('tasks_started')
-    .eq('user_id', userId)
-    .eq('day', today)
-    .maybeSingle();
-
-  if (error) dbError('usage_daily.read', error);
-  return (data as Pick<UsageRow, 'tasks_started'> | null)?.tasks_started ?? 0;
+  const db = firestore(env);
+  const day = todayUtc();
+  try {
+    const snap = await db.doc(`usage_daily/${userId}:${day}`).get();
+    if (!snap.exists) return 0;
+    return Number((snap.data() as Pick<UsageRow, 'tasks_started'>).tasks_started ?? 0);
+  } catch (error) {
+    dbError('usage_daily.read', error as { message: string });
+  }
 }
 
 /**
  * Atomically reserves one task from the user's daily budget.
- * The check-and-increment happens in a single SQL statement, so two concurrent
- * requests can never both observe the last remaining slot.
+ *
+ * The check-and-increment happens inside a single Firestore transaction, so
+ * two concurrent requests can never both observe the last remaining slot.
  */
 export async function consumeTaskQuota(
   env: Env,
   userId: string,
   limit: number,
 ): Promise<QuotaSnapshot> {
-  const { data, error } = await db(env).rpc('consume_task_quota', {
-    p_user_id: userId,
-    p_limit: limit,
-  });
-
-  if (error) dbError('consume_task_quota', error);
-
-  const row = (Array.isArray(data) ? data[0] : data) as
-    | { allowed: boolean; used: number; limit: number }
-    | undefined;
-
-  if (!row) throw new AppError('INTERNAL', 'Quota function returned no result');
-
-  return {
-    allowed: Boolean(row.allowed),
-    used: Number(row.used),
-    limit: Number(row.limit ?? limit),
-    remaining: Math.max(0, Number(row.limit ?? limit) - Number(row.used)),
-    resetsAt: nextUtcMidnight(),
-  };
+  const db = firestore(env);
+  const day = todayUtc();
+  const usageRef = db.doc(`usage_daily/${userId}:${day}`);
+  try {
+    const row = await db.runTransaction(async (t) => {
+      const snap = await t.get(usageRef);
+      const data = snap.exists ? (snap.data() as Partial<UsageRow>) : undefined;
+      const used = Number(data?.tasks_started ?? 0);
+      if (used >= limit) {
+        return { allowed: false, used, limit };
+      }
+      t.set(
+        usageRef,
+        {
+          user_id: userId,
+          day,
+          tasks_started: used + 1,
+          ai_calls: Number(data?.ai_calls ?? 0),
+          updated_at: nowIso(),
+        },
+        { merge: true },
+      );
+      return { allowed: true, used: used + 1, limit };
+    });
+    return {
+      allowed: Boolean(row.allowed),
+      used: Number(row.used),
+      limit: Number(row.limit),
+      remaining: Math.max(0, Number(row.limit) - Number(row.used)),
+      resetsAt: nextUtcMidnight(),
+    };
+  } catch (error) {
+    dbError('consume_task_quota', error as { message: string });
+  }
 }
 
 /** Gives a slot back after a failure that was our fault, not the user's. */
 export async function refundTaskQuota(env: Env, userId: string): Promise<void> {
-  const { error } = await db(env).rpc('refund_task_quota', { p_user_id: userId });
-  if (error) log.error('quota.refund_failed', { message: error.message, userId });
+  const db = firestore(env);
+  const day = todayUtc();
+  const usageRef = db.doc(`usage_daily/${userId}:${day}`);
+  try {
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(usageRef);
+      if (!snap.exists) return;
+      const used = Number((snap.data() as Pick<UsageRow, 'tasks_started'>).tasks_started ?? 0);
+      t.update(usageRef, {
+        tasks_started: Math.max(0, used - 1),
+        updated_at: nowIso(),
+      });
+    });
+  } catch (error) {
+    log.error('quota.refund_failed', {
+      message: error instanceof Error ? error.message : String(error),
+      userId,
+    });
+  }
 }
 
 export async function countActiveTasks(env: Env, userId: string): Promise<number> {
-  const { count, error } = await db(env)
-    .from('tasks')
-    .select('id', { count: 'exact', head: true })
-    .eq('owner_id', userId)
-    .in('status', ['queued', 'running']);
-
-  if (error) dbError('tasks.count_active', error);
-  return count ?? 0;
+  const db = firestore(env);
+  try {
+    const snap = await db
+      .collection('tasks')
+      .where('owner_id', '==', userId)
+      .where('status', 'in', ['queued', 'running'])
+      .count()
+      .get();
+    return Number(snap.data().count ?? 0);
+  } catch (error) {
+    dbError('tasks.count_active', error as { message: string });
+  }
 }
 
 export async function getGithubCredential(
   env: Env,
   userId: string,
 ): Promise<GithubCredentialRow | null> {
-  const { data, error } = await db(env)
-    .from('github_credentials')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  if (error) dbError('github_credentials.read', error);
-  return (data as GithubCredentialRow | null) ?? null;
+  const db = firestore(env);
+  try {
+    const snap = await db.doc(`github_credentials/${userId}`).get();
+    if (!snap.exists) return null;
+    return snap.data() as GithubCredentialRow;
+  } catch (error) {
+    dbError('github_credentials.read', error as { message: string });
+  }
 }
 
 export async function saveGithubCredential(
@@ -128,21 +187,19 @@ export async function saveGithubCredential(
     scopes: string[];
   },
 ): Promise<GithubCredentialRow> {
-  const { data, error } = await db(env)
-    .from('github_credentials')
-    .upsert(
-      {
-        user_id: input.userId,
-        github_login: input.login,
-        token_ciphertext: input.tokenCiphertext,
-        scopes: input.scopes,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
-    .select('*')
-    .single();
-
-  if (error || !data) dbError('github_credentials.upsert', error);
-  return data as GithubCredentialRow;
+  const db = firestore(env);
+  const now = nowIso();
+  const row: GithubCredentialRow = {
+    user_id: input.userId,
+    github_login: input.login,
+    token_ciphertext: input.tokenCiphertext,
+    scopes: input.scopes,
+    updated_at: now,
+  };
+  try {
+    await db.doc(`github_credentials/${input.userId}`).set(row, { merge: true });
+    return row;
+  } catch (error) {
+    dbError('github_credentials.upsert', error as { message: string });
+  }
 }

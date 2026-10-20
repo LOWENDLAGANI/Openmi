@@ -1,4 +1,3 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CreateTaskResponse,
   GithubConnectionView,
@@ -12,7 +11,6 @@ import type {
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
-
   constructor(code: string, message: string, status: number) {
     super(message);
     this.name = 'ApiError';
@@ -41,10 +39,15 @@ export interface ApiClient {
   projectTasks(projectId: string): Promise<TaskSummary[]>;
 }
 
-export function createApiClient(supabase: SupabaseClient): ApiClient {
+/**
+ * `getToken` returns the current Firebase ID token, forcing a refresh when
+ * asked. The API server verifies it with firebase-admin.
+ */
+export function createApiClient(
+  getToken: (forceRefresh?: boolean) => Promise<string>,
+): ApiClient {
   async function authHeaders(): Promise<Record<string, string>> {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
+    const token = await getToken();
     if (!token) throw new ApiError('UNAUTHENTICATED', 'Please sign in again', 401);
     return { authorization: `Bearer ${token}` };
   }
@@ -56,15 +59,16 @@ export function createApiClient(supabase: SupabaseClient): ApiClient {
       ...(await authHeaders()),
       ...(init.headers ?? {}),
     };
-
     const response = await fetch(`/api${path}`, { ...init, headers });
-
     // Sessions expire silently on a phone that was locked for hours.
     if (response.status === 401 && allowRetry) {
-      const { error } = await supabase.auth.refreshSession();
-      if (!error) return request<T>(path, init, false);
+      try {
+        await getToken(true);
+        return request<T>(path, init, false);
+      } catch {
+        // refresh failed — fall through to surface the 401
+      }
     }
-
     if (!response.ok) {
       let body: ErrorBody = {};
       try {
@@ -78,7 +82,6 @@ export function createApiClient(supabase: SupabaseClient): ApiClient {
         response.status,
       );
     }
-
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   }

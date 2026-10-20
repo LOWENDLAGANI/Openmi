@@ -6,9 +6,10 @@ import type { Env } from '../worker/env';
 const env = {
   ASSETS: { fetch: async () => new Response('assets') },
   TASK_WORKFLOW: {},
-  SUPABASE_URL: 'https://test.supabase.co',
-  SUPABASE_ANON_KEY: 'anon',
-  SUPABASE_SERVICE_ROLE_KEY: 'service',
+  FIREBASE_PROJECT_ID: 'test-project',
+  FIREBASE_API_KEY: 'test-api-key',
+  FIREBASE_CLIENT_EMAIL: 'firebase-adminsdk@test-project.iam.gserviceaccount.com',
+  FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n',
   GITHUB_TOKEN_ENC_KEY: Buffer.alloc(32, 3).toString('base64'),
   OPENROUTER_API_KEY: 'key',
   OPENMI_MODEL: 'test-model',
@@ -52,18 +53,18 @@ describe('public endpoints', () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
 
-    expect(body.supabaseUrl).toBe('https://test.supabase.co');
+    expect((body.firebase as { projectId: string }).projectId).toBe('test-project');
     expect(body.ready).toBe(true);
-    expect(JSON.stringify(body)).not.toContain('service');
-    expect(body).not.toHaveProperty('SUPABASE_SERVICE_ROLE_KEY');
+    expect(JSON.stringify(body)).not.toContain('PRIVATE KEY');
+    expect(body).not.toHaveProperty('FIREBASE_PRIVATE_KEY');
   });
 
   it('reports missing configuration instead of throwing', async () => {
-    const response = await app.request('/api/health', {}, { ...env, SUPABASE_URL: '' } as Env);
+    const response = await app.request('/api/health', {}, { ...env, FIREBASE_PROJECT_ID: '' } as Env);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { ok: boolean; missing: string[] };
     expect(body.ok).toBe(false);
-    expect(body.missing).toContain('SUPABASE_URL');
+    expect(body.missing).toContain('FIREBASE_PROJECT_ID');
   });
 });
 

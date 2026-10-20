@@ -1,7 +1,7 @@
 import type { Env } from '../env';
 import { AppError } from '../lib/errors';
 import { log } from '../lib/logger';
-import { db } from './client';
+import { firestore } from './client';
 import type { GithubInstallationRow, InstallationTokenRow } from './types';
 
 function dbError(context: string, error: { message: string } | null): never {
@@ -12,32 +12,42 @@ function dbError(context: string, error: { message: string } | null): never {
   });
 }
 
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
 export async function getInstallationForUser(
   env: Env,
   userId: string,
 ): Promise<GithubInstallationRow | null> {
-  const { data, error } = await db(env)
-    .from('github_installations')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  if (error) dbError('github_installations.read_user', error);
-  return (data as GithubInstallationRow | null) ?? null;
+  const db = firestore(env);
+  try {
+    const snap = await db
+      .collection('github_installations')
+      .where('user_id', '==', userId)
+      .limit(1)
+      .get();
+    if (snap.empty) return null;
+    const first = snap.docs[0];
+    if (!first) return null;
+    return first.data() as GithubInstallationRow;
+  } catch (error) {
+    dbError('github_installations.read_user', error as { message: string });
+  }
 }
 
 export async function getInstallationById(
   env: Env,
   installationId: number,
 ): Promise<GithubInstallationRow | null> {
-  const { data, error } = await db(env)
-    .from('github_installations')
-    .select('*')
-    .eq('installation_id', installationId)
-    .maybeSingle();
-
-  if (error) dbError('github_installations.read_id', error);
-  return (data as GithubInstallationRow | null) ?? null;
+  const db = firestore(env);
+  try {
+    const snap = await db.doc(`github_installations/${installationId}`).get();
+    if (!snap.exists) return null;
+    return snap.data() as GithubInstallationRow;
+  } catch (error) {
+    dbError('github_installations.read_id', error as { message: string });
+  }
 }
 
 /**
@@ -55,38 +65,48 @@ export async function upsertInstallation(
     suspended?: boolean;
   },
 ): Promise<GithubInstallationRow> {
-  // One linked installation per user: detach any previous one first, otherwise
-  // the partial unique index rejects the upsert when someone re-installs the
-  // App on a different account/organization.
-  if (input.userId) {
-    const { error: detachError } = await db(env)
-      .from('github_installations')
-      .update({ user_id: null })
-      .eq('user_id', input.userId)
-      .neq('installation_id', input.installationId);
-
-    if (detachError) dbError('github_installations.detach', detachError);
+  const db = firestore(env);
+  const now = nowIso();
+  try {
+    // One linked installation per user: detach any previous one first,
+    // otherwise re-installing the App on a different account would leave a
+    // stale link. Firestore has no partial unique index, so this is done in a
+    // read-then-batch-update (the window is negligible for this flow).
+    if (input.userId) {
+      const existing = await db
+        .collection('github_installations')
+        .where('user_id', '==', input.userId)
+        .get();
+      if (!existing.empty) {
+        const batch = db.batch();
+        for (const doc of existing.docs) {
+          if (Number(doc.id) !== input.installationId) {
+            batch.update(doc.ref, { user_id: null, updated_at: now });
+          }
+        }
+        await batch.commit();
+      }
+    }
+    const existingSnap = await db.doc(`github_installations/${input.installationId}`).get();
+    const previous = existingSnap.exists
+      ? (existingSnap.data() as GithubInstallationRow)
+      : null;
+    const row: GithubInstallationRow = {
+      installation_id: input.installationId,
+      user_id: input.userId !== undefined ? input.userId : previous?.user_id ?? null,
+      account_login: input.accountLogin,
+      account_type: input.accountType ?? previous?.account_type ?? null,
+      repository_selection:
+        input.repositorySelection === 'all' ? 'all' : 'selected',
+      suspended: input.suspended ?? previous?.suspended ?? false,
+      created_at: previous?.created_at ?? now,
+      updated_at: now,
+    };
+    await db.doc(`github_installations/${input.installationId}`).set(row);
+    return row;
+  } catch (error) {
+    dbError('github_installations.upsert', error as { message: string });
   }
-
-  const { data, error } = await db(env)
-    .from('github_installations')
-    .upsert(
-      {
-        installation_id: input.installationId,
-        ...(input.userId !== undefined ? { user_id: input.userId } : {}),
-        account_login: input.accountLogin,
-        account_type: input.accountType ?? null,
-        repository_selection: input.repositorySelection === 'all' ? 'all' : 'selected',
-        suspended: input.suspended ?? false,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'installation_id' },
-    )
-    .select('*')
-    .single();
-
-  if (error || !data) dbError('github_installations.upsert', error);
-  return data as GithubInstallationRow;
 }
 
 export async function setInstallationSuspended(
@@ -94,65 +114,70 @@ export async function setInstallationSuspended(
   installationId: number,
   suspended: boolean,
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('github_installations')
-    .update({ suspended, updated_at: new Date().toISOString() })
-    .eq('installation_id', installationId);
-
-  if (error) dbError('github_installations.suspend', error);
+  const db = firestore(env);
+  try {
+    await db
+      .doc(`github_installations/${installationId}`)
+      .update({ suspended, updated_at: nowIso() });
+  } catch (error) {
+    dbError('github_installations.suspend', error as { message: string });
+  }
 }
 
 export async function deleteInstallation(env: Env, installationId: number): Promise<void> {
-  const { error } = await db(env)
-    .from('github_installations')
-    .delete()
-    .eq('installation_id', installationId);
-
-  if (error) dbError('github_installations.delete', error);
+  const db = firestore(env);
+  try {
+    await db.doc(`github_installations/${installationId}`).delete();
+  } catch (error) {
+    dbError('github_installations.delete', error as { message: string });
+  }
 }
 
 export async function readCachedInstallationToken(
   env: Env,
   installationId: number,
 ): Promise<InstallationTokenRow | null> {
-  const { data, error } = await db(env)
-    .from('github_installation_tokens')
-    .select('*')
-    .eq('installation_id', installationId)
-    .maybeSingle();
-
-  if (error) dbError('installation_tokens.read', error);
-  return (data as InstallationTokenRow | null) ?? null;
+  const db = firestore(env);
+  try {
+    const snap = await db.doc(`github_installation_tokens/${installationId}`).get();
+    if (!snap.exists) return null;
+    return snap.data() as InstallationTokenRow;
+  } catch (error) {
+    dbError('installation_tokens.read', error as { message: string });
+  }
 }
 
 export async function saveCachedInstallationToken(
   env: Env,
   input: { installationId: number; tokenCiphertext: string; expiresAt: string },
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('github_installation_tokens')
-    .upsert(
+  const db = firestore(env);
+  try {
+    await db.doc(`github_installation_tokens/${input.installationId}`).set(
       {
         installation_id: input.installationId,
         token_ciphertext: input.tokenCiphertext,
         expires_at: input.expiresAt,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso(),
       },
-      { onConflict: 'installation_id' },
+      { merge: true },
     );
-
-  if (error) dbError('installation_tokens.upsert', error);
+  } catch (error) {
+    dbError('installation_tokens.upsert', error as { message: string });
+  }
 }
 
 export async function deleteCachedInstallationToken(
   env: Env,
   installationId: number,
 ): Promise<void> {
-  const { error } = await db(env)
-    .from('github_installation_tokens')
-    .delete()
-    .eq('installation_id', installationId);
-
-  // Cache invalidation must never fail a request.
-  if (error) log.warn('installation_tokens.delete_failed', { message: error.message });
+  const db = firestore(env);
+  try {
+    await db.doc(`github_installation_tokens/${installationId}`).delete();
+  } catch (error) {
+    // Cache invalidation must never fail a request.
+    log.warn('installation_tokens.delete_failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
