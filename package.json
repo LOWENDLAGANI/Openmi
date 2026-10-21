@@ -5,7 +5,7 @@
   "type": "module",
   "description": "OpenMi — mobile-first, serverless vibe-coding agent that commits to your GitHub repo.",
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "vite",
