@@ -58,6 +58,16 @@ export async function signInWithGithub(auth: Auth): Promise<void> {
   // in-memory at that point, the session vanishes when GitHub redirects back
   // and the user lands on the login screen again.
   await setPersistence(auth, browserLocalPersistence);
+  // Marks that an OAuth redirect is in flight. On return, if Firebase reports
+  // no user and no redirect result (a silent break, e.g. wrong callback URL),
+  // the app can surface a diagnostic instead of bouncing to login with no
+  // explanation. sessionStorage is the right scope: it survives the redirect
+  // (same origin) and is cleared when the tab closes.
+  try {
+    sessionStorage.setItem('openmi:oauthPending', '1');
+  } catch {
+    /* storage unavailable — diagnostic only */
+  }
   await signInWithRedirect(auth, provider);
 }
 

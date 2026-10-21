@@ -33,6 +33,25 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 const ACTIVE_PROJECT_KEY = 'openmi.activeProjectId';
+/** Set before the OAuth redirect navigates away; consumed to detect a silent break. */
+const OAUTH_PENDING_KEY = 'openmi:oauthPending';
+function clearOAuthPending(): void {
+  try {
+    sessionStorage.removeItem(OAUTH_PENDING_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+/** Returns true if a redirect was in flight, and clears the flag atomically. */
+function consumeOAuthPending(): boolean {
+  try {
+    const pending = sessionStorage.getItem(OAUTH_PENDING_KEY) === '1';
+    sessionStorage.removeItem(OAUTH_PENDING_KEY);
+    return pending;
+  } catch {
+    return false;
+  }
+}
 
 export function AppProvider({
   config,
@@ -112,7 +131,9 @@ export function AppProvider({
     // This must run once on mount; the token is unavailable afterwards.
     getRedirectResult(auth)
       .then((result) => {
-        if (!active || !result) return;
+        if (!active) return;
+        if (!result) return; // leave the pending flag for onAuthStateChanged to diagnose
+        clearOAuthPending();
         const token = githubProviderTokenFrom(result);
         if (token) {
           pendingProviderTokenRef.current = token;
@@ -134,6 +155,7 @@ export function AppProvider({
       })
       .catch((redirectError) => {
         if (!active) return;
+        clearOAuthPending(); // a specific error is surfaced below; don't double-report
         // A failed redirect leaves the user signed out. The previous code
         // swallowed this entirely, so the bounce back to the login screen
         // looked like an endless loop with no explanation. Surface the real
@@ -166,7 +188,19 @@ export function AppProvider({
       userRef.current = nextUser;
       setUser(nextUser);
       setAuthReady(true);
-      if (nextUser) void refresh(nextUser);
+      if (nextUser) {
+        clearOAuthPending();
+        void refresh(nextUser);
+      } else if (consumeOAuthPending()) {
+        // We just navigated back from an OAuth redirect (flag set before
+        // signInWithRedirect) but Firebase reports no user and getRedirectResult
+        // returned null — the redirect chain broke silently. Typical causes:
+        // app domain missing from Firebase Authorized domains, or the GitHub
+        // OAuth app's callback URL is not <authDomain>/__/auth/handler.
+        setError(
+          'GitHub sign-in returned without establishing a session. Add your site domain to Firebase → Authentication → Settings → Authorized domains, and verify the GitHub OAuth callback URL in Firebase console.',
+        );
+      }
     });
     return () => {
       active = false;
