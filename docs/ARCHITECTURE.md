@@ -6,40 +6,36 @@ This document explains *why* the system is shaped this way. The README covers *w
 
 ```
 POST /api/tasks
-  ├─ verify Supabase JWT (local, JWKS-cached)
+  ├─ verify Firebase ID token (firebase-admin, JWKS-cached)
   ├─ load project (owner-scoped)                  -> 404 if not yours
   ├─ require stored GitHub credential            -> 409 GITHUB_NOT_CONNECTED
   ├─ count active tasks                          -> 429 TOO_MANY_RUNNING_TASKS
-  ├─ consume_task_quota(user, limit)  [atomic SQL]-> 429 QUOTA_EXCEEDED
-  ├─ INSERT tasks row (status=queued)
-  ├─ startTaskRun(): Workflow binding (CF) or POST /api/internal/run-task (Vercel)
+  ├─ consumeTaskQuota(user, limit)  [Firestore transaction] -> 429 QUOTA_EXCEEDED
+  ├─ create tasks doc (status=queued)
+  ├─ startTaskRun(): POST /api/internal/run-task (self-dispatch, 202)
   └─ 202 { task, quota }
 ```
 
 The response returns before any model call happens. The phone can go to sleep immediately.
 
 On Vercel the dispatch is a self-invocation of the same function: the runner endpoint answers `202`
-immediately, then executes the pipeline inside `waitUntil`, bounded by `maxDuration`.
+immediately, then executes the pipeline, bounded by `maxDuration`.
 
-## One pipeline, two runtimes
+## One pipeline, one runtime
 
-`worker/pipeline/run-task.ts` is the heart of the product; it knows nothing about a platform. It
-takes a `StepRunner`:
-
-| Runner | Platform | Durability model |
-| --- | --- | --- |
-| `WorkflowStepRunner` | Cloudflare Workflows | Engine-persisted step results, per-instance serialization, automatic replay |
-| `createInlineStepRunner` | Vercel / Node | Bounded retries + exponential backoff + wall-clock deadline, with database leases and re-dispatch |
+`server/agent/pipeline.ts` is the heart of the product; it knows nothing about a platform. It takes
+a `StepRunner` (`server/agent/step-runner.ts`) — the inline implementation with bounded retries,
+exponential backoff and a wall-clock deadline.
 
 Steps:
 
 | Step | What it does | Idempotency guard |
 | --- | --- | --- |
 | `claim task` | queued → running, takes the lease, verifies GitHub link | Skips terminal tasks; lease update is atomic |
-| `resolve base commit` | pins `baseSha` + tree sha of the branch head | Immutable base, stored on the row |
+| `resolve base commit` | pins `baseSha` + tree sha of the branch head | Immutable base, stored on the doc |
 | `read repository context` | bounded file selection, contents fetched by blob sha | Pure read |
-| `generate patch set` | model call + schema/policy validation, patch stored in Postgres | Writes a full patch set, replaceable |
-| `commit to github` | one atomic commit, then marks the task succeeded | Skips if `commit_sha` already set |
+| `generate patch set` | model call + schema/policy validation, patch stored in Firestore | Writes a full patch set, replaceable |
+| `commit to github` | one atomic commit, then marks the task succeeded | Skips if `commitSha` already set |
 | `finalize task` | timeline event | Append-only |
 
 Failure handling is itself a step: it records the error, writes a timeline entry, and refunds the
@@ -48,13 +44,13 @@ quota only for failures that were ours (`CONFIG_ERROR`, `AI_*`, `GITHUB_AUTH_EXP
 
 ### Durable execution without an engine
 
-Vercel has no Workflow equivalent, so durability is a property of the data rather than the runtime:
+Vercel has no workflow engine, so durability is a property of the data rather than the runtime:
 
-- **Lease.** `leaseTask` flips `queued → running` and stamps `lease_expires_at` in one conditional
-  update; only the winner runs. A second invocation sees a live lease and exits. Expired leases are
-  fair game, which is what makes crash recovery possible.
-- **Resumption markers.** The pinned base sha, the stored patch set and `commit_sha` are write-once
-  guards. Every stage reads the row first and skips what already happened, so any invocation can
+- **Lease.** `leaseTask` flips `queued → running` and stamps `leaseExpiresAt` in one conditional
+  Firestore transaction; only the winner runs. A second invocation sees a live lease and exits.
+  Expired leases are fair game, which is what makes crash recovery possible.
+- **Resumption markers.** The pinned base sha, the stored patch set and `commitSha` are write-once
+  guards. Every stage reads the doc first and skips what already happened, so any invocation can
   pick up any partially completed task.
 - **Deadline handoff.** `RUN_BUDGET_SECONDS` (default 240, under the 300 s `maxDuration`) is the
   invocation's budget. When a step would exceed it, the runner throws `DeadlineExceededError`
@@ -68,42 +64,40 @@ Vercel has no Workflow equivalent, so durability is a property of the data rathe
 
 ### Why step return values stay small
 
-Step results are capped and replayed on recovery (and re-fetched after a Vercel re-dispatch). So:
+Step results are capped and re-fetched after a Vercel re-dispatch. So:
 
-- The GitHub token is **never** returned from a step; it is decrypted from Postgres inside each step
-  that needs it.
-- Full file contents live in `tasks.patch` (jsonb), not in step state.
+- The GitHub token is **never** returned from a step; it is decrypted from Firestore inside each
+  step that needs it.
+- Full file contents live in `tasks.patch`, not in step state.
 - The repo tree is re-fetched by pinned sha where needed instead of being carried through.
 
 ### Fail-fast versus retry
 
 `AppError.retryable` drives a single classification point. Non-retryable business/policy failures
-are rethrown as `NonRetryableError` (from `cloudflare:workflows`) on Cloudflare and short-circuited
-by the inline runner elsewhere, so neither burns retries — and, in the AI step, neither burns
-money — on something that cannot succeed. Transient failures (DB blips, provider 5xx) use
+are short-circuited by the inline runner, so neither burns retries — and, in the AI step, neither
+burns money — on something that cannot succeed. Transient failures (DB blips, provider 5xx) use
 exponential backoff.
 
 ## Trust boundaries
 
-1. **Browser → Worker.** Verified Firebase Auth ID token only. `firebase-admin`'s
+1. **Browser → Function.** Verified Firebase Auth ID token only. `firebase-admin`'s
    `verifyIdToken` validates signature, issuer, audience and expiry against Google's cached public
    keys. Malformed tokens are rejected by a local shape check before any network call. No token is
-   ever trusted for identity
-   fields supplied by the client.
-2. **Worker → Postgres.** Service role, and every query is additionally scoped by `owner_id`. RLS is
-   enabled anyway: `github_credentials` is `select … using (false)` for clients, so a leaked anon key
-   cannot read stored tokens.
-3. **Worker → GitHub.** The user's OAuth token or App installation token, encrypted at rest with
-   AES-256-GCM (random IV per record, key from a Worker secret). Only used inside pipeline steps;
-   never logged, never returned.
+   ever trusted for identity fields supplied by the client.
+2. **Function → Firestore.** Admin SDK (service account). Firestore security rules deny all client
+   access, so even a leaked web config cannot read stored tokens. Every query is additionally
+   scoped by `ownerId`.
+3. **Function → GitHub.** The user's OAuth token or App installation token, encrypted at rest with
+   AES-256-GCM (random IV per record, key from an environment secret). Only used inside pipeline
+   steps; never logged, never returned.
 4. **Model output.** Untrusted by construction. Every file path passes `assertSafePath`, every
    operation is reconciled against the real tree, and content is size-checked before a blob exists.
 5. **GitHub App webhooks.** Verified with HMAC over the raw body and matched against the configured
-   `app_id` before any database write.
+   `appId` before any database write.
 
 ## GitHub commit protocol
 
-`worker/github/commit.ts` implements "one prompt, one commit, no surprises":
+`server/github/commit.ts` implements "one prompt, one commit, no surprises":
 
 1. Read base commit → tree sha → full tree (recursive).
 2. `assertPatchTargets` — updates must still exist and carry the same blob sha as the snapshot.
@@ -120,7 +114,7 @@ exponential backoff.
 
 ### Resolution order
 
-`worker/github/auth.ts` is the only place that answers "how may this user's agent write to GitHub?":
+`server/github/auth.ts` is the only place that answers "how may this user's agent write to GitHub?":
 
 ```
 App configured? -> installation for user? -> not suspended? -> installation token (1h)
@@ -144,47 +138,48 @@ could bind somebody else's installation to their own account.
 ### Token lifecycle
 
 Installation tokens last ~1 hour and may be reused concurrently. They are cached at two levels:
-per-isolate `Map` (free, warm) and Postgres with AES-256-GCM ciphertext (shared across isolates,
-which matters because every Workflow step may land elsewhere). Concurrent cold misses are collapsed
-with an in-isolate single-flight promise, and a token is treated as stale five minutes before its
-`expires_at`. A rejected token is evicted and re-minted once; tokens are opaque, never parsed.
+in-memory `Map` (free, warm) and Firestore with AES-256-GCM ciphertext (shared across isolates,
+which matters because every invocation may land elsewhere). Concurrent cold misses are collapsed
+with an in-memory single-flight promise, and a token is treated as stale five minutes before its
+`expiresAt`. A rejected token is evicted and re-minted once; tokens are opaque, never parsed.
 
 ### Webhooks
 
 `POST /api/webhooks/github` is public by necessity and authenticates itself: HMAC-SHA-256 over the
-raw body, compared with `crypto.subtle.verify` (constant time). Only the `installation` event is
-acted on, and the payload's `app_id` must match the configured App. `created` keeps an existing
-user link instead of clearing it, because the webhook can arrive before the browser callback.
+raw body, compared in constant time. Only the `installation` event is acted on, and the payload's
+`appId` must match the configured App. `created` keeps an existing user link instead of clearing
+it, because the webhook can arrive before the browser callback.
 
 ## Data model
 
 ```
-profiles             1:1 with auth.users
-github_credentials   1:1 with auth.users; OAuth ciphertext + scopes (fallback path)
-github_installations App installations; user_id nullable until the callback claims it
+profiles             1:1 with Firebase Auth uid
+github_credentials   1:1 with uid; OAuth ciphertext + scopes (fallback path)
+github_installations App installations; userId nullable until the callback claims it
 github_installation_tokens  encrypted 1h tokens, keyed by installation
-projects           owner_id, repo_full_name (unique per owner), default_branch, commit_mode
-tasks              prompt, status, pinned base, patch jsonb, commit info, error, token usage
-task_events        append-only timeline (ordered by identity column)
-usage_daily        (user_id, day) counters; the quota ledger
+projects             ownerId, repoFullName (unique per owner), defaultBranch, commitMode
+tasks                prompt, status, pinned base, patch, commit info, error, token usage
+task_events          append-only timeline (subcollection, ordered by createdAt)
+usage_daily          (userId, day) counters; the quota ledger
 ```
 
-`tasks.lease_expires_at` is the ownership marker used by the serverless runner (see
+`tasks.leaseExpiresAt` is the ownership marker used by the serverless runner (see
 [Durable execution without an engine](#durable-execution-without-an-engine)).
 
-`usage_daily` is the single source of truth for budget. The RPC does the check and increment in one
-statement; a separate row-per-day key makes the "resets at midnight UTC" promise trivial and keeps
-historical usage for future analytics.
+`usage_daily` is the single source of truth for budget. The Firestore transaction does the check
+and increment in one atomic operation; a separate doc-per-day key makes the "resets at midnight
+UTC" promise trivial and keeps historical usage for future analytics.
 
 ## Frontend
 
-- No router dependency: ~30 lines of `history` handling for three screens.
-- All reads go through the Worker API, so the SPA never needs to know table shapes, and every query
-  is owner-scoped server-side.
+- No router dependency: ~30 lines of `history` handling for a handful of screens.
+- All reads go through the Function API, so the SPA never needs to know collection shapes, and
+  every query is owner-scoped server-side.
 - Polling is conditional: only while a task is `queued`/`running`. No idle battery drain.
 - Runtime config (`/api/config`) means one build artifact works against any environment.
-- Auth: Supabase PKCE. The GitHub `provider_token` is sent to `/api/github/link` once, immediately
-  after sign-in, because Supabase only exposes it on the initial session.
+- Auth: Firebase Auth (Google provider). The GitHub `provider_token` from the linked GitHub
+  provider is sent to `/api/github/link` once, immediately after link, because Firebase only
+  exposes it on the initial link result.
 
 ## Deliberate deferrals
 
@@ -192,14 +187,14 @@ historical usage for future analytics.
 | --- | --- | --- |
 | ~~GitHub App tokens~~ | Done in Phase 2 | `resolveGithubAuth` prefers installations; OAuth is the fallback |
 | Repo-wide context (embeddings) | Phase 1 repos are small; deterministic selection is cheaper | Add a vector index step before `generate patch set` |
-| Streaming progress | Polling is enough at ≤5 tasks/day | Workflow events + SSE; the timeline table already models the data |
+| Streaming progress | Polling is enough at ≤5 tasks/day | SSE; the timeline collection already models the data |
 | Diff-based patches | Full-file content is safer for small models | Keep full-file output, add diff application only for large files |
-| Multi-file semantic verification | Needs a build sandbox | Phase 3 build step with `wrangler dev` per project |
+| Multi-file semantic verification | Needs a build sandbox | Phase 3 build step per project |
 
 ## Known constraints
 
-- The AI step must complete within one step attempt (6 min timeout on Cloudflare, and within
-  `RUN_BUDGET_SECONDS` on Vercel). Large refactors need task splitting.
+- The AI step must complete within one step attempt (within `RUN_BUDGET_SECONDS` on Vercel). Large
+  refactors need task splitting.
 - Vercel self-dispatch requires the deployment to be reachable by the function itself; deployments
   behind Vercel Authentication need `INTERNAL_DISPATCH_URL` or must run on Production.
 - Cron runs at most daily on the Hobby plan, so recovery latency between cron sweeps relies on the
@@ -207,7 +202,5 @@ historical usage for future analytics.
 - Repos with an enormous tree rely on GitHub's `base_tree` semantics and a truncated-tree fallback
   check. The full superset assertion is skipped (and logged) when the base tree comes back truncated.
 - The SPA bundle includes the Firebase client SDK (auth only; no Firestore client — all data flows
-  through the API). Route-level code
-  splitting is the obvious next optimization.
-- Octokit pushes the Worker bundle to ~336 KB gzipped, under the Workers limit but worth watching.
-  On Vercel the same code is bundled per function instead, where size only affects cold starts.
+  through the API). Route-level code splitting is the obvious next optimization.
+- Octokit adds to the function bundle size; on Vercel this only affects cold starts.

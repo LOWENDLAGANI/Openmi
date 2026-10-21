@@ -5,8 +5,9 @@ your GitHub repository and commits it — even after you close the tab.
 
 **Status:** Phase 0 (walking skeleton), Phase 1 (auth, database, quota, durable agent, atomic
 GitHub commits), Phase 2 (GitHub App installation tokens, webhooks, token caching) and Phase 2.5
-(Vercel runtime: serverless runner, leases, cron recovery) are implemented and tested. See
-[Roadmap](#roadmap) for what is deliberately deferred and the current completion estimate.
+(Vercel runtime: serverless runner, leases, cron recovery) are implemented and tested. This is a
+clean rebuild on Firebase + Vercel (no Supabase, no Cloudflare). See [Roadmap](#roadmap) for what
+is deliberately deferred.
 
 ---
 
@@ -33,9 +34,8 @@ Every stage is a step with an idempotency guard, so a lost connection, a locked 
 browser or a timed-out function does not lose work: the task is re-dispatched and resumes from
 persisted state. Task state lives in Firestore, not in the client.
 
-> **Runtime note:** `firebase-admin` requires a Node runtime, so the Cloudflare Workers edge
-> deployment path is no longer supported. Vercel Functions (Node 22) is the sole runtime. The
-> `wrangler.jsonc` config is retained for reference only. See
+> **Runtime note:** `firebase-admin` requires a Node runtime, so Vercel Functions (Node 22) is the
+> sole runtime. There is no edge/Cloudflare deployment path. See
 > [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Stack
@@ -79,8 +79,8 @@ the public web config. Full walkthrough: [firebase/README.md](firebase/README.md
 
 ### 3. Configure the environment
 
-Copy [.env.example](.env.example) to `.dev.vars` (Node dev server) or `.env.local` (`vercel dev`),
-then fill in:
+Copy [.env.example](.env.example) to `.env.local` (used by both `vercel dev` and the local Node API
+server), then fill in:
 
 - `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (service account)
 - `GITHUB_TOKEN_ENC_KEY` — `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
@@ -114,8 +114,7 @@ npm run dev:api   # Node API server on :8787 (same handler Vercel runs)
 npm run dev       # Vite on :3000, proxies /api -> :8787
 ```
 
-Open `http://localhost:3000`. `npm run dev:api:worker` is the Cloudflare equivalent (workerd on
-:8788) if you want to exercise that runtime.
+Open `http://localhost:3000`.
 
 ### 6. Deploy to Vercel
 
@@ -150,17 +149,6 @@ Production. Cron jobs are exempt from protection.
 
 **Local Vercel emulation:** `vercel dev` works too; it serves the SPA and `/api/*` from
 `.env.local`. Do not run it on port 8787 at the same time as `npm run dev:api`.
-
-### 7. Cloudflare Workers (deprecated)
-
-`firebase-admin` requires a Node runtime and cannot run on the Cloudflare Workers edge. The
-`wrangler.jsonc` config and `worker/index.ts` entry are retained for reference only and are not a
-supported deployment target after the Firebase pivot. Vercel Functions (Node 22) is the sole
-runtime.
-
-Public values live in `wrangler.jsonc` `vars`; secrets go through `npx wrangler secret put <NAME>`
-(see `.dev.vars.example`). No `INTERNAL_TASK_TOKEN` is needed there: the `TASK_WORKFLOW` binding is
-used instead of HTTP dispatch.
 
 ## Environment variables
 
@@ -236,13 +224,9 @@ failures caused by the system (provider/config/internal) refund the reserved slo
 
 ## Durable execution on serverless
 
-Cloudflare has a Workflow engine; Vercel does not. The pipeline is therefore written against a tiny
-`StepRunner` interface (`worker/pipeline/step-runner.ts`) with two implementations:
-
-1. **Workflow steps** (`WorkflowStep.do`) on Cloudflare — replay-backed, per-instance serialized.
-2. **Inline steps** on Vercel — bounded retries, exponential backoff, and a wall-clock deadline.
-
-Durability on Vercel comes from three properties instead of an engine:
+Vercel has no workflow engine, so durability is a property of the data rather than the runtime. The
+pipeline runs through an inline `StepRunner` with bounded retries, exponential backoff, and a
+wall-clock deadline. Three properties make it durable:
 
 - **Leases.** `tasks.lease_expires_at` decides which invocation owns a task; a crashed invocation's
   lease expires instead of blocking recovery forever.
@@ -261,7 +245,7 @@ session. The endpoint is excluded from the SPA rewrite and always reaches the fu
 
 1. **App installation** — short-lived (1 h) installation tokens, scoped to the repositories the
    user installed the App on, revocable at any time. Tokens are cached in Firestore (encrypted) and
-   in-isolate, refreshed 5 minutes before expiry, and re-minted exactly once on a dead token.
+   in-memory, refreshed 5 minutes before expiry, and re-minted exactly once on a dead token.
 2. **OAuth fallback** — the Phase 1 token, for deployments without an App and for users who have
    not installed it yet.
 
@@ -275,10 +259,9 @@ body with `X-Hub-Signature-256` and keep the installation table in sync (`create
 
 ```bash
 npm run typecheck    # API, SPA, build tooling and test configs
-npm test             # unit, workflow, and API tests
+npm test             # unit and API tests
 npm run build        # SPA bundle
-npm run check:node   # the Vercel handler loads on plain Node (no Worker-only imports)
-npm run check:bundle # wrangler dry-run — reference-only (Cloudflare target is deprecated)
+npm run check:node   # the Vercel handler loads on plain Node
 npm run verify       # all of the above
 ```
 
@@ -290,8 +273,7 @@ App JWT claims, install-state signing, webhook HMAC verification, installation-t
 the App-vs-OAuth resolution order.
 
 Local end-to-end checks against the Node API server: `/api/health`, `/api/config`, 401s for
-missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, runner/cron 401 and 422 responses, and
-`npm run check:node` proving the Vercel entry has no `cloudflare:*` imports.
+missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, and runner/cron 401 and 422 responses.
 
 Not covered without live credentials: real Firestore reads/writes and index deployment, a full
 GitHub OAuth round trip, a real App installation + token mint, webhook-driven DB writes, and an actual
@@ -301,25 +283,23 @@ commit. The browser UI is not exercised by automated tests.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 0 | Walking skeleton: SPA, API, Firebase auth, health/config | 0% |
-| 1 | Quota, durable agent, atomic commits, timeline, commit link | 0% |
-| 2 | GitHub App install tokens, signed install state, webhooks, token cache | 0% |
-| 2.5 | Vercel runtime: step runner, leases, HTTP dispatch, cron recovery | 0 |
-| 3 | Repo file browser, live streaming progress, retry failed tasks, preview builds, PR review comments, per-user token budget | 0% |
-| 4 | Team workspaces, Stripe billing, usage analytics | 0% |
-*.
+| 0 | Walking skeleton: SPA, API, Firebase auth, health/config | Done |
+| 1 | Quota, durable agent, atomic commits, timeline, commit link | Done |
+| 2 | GitHub App install tokens, signed install state, webhooks, token cache | Done |
+| 2.5 | Vercel runtime: step runner, leases, HTTP dispatch, cron recovery | Done |
+| 3 | Repo file browser, live streaming progress, retry failed tasks, preview builds, PR review comments, per-user token budget | Deferred |
+| 4 | Team workspaces, Stripe billing, usage analytics | Deferred |
 
 ## Repo layout
 
 ```
-api/               Vercel function entry + env adapter
-worker/            API: routes, auth, db, agent, github, pipeline, platform, workflows
+api/               Vercel catch-all function entry
+server/            API: routes, auth, db, agent, github, pipeline, platform
 scripts/           Local Node API server
 src/               SPA: pages, components, lib
-shared/            Wire types shared by both runtimes
+shared/            Wire types shared by API and SPA
 firebase/          Firestore rules, composite indexes, setup walkthrough
 tests/             Vitest suites
 docs/              Architecture notes
 vercel.json        Function routing, SPA fallback, cron, maxDuration
-wrangler.jsonc     Cloudflare Workers configuration (alternative runtime)
 ```
