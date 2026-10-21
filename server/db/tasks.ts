@@ -1,5 +1,6 @@
 import type { Task, TaskEvent, TaskStatus, PatchSet, ErrorCode } from '../../shared/types.js';
 import { collections, firestore } from '../firebase.js';
+import { FieldValue } from 'firebase-admin/firestore';
 import { randomHex } from '../crypto.js';
 
 function fromDoc(id: string, data: Record<string, any>): Task {
@@ -117,7 +118,7 @@ export async function leaseTask(
 export async function releaseLease(taskId: string): Promise<void> {
   await collections.tasks().doc(taskId).update({
     status: 'queued',
-    leaseExpiresAt: firestore.FieldValue.delete(),
+    leaseExpiresAt: FieldValue.delete(),
     updatedAt: new Date(),
   });
 }

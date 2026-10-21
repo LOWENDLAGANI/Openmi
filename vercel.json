@@ -3,12 +3,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": null,
-  "functions": {
-    "api/[[...route]].ts": {
-      "runtime": "nodejs22.x",
-      "maxDuration": 300
-    }
-  },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],

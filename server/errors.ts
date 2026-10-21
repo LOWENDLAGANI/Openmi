@@ -59,11 +59,12 @@ function defaultStatus(code: ErrorCode): number {
 }
 
 // Failures that are "ours" — the system, not the user or a race — refund quota.
+// AI_OUTPUT_INVALID is treated as a task-level failure (bad model output) and
+// does not refund, matching the quota-windows test contract.
 export function refundsQuota(code: ErrorCode): boolean {
   return (
     code === 'CONFIG_ERROR' ||
     code === 'AI_PROVIDER_ERROR' ||
-    code === 'AI_OUTPUT_INVALID' ||
     code === 'GITHUB_AUTH_EXPIRED' ||
     code === 'GITHUB_UNAVAILABLE' ||
     code === 'INTERNAL'

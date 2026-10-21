@@ -2,7 +2,7 @@
 import 'dotenv/config';
 
 async function main() {
-  const mod = await import('../api/[[...route]].ts');
+  const mod = await import('../api/[[...route]].js');
   if (typeof mod.default !== 'function') {
     throw new Error('handler default export is not a function');
   }

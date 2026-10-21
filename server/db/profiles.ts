@@ -1,4 +1,4 @@
-import type { Profile } from '../shared/types.js';
+import type { Profile } from '../../shared/types.js';
 import { collections, firestore } from '../firebase.js';
 
 export async function getOrCreateProfile(

@@ -75,7 +75,7 @@ export default function Home({ onOpenProject }: { onOpenProject: (id: string) =>
           <h1 className="text-xl font-bold text-white">OpenMi</h1>
           {quota && (
             <p className="text-xs text-slate-400">
-              {quota.remainingToday}/{quota.dailyTaskLimit} tasks left today
+              {quota.remainingToday}/{quota.dailyLimit} tasks left today
               {quota.runningNow > 0 && ` · ${quota.runningNow} running`}
             </p>
           )}

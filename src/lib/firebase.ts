@@ -8,8 +8,9 @@ let config: PublicConfig | undefined;
 export async function getConfig(): Promise<PublicConfig> {
   if (config) return config;
   const res = await fetch('/api/config');
-  config = await res.json();
-  return config;
+  const cfg = (await res.json()) as PublicConfig;
+  config = cfg;
+  return cfg;
 }
 
 export async function initFirebase(): Promise<void> {

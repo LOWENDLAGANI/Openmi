@@ -80,7 +80,7 @@ export default function ProjectView({
       </h1>
       {quota && (
         <p className="text-xs text-slate-400 mb-4">
-          {quota.remainingToday}/{quota.dailyTaskLimit} tasks left today
+          {quota.remainingToday}/{quota.dailyLimit} tasks left today
         </p>
       )}
 

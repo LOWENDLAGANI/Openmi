@@ -1,7 +1,7 @@
 import type { Octokit } from '@octokit/rest';
 import type { PatchSet, CommitMode } from '../../shared/types.js';
 import { AppError } from '../errors.js';
-import { assertPatchTargets, assertSuperset, type TreeEntry } from './policy.js';
+import { assertPatchTargets, assertSuperset, type TreeEntry } from '../agent/policy.js';
 
 export interface PinnedBase {
   owner: string;
