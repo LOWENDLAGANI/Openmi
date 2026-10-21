@@ -23,7 +23,13 @@ const GUARANTEES = [
 ];
 
 export function Landing() {
-  const { auth } = useApp();
+  // The context `error` carries every OAuth redirect diagnostic (silent
+  // redirect breaks, unauthorized-domain, blocked network, etc). Landing is
+  // rendered exactly when the user is signed out — i.e. when those failures
+  // happen — so it must display them; previously they were set in context but
+  // never rendered here, which made every failed sign-in look like a silent
+  // bounce back to the login screen.
+  const { auth, error: authError } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,7 +77,7 @@ export function Landing() {
           ))}
         </div>
 
-        {error ? <Banner>{error}</Banner> : null}
+        {error || authError ? <Banner>{error ?? authError}</Banner> : null}
       </div>
 
       <div className="space-y-3 pb-2">

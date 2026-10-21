@@ -131,8 +131,23 @@ export function AppProvider({
     // This must run once on mount; the token is unavailable afterwards.
     getRedirectResult(auth)
       .then((result) => {
-        if (!active) return;
-        if (!result) return; // leave the pending flag for onAuthStateChanged to diagnose
+        if (!result) {
+          // Two possible reasons: the user simply opened the site signed-out
+          // (flag absent), or we started an OAuth redirect that came back
+          // WITHOUT a credential — the chain broke silently (wrong origin,
+          // blocked Firebase auth-handler iframe, storage cleared mid-flow).
+          // The SDK always emits onAuthStateChanged(null) BEFORE this promise
+          // settles (init finishes first, the redirect result is delivered
+          // afterwards), so the pending flag must be judged here — consuming
+          // it in the auth listener fired a false positive on every
+          // successful sign-in.
+          if (active && consumeOAuthPending()) {
+            setError(
+              `GitHub sign-in returned to ${window.location.origin} without establishing a session. Add this domain to Firebase → Authentication → Settings → Authorized domains, verify the GitHub OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`,
+            );
+          }
+          return;
+        }
         clearOAuthPending();
         const token = githubProviderTokenFrom(result);
         if (token) {
@@ -141,10 +156,13 @@ export function AppProvider({
           // this async result lands, so refresh() already ran with an empty
           // pending token and never linked GitHub. Refresh again now that the
           // token is captured. The linkedTokenRef guard makes a double-link a
-          // no-op if the first refresh already won the race.
+          // no-op if the first refresh already won the race. Deliberately not
+          // gated on `active`: in dev StrictMode the first effect run receives
+          // the result, and its refs are shared with the second (still-active)
+          // run, so the captured token must survive the cleanup.
           const current = userRef.current;
           if (current) void refresh(current);
-        } else {
+        } else if (active) {
           // Signed in, but Firebase returned no GitHub provider token (rare).
           // Linking would then never succeed; tell the user instead of
           // silently leaving them on the Connect-GitHub screen.
@@ -179,7 +197,11 @@ export function AppProvider({
                 ? 'GitHub sign-in timed out. Please try again.'
                 : code === 'auth/invalid-credential' || code === 'auth/invalid-verification-code'
                   ? 'GitHub rejected the sign-in. Check the GitHub provider in Firebase console: Client ID, Client secret, and the authorized callback URL must match your GitHub OAuth app.'
-                  : `GitHub sign-in did not complete (${code ?? 'unknown error'}). Try again.`,
+                  : code === 'auth/unauthorized-domain'
+                    ? `This domain is not allowed to use Firebase sign-in. Add ${window.location.origin.replace(/^https?:\/\//, '')} to Firebase → Authentication → Settings → Authorized domains, then try again.`
+                    : code === 'auth/network-request-failed'
+                      ? 'The sign-in could not finish because a request to Firebase failed. An ad blocker or network restriction may be interfering — allow Firebase/auth domains for this site and try again.'
+                      : `GitHub sign-in did not complete (${code ?? 'unknown error'}). Try again.`,
         );
       });
 
@@ -190,17 +212,17 @@ export function AppProvider({
       setAuthReady(true);
       if (nextUser) {
         clearOAuthPending();
+        // A failed attempt's banner must not outlive a successful sign-in
+        // (the pending-flag check runs before the redirect result lands, so
+        // errors set during this load can go stale).
+        setError(null);
         void refresh(nextUser);
-      } else if (consumeOAuthPending()) {
-        // We just navigated back from an OAuth redirect (flag set before
-        // signInWithRedirect) but Firebase reports no user and getRedirectResult
-        // returned null — the redirect chain broke silently. Typical causes:
-        // app domain missing from Firebase Authorized domains, or the GitHub
-        // OAuth app's callback URL is not <authDomain>/__/auth/handler.
-        setError(
-          'GitHub sign-in returned without establishing a session. Add your site domain to Firebase → Authentication → Settings → Authorized domains, and verify the GitHub OAuth callback URL in Firebase console.',
-        );
       }
+      // Signed-out emission: do NOT judge the oauth pending flag here. The SDK
+      // always emits onAuthStateChanged(null) before getRedirectResult() settles
+      // on the return page, so consuming the flag here fired a false "sign-in
+      // returned without a session" error on every *successful* sign-in. The
+      // null-result branch of getRedirectResult above is the single judge.
     });
     return () => {
       active = false;
@@ -244,6 +266,7 @@ export function AppProvider({
     userRef.current = null;
     setMe(null);
     setProjects([]);
+    setError(null);
     linkedTokenRef.current = null;
     pendingProviderTokenRef.current = null;
   }, [auth]);
