@@ -123,11 +123,42 @@ export function AppProvider({
           // no-op if the first refresh already won the race.
           const current = userRef.current;
           if (current) void refresh(current);
+        } else {
+          // Signed in, but Firebase returned no GitHub provider token (rare).
+          // Linking would then never succeed; tell the user instead of
+          // silently leaving them on the Connect-GitHub screen.
+          setError(
+            'GitHub sign-in completed but the repository access token was not returned. Install the OpenMi GitHub App below, or sign in again.',
+          );
         }
       })
-      .catch(() => {
-        // A failed/cancelled redirect leaves no token; sign-in state is still
-        // reported by onAuthStateChanged below.
+      .catch((redirectError) => {
+        if (!active) return;
+        // A failed redirect leaves the user signed out. The previous code
+        // swallowed this entirely, so the bounce back to the login screen
+        // looked like an endless loop with no explanation. Surface the real
+        // Firebase error code so the failure is diagnosable.
+        const code = (redirectError as { code?: string } | null)?.code;
+        if (
+          code === 'auth/popup-closed-by-user' ||
+          code === 'auth/cancelled-popup-request' ||
+          code === 'auth/redirect-cancelled-by-user' ||
+          code === 'auth/user-cancelled'
+        ) {
+          return; // user cancelled — no error banner needed
+        }
+        setError(
+          code === 'auth/account-exists-with-different-credential'
+            ? 'This email is already linked to another sign-in method. Sign in with your original provider, then link GitHub from account settings.'
+            : code === 'auth/web-storage-unsupported' ||
+                code === 'auth/operation-not-supported-in-this-environment'
+              ? 'Your browser blocks the storage Firebase needs to keep you signed in. Allow cookies and site data, then try again.'
+              : code === 'auth/timeout'
+                ? 'GitHub sign-in timed out. Please try again.'
+                : code === 'auth/invalid-credential' || code === 'auth/invalid-verification-code'
+                  ? 'GitHub rejected the sign-in. Check the GitHub provider in Firebase console: Client ID, Client secret, and the authorized callback URL must match your GitHub OAuth app.'
+                  : `GitHub sign-in did not complete (${code ?? 'unknown error'}). Try again.`,
+        );
       });
 
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {

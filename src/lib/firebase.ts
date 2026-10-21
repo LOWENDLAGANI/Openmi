@@ -1,7 +1,9 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
+  browserLocalPersistence,
   getAuth,
   GithubAuthProvider,
+  setPersistence,
   signInWithRedirect,
   type Auth,
   type User,
@@ -28,6 +30,12 @@ export function initFirebase(config: FirebaseClientConfigView): {
     ...(config.messagingSenderId ? { messagingSenderId: config.messagingSenderId } : {}),
   });
   const auth = getAuth(app);
+  // Guarantee the session survives the full-page redirect of the OAuth flow.
+  // Mobile/in-app browsers may default to session-only or blocked storage;
+  // explicitly requesting local persistence keeps the user signed in after
+  // GitHub redirects back. Best-effort here; signInWithGithub awaits it again
+  // right before navigating away.
+  void setPersistence(auth, browserLocalPersistence).catch(() => {});
   appInstance = app;
   authInstance = auth;
   return { app, auth };
@@ -46,6 +54,10 @@ export async function signInWithGithub(auth: Auth): Promise<void> {
   provider.addScope('repo');
   provider.addScope('read:user');
   provider.setCustomParameters({ allow_signup: 'false' });
+  // Must resolve before the redirect navigates away; if persistence is still
+  // in-memory at that point, the session vanishes when GitHub redirects back
+  // and the user lands on the login screen again.
+  await setPersistence(auth, browserLocalPersistence);
   await signInWithRedirect(auth, provider);
 }
 
