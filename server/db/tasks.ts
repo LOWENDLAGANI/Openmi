@@ -184,3 +184,52 @@ export async function findStaleTasks(now = Date.now(), limit = 25): Promise<Task
   for (const d of queued.docs) out.push(fromDoc(d.id, d.data()));
   return out.slice(0, limit);
 }
+
+// Phase 3: reset a terminal (failed/conflict) task back to queued so it can be
+// re-run with the same prompt. Clears pinned base, stored patch, commit info
+// and error fields so the pipeline starts clean. Lease is released.
+export async function resetTaskForRetry(taskId: string): Promise<Task> {
+  const ref = collections.tasks().doc(taskId);
+  const now = Date.now();
+  await ref.update({
+    status: 'queued',
+    baseSha: FieldValue.delete(),
+    baseTreeSha: FieldValue.delete(),
+    branch: FieldValue.delete(),
+    patch: FieldValue.delete(),
+    commitSha: FieldValue.delete(),
+    commitUrl: FieldValue.delete(),
+    pullRequestUrl: FieldValue.delete(),
+    errorCode: FieldValue.delete(),
+    errorMessage: FieldValue.delete(),
+    tokenUsage: FieldValue.delete(),
+    leaseExpiresAt: FieldValue.delete(),
+    updatedAt: new Date(now),
+  });
+  const t = await getTask(taskId);
+  if (!t) throw new Error('task disappeared during retry reset');
+  return t;
+}
+
+// Phase 3: sum token usage (completion + prompt) for tasks created today.
+// Firestore has no server-side sum; fetch today's tasks (bounded by the daily
+// task limit, so small) and aggregate in memory.
+export async function sumTokenUsageToday(uid: string, now = Date.now()): Promise<number> {
+  const startOfDay = new Date(Date.UTC(
+    new Date(now).getUTCFullYear(),
+    new Date(now).getUTCMonth(),
+    new Date(now).getUTCDate(),
+  ));
+  const snap = await collections
+    .tasks()
+    .where('ownerId', '==', uid)
+    .where('createdAt', '>=', startOfDay)
+    .limit(200)
+    .get();
+  let total = 0;
+  for (const d of snap.docs) {
+    const tu = d.data()?.tokenUsage as { total?: number } | undefined;
+    if (tu && typeof tu.total === 'number') total += tu.total;
+  }
+  return total;
+}

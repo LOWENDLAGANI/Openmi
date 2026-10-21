@@ -1,11 +1,25 @@
 import { useEffect, useState } from 'react';
-import { apiGet } from '../lib/api';
+import { apiGet, retryTask } from '../lib/api';
 import type { Task, TaskEvent } from '../../shared/types';
 
 export default function TaskView({ taskId, onBack }: { taskId: string; onBack: () => void }) {
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const retry = async () => {
+    if (!task) return;
+    setRetrying(true);
+    setError(null);
+    try {
+      await retryTask(task.id);
+      load();
+    } catch (e: any) {
+      setError(e?.message ?? 'retry failed');
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const load = async () => {
     try {
@@ -77,11 +91,20 @@ export default function TaskView({ taskId, onBack }: { taskId: string; onBack: (
               View pull request →
             </a>
           )}
-          {task.status === 'failed' && (
-            <div className="mb-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl p-3">
-              <div className="font-medium">{task.errorCode}</div>
-              <div className="text-xs mt-1 opacity-80">{task.errorMessage}</div>
-            </div>
+          {(task.status === 'failed' || task.status === 'conflict') && (
+            <>
+              <div className="mb-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl p-3">
+                <div className="font-medium">{task.errorCode ?? task.status}</div>
+                <div className="text-xs mt-1 opacity-80">{task.errorMessage}</div>
+              </div>
+              <button
+                onClick={retry}
+                disabled={retrying}
+                className="mb-3 w-full bg-brand-600 text-white font-medium py-2.5 rounded-xl hover:bg-brand-700 disabled:opacity-50 text-sm"
+              >
+                {retrying ? 'Retrying…' : '↻ Retry this task'}
+              </button>
+            </>
           )}
 
           <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">

@@ -1,4 +1,5 @@
 import { getAuth } from 'firebase/auth';
+import type { Task, RepoFile } from '../../shared/types';
 
 async function token(): Promise<string> {
   const user = getAuth().currentUser;
@@ -36,4 +37,14 @@ export class ApiError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+// Phase 3 helpers
+export function retryTask(taskId: string): Promise<{ task: Task }> {
+  return apiPost(`/api/tasks/${taskId}/retry`, {});
+}
+export function getProjectFiles(
+  projectId: string,
+): Promise<{ files: RepoFile[]; truncated: boolean }> {
+  return apiGet(`/api/projects/${projectId}/files`);
 }

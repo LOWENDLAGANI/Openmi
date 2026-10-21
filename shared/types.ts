@@ -108,6 +108,13 @@ export interface QuotaInfo {
   remainingToday: number;
   concurrentLimit: number;
   runningNow: number;
+  tokensUsedToday?: number;
+}
+export interface RepoFile {
+  path: string;
+  type: 'blob' | 'tree';
+  size?: number;
+  sha: string;
 }
 
 export interface PublicConfig {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost, ApiError } from '../lib/api';
-import type { Project, Task, QuotaInfo } from '../../shared/types';
+import { apiGet, apiPost, ApiError, getProjectFiles } from '../lib/api';
+import type { Project, Task, QuotaInfo, RepoFile } from '../../shared/types';
 
 export default function ProjectView({
   projectId,
@@ -13,6 +13,10 @@ export default function ProjectView({
 }) {
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [files, setFiles] = useState<RepoFile[]>([]);
+  const [filesTruncated, setFilesTruncated] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'tasks' | 'files'>('tasks');
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [prompt, setPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -33,13 +37,30 @@ export default function ProjectView({
     }
   };
 
+  const loadFiles = async () => {
+    setFilesError(null);
+    try {
+      const data = await getProjectFiles(projectId);
+      setFiles(data.files);
+      setFilesTruncated(data.truncated);
+    } catch (e: any) {
+      setFilesError(e?.message ?? 'failed to load files');
+    }
+  };
+
   useEffect(() => {
     load();
     const iv = setInterval(() => {
       if (tasks.some((t) => t.status === 'queued' || t.status === 'running')) load();
     }, 4000);
     return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, tasks]);
+
+  useEffect(() => {
+    if (tab === 'files' && files.length === 0 && !filesError) loadFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const submit = async () => {
     if (!prompt.trim()) return;
@@ -70,6 +91,8 @@ export default function ProjectView({
     }
   };
 
+  const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
+
   return (
     <div className="min-h-full max-w-lg mx-auto px-4 py-6 safe-top safe-bottom">
       <button onClick={onBack} className="text-sm text-slate-400 hover:text-white mb-4">
@@ -81,9 +104,10 @@ export default function ProjectView({
       {quota && (
         <p className="text-xs text-slate-400 mb-4">
           {quota.remainingToday}/{quota.dailyLimit} tasks left today
+          {typeof quota.tokensUsedToday === 'number' &&
+            ` · ${quota.tokensUsedToday.toLocaleString()} tokens used`}
         </p>
       )}
-
       <div className="mb-6">
         <textarea
           value={prompt}
@@ -102,27 +126,94 @@ export default function ProjectView({
         {error && <p className="mt-2 text-red-400 text-sm">{error}</p>}
       </div>
 
-      <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
-        Recent tasks
-      </h2>
-      {tasks.length === 0 ? (
-        <p className="text-sm text-slate-500">No tasks yet. Run one above.</p>
-      ) : (
-        <div className="space-y-2">
-          {tasks.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => onOpenTask(t.id)}
-              className="w-full text-left bg-slate-800/60 border border-slate-700 rounded-xl p-3 hover:border-brand-500 transition"
-            >
-              <div className="text-sm text-white truncate">{t.prompt}</div>
-              <div className={`text-xs mt-1 ${statusColor(t.status)}`}>
-                {t.status}
-                {t.commitUrl && ' · committed'}
-                {t.errorMessage && ` · ${t.errorCode}`}
+      <div className="flex gap-2 mb-3">
+        <button
+          onClick={() => setTab('tasks')}
+          className={`flex-1 text-xs font-medium py-2 rounded-lg border transition ${
+            tab === 'tasks'
+              ? 'bg-brand-600 border-brand-500 text-white'
+              : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+          }`}
+        >
+          Recent tasks
+        </button>
+        <button
+          onClick={() => setTab('files')}
+          className={`flex-1 text-xs font-medium py-2 rounded-lg border transition ${
+            tab === 'files'
+              ? 'bg-brand-600 border-brand-500 text-white'
+              : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+          }`}
+        >
+          Files
+        </button>
+      </div>
+
+      {tab === 'tasks' && (
+        <>
+          {tasks.length === 0 ? (
+            <p className="text-sm text-slate-500">No tasks yet. Run one above.</p>
+          ) : (
+            <div className="space-y-2">
+              {tasks.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => onOpenTask(t.id)}
+                  className="w-full text-left bg-slate-800/60 border border-slate-700 rounded-xl p-3 hover:border-brand-500 transition"
+                >
+                  <div className="text-sm text-white truncate">{t.prompt}</div>
+                  <div className={`text-xs mt-1 ${statusColor(t.status)}`}>
+                    {t.status}
+                    {t.commitUrl && ' · committed'}
+                    {t.errorMessage && ` · ${t.errorCode}`}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === 'files' && (
+        <div>
+          {filesError && <p className="text-red-400 text-sm mb-3">{filesError}</p>}
+          {!filesError && files.length === 0 && (
+            <p className="text-sm text-slate-500">Loading repository files…</p>
+          )}
+          {sortedFiles.length > 0 && (
+            <div className="bg-slate-800/40 border border-slate-700 rounded-xl overflow-hidden">
+              <div className="max-h-96 overflow-y-auto">
+                {sortedFiles.map((f) => {
+                  const depth = f.path.split('/').length - 1;
+                  const isDir = f.type === 'tree';
+                  return (
+                    <div
+                      key={f.path}
+                      className="flex items-center gap-2 px-3 py-2 text-xs border-b border-slate-700/50 last:border-0"
+                      style={{ paddingLeft: `${12 + depth * 14}px` }}
+                    >
+                      <span className={isDir ? 'text-amber-400' : 'text-slate-500'}>
+                        {isDir ? '▸' : '·'}
+                      </span>
+                      <span className={isDir ? 'text-slate-300 font-medium' : 'text-slate-400'}>
+                        {f.path.split('/').pop()}
+                      </span>
+                      {!isDir && typeof f.size === 'number' && (
+                        <span className="ml-auto text-slate-600">
+                          {f.size < 1024 ? `${f.size} B` : `${(f.size / 1024).toFixed(1)} KB`}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </button>
-          ))}
+            </div>
+          )}
+          {filesTruncated && (
+            <p className="text-xs text-slate-500 mt-2">
+              Large repository — showing first 500 files.
+            </p>
+          )}
         </div>
       )}
     </div>

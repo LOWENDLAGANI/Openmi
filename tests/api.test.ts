@@ -97,4 +97,12 @@ describe('API routing', () => {
     });
     expect(res.status).toBe(403);
   });
+  it('retry endpoint requires auth', async () => {
+    const res = await app.request('/api/tasks/abc/retry', { method: 'POST' });
+    expect(res.status).toBe(401);
+  });
+  it('project files endpoint requires auth', async () => {
+    const res = await app.request('/api/projects/abc/files');
+    expect(res.status).toBe(401);
+  });
 });

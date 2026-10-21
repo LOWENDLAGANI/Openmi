@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth, getUid } from '../auth.js';
 import { requireProject } from '../db/projects.js';
-import { createTask, getTaskOwned, listEvents, countRunningTasks, findStaleTasks } from '../db/tasks.js';
+import { createTask, getTaskOwned, listEvents, countRunningTasks, findStaleTasks, resetTaskForRetry, appendEvent } from '../db/tasks.js';
 import { consumeTaskQuota } from '../db/quota.js';
 import { resolveGithubAuth } from '../github/auth.js';
 import { dispatchTask } from '../dispatch.js';
@@ -60,6 +60,24 @@ app.get('/tasks/:id', async (c) => {
   if (!task) throw new AppError('NOT_FOUND', 'task not found');
   const events = await listEvents(task.id);
   return c.json({ task, events });
+});
+
+// Phase 3: retry a failed/conflict task. Consumes a fresh quota slot and
+// re-dispatches; the pipeline re-pins the base and regenerates from scratch.
+app.post('/tasks/:id/retry', async (c) => {
+  const uid = getUid(c);
+  const task = await getTaskOwned(c.req.param('id'), uid);
+  if (!task) throw new AppError('NOT_FOUND', 'task not found');
+  if (task.status !== 'failed' && task.status !== 'conflict') {
+    throw new AppError('INVALID_INPUT', 'only failed or conflicted tasks can be retried', {
+      status: 409,
+    });
+  }
+  await consumeTaskQuota(uid, env.dailyTaskLimit());
+  const reset = await resetTaskForRetry(task.id);
+  await appendEvent(task.id, { type: 'redeployed', message: 'task retried by user' });
+  dispatchTask(task.id).catch(() => {});
+  return c.json({ task: reset }, 202);
 });
 
 async function sweepStale() {
