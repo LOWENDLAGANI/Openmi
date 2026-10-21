@@ -1,11 +1,11 @@
-import type { Env } from '../env';
-import { loadConfig } from '../env';
-import { getInstallationForUser } from '../db/installations';
-import { getGithubCredential } from '../db/users';
-import { decryptSecret } from '../lib/crypto';
-import { AppError, isAppError } from '../lib/errors';
-import { log } from '../lib/logger';
-import { getInstallationToken } from './installation-tokens';
+import type { Env } from '../env.js';
+import { loadConfig } from '../env.js';
+import { getInstallationForUser } from '../db/installations.js';
+import { getGithubCredential } from '../db/users.js';
+import { decryptSecret } from '../lib/crypto.js';
+import { AppError, isAppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
+import { getInstallationToken } from './installation-tokens.js';
 
 /**
  * One seam for "how may the agent act on GitHub for this user?".

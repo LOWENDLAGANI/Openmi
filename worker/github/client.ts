@@ -1,5 +1,5 @@
 import { Octokit } from '@octokit/rest';
-import { AppError } from '../lib/errors';
+import { AppError } from '../lib/errors.js';
 
 /**
  * Octokit is fetch-based, so it runs unchanged on Workers. Requests are

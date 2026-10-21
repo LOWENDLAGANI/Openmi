@@ -1,7 +1,7 @@
 import { SignJWT, importPKCS8 } from 'jose';
-import type { GithubRepoView } from '../../shared/types';
-import type { GithubAppConfig } from '../env';
-import { AppError } from '../lib/errors';
+import type { GithubRepoView } from '../../shared/types.js';
+import type { GithubAppConfig } from '../env.js';
+import { AppError } from '../lib/errors.js';
 
 /**
  * GitHub App server-to-server auth:

@@ -1,17 +1,17 @@
 import { z } from 'zod';
-import type { AppConfig, Env } from '../env';
-import { loadConfig } from '../env';
-import { AppError, isAppError } from '../lib/errors';
-import { log } from '../lib/logger';
-import type { GeneratedPatch, RepoContext } from '../workflows/types';
-import { validatePatchSet, type TreeEntryLike } from './patch';
+import type { AppConfig, Env } from '../env.js';
+import { loadConfig } from '../env.js';
+import { AppError, isAppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
+import type { GeneratedPatch, RepoContext } from '../workflows/types.js';
+import { validatePatchSet, type TreeEntryLike } from './patch.js';
 import {
   PATCH_SCHEMA_NAME,
   buildRepairPrompt,
   buildSystemPrompt,
   buildUserPrompt,
-} from './prompt';
-import { providersFor, type AiMessage, type AiProvider } from './provider';
+} from './prompt.js';
+import { providersFor, type AiMessage, type AiProvider } from './provider.js';
 
 export const aiPatchSchema = z.object({
   summary: z.string().min(1).max(2000),

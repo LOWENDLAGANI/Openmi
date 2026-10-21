@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { ProjectView } from '../../shared/types';
-import type { AppEnv } from '../auth/middleware';
-import { createProject, listProjects, toProjectView } from '../db/projects';
-import { resolveGithubAuth } from '../github/auth';
-import { getRepoInfo } from '../github/repo';
-import { AppError } from '../lib/errors';
-import { readJson } from '../lib/http';
+import type { ProjectView } from '../../shared/types.js';
+import type { AppEnv } from '../auth/middleware.js';
+import { createProject, listProjects, toProjectView } from '../db/projects.js';
+import { resolveGithubAuth } from '../github/auth.js';
+import { getRepoInfo } from '../github/repo.js';
+import { AppError } from '../lib/errors.js';
+import { readJson } from '../lib/http.js';
 
 export const projectRoutes = new Hono<AppEnv>();
 

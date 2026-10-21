@@ -1,4 +1,4 @@
-import type { TaskStatus } from '../../shared/types';
+import type { TaskStatus } from '../../shared/types.js';
 
 /**
  * Document shapes stored in Firestore. Field names are kept in snake_case to

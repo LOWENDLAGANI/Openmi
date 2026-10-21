@@ -1,5 +1,5 @@
-import type { TaskWorkflowParams } from './workflows/types';
-import { AppError } from './lib/errors';
+import type { TaskWorkflowParams } from './workflows/types.js';
+import { AppError } from './lib/errors.js';
 
 /**
  * Worker bindings and configuration. Secrets are optional at the type level so

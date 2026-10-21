@@ -1,18 +1,18 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { AppEnv } from '../auth/middleware';
-import { requeueTask } from '../db/tasks';
-import { AppError } from '../lib/errors';
-import { readJson } from '../lib/http';
-import { log } from '../lib/logger';
-import { constantTimeEqual } from '../lib/timing';
-import { runTaskPipeline } from '../pipeline/run-task';
-import { createInlineStepRunner, isDeadlineExceeded } from '../pipeline/step-runner';
-import { background } from '../platform/background';
-import { startTaskRun } from '../platform/dispatch';
-import { recoverStaleTasks } from '../platform/recovery';
-import type { Env } from '../env';
-import type { TaskWorkflowParams } from '../workflows/types';
+import type { AppEnv } from '../auth/middleware.js';
+import { requeueTask } from '../db/tasks.js';
+import { AppError } from '../lib/errors.js';
+import { readJson } from '../lib/http.js';
+import { log } from '../lib/logger.js';
+import { constantTimeEqual } from '../lib/timing.js';
+import { runTaskPipeline } from '../pipeline/run-task.js';
+import { createInlineStepRunner, isDeadlineExceeded } from '../pipeline/step-runner.js';
+import { background } from '../platform/background.js';
+import { startTaskRun } from '../platform/dispatch.js';
+import { recoverStaleTasks } from '../platform/recovery.js';
+import type { Env } from '../env.js';
+import type { TaskWorkflowParams } from '../workflows/types.js';
 
 /**
  * Runner endpoints for platforms without a Workflow engine (Vercel, Node).

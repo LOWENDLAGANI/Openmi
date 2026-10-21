@@ -1,4 +1,4 @@
-import { AppError } from '../lib/errors';
+import { AppError } from '../lib/errors.js';
 
 /**
  * The safety core of OpenMi.

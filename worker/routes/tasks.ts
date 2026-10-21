@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { CreateTaskResponse, QuotaView, TaskDetail } from '../../shared/types';
-import type { AppEnv } from '../auth/middleware';
-import { getProject } from '../db/projects';
+import type { CreateTaskResponse, QuotaView, TaskDetail } from '../../shared/types.js';
+import type { AppEnv } from '../auth/middleware.js';
+import { getProject } from '../db/projects.js';
 import {
   addTaskEvent,
   createTask,
@@ -13,17 +13,17 @@ import {
   setWorkflowInstance,
   toTaskDetail,
   toTaskSummary,
-} from '../db/tasks';
-import { countActiveTasks, consumeTaskQuota, refundTaskQuota } from '../db/users';
-import { hasGithubAuth } from '../github/auth';
-import { loadConfig } from '../env';
-import { AppError } from '../lib/errors';
-import { readJson } from '../lib/http';
-import { log } from '../lib/logger';
-import { nextUtcMidnight } from '../lib/time';
-import { background } from '../platform/background';
-import { startTaskRun } from '../platform/dispatch';
-import { recoverStaleTasks } from '../platform/recovery';
+} from '../db/tasks.js';
+import { countActiveTasks, consumeTaskQuota, refundTaskQuota } from '../db/users.js';
+import { hasGithubAuth } from '../github/auth.js';
+import { loadConfig } from '../env.js';
+import { AppError } from '../lib/errors.js';
+import { readJson } from '../lib/http.js';
+import { log } from '../lib/logger.js';
+import { nextUtcMidnight } from '../lib/time.js';
+import { background } from '../platform/background.js';
+import { startTaskRun } from '../platform/dispatch.js';
+import { recoverStaleTasks } from '../platform/recovery.js';
 
 export const taskRoutes = new Hono<AppEnv>();
 

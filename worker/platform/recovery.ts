@@ -1,7 +1,7 @@
-import type { Env } from '../env';
-import { listStaleTasks } from '../db/tasks';
-import { log } from '../lib/logger';
-import { startTaskRun } from './dispatch';
+import type { Env } from '../env.js';
+import { listStaleTasks } from '../db/tasks.js';
+import { log } from '../lib/logger.js';
+import { startTaskRun } from './dispatch.js';
 
 const DEFAULT_STALE_MS = 5 * 60 * 1000;
 

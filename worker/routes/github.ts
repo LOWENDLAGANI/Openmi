@@ -1,17 +1,17 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { GithubRepoView } from '../../shared/types';
-import type { AppEnv } from '../auth/middleware';
-import { ensureProfile, saveGithubCredential } from '../db/users';
-import { loadConfig } from '../env';
-import { AppError } from '../lib/errors';
-import { encryptSecret } from '../lib/crypto';
-import { readJson } from '../lib/http';
-import { createOctokit, mapGithubError } from '../github/client';
-import { listInstallationRepos } from '../github/app';
-import { resolveGithubAuth } from '../github/auth';
-import { getAuthenticatedLogin, listUserRepos } from '../github/repo';
-import { signInstallState } from '../github/state';
+import type { GithubRepoView } from '../../shared/types.js';
+import type { AppEnv } from '../auth/middleware.js';
+import { ensureProfile, saveGithubCredential } from '../db/users.js';
+import { loadConfig } from '../env.js';
+import { AppError } from '../lib/errors.js';
+import { encryptSecret } from '../lib/crypto.js';
+import { readJson } from '../lib/http.js';
+import { createOctokit, mapGithubError } from '../github/client.js';
+import { listInstallationRepos } from '../github/app.js';
+import { resolveGithubAuth } from '../github/auth.js';
+import { getAuthenticatedLogin, listUserRepos } from '../github/repo.js';
+import { signInstallState } from '../github/state.js';
 
 export const githubRoutes = new Hono<AppEnv>();
 

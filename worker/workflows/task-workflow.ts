@@ -1,11 +1,11 @@
 import { WorkflowEntrypoint } from 'cloudflare:workers';
 import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
-import type { Env } from '../env';
-import { isAppError } from '../lib/errors';
-import { runTaskPipeline, type PipelineResult } from '../pipeline/run-task';
-import type { StepOptions, StepRunner } from '../pipeline/step-runner';
-import type { TaskWorkflowParams } from './types';
+import type { Env } from '../env.js';
+import { isAppError } from '../lib/errors.js';
+import { runTaskPipeline, type PipelineResult } from '../pipeline/run-task.js';
+import type { StepOptions, StepRunner } from '../pipeline/step-runner.js';
+import type { TaskWorkflowParams } from './types.js';
 
 function toStepConfig(options: StepOptions | undefined): {
   retries: { limit: number; delay: number; backoff: 'exponential' };

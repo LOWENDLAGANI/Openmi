@@ -1,5 +1,5 @@
-import type { AppConfig } from '../env';
-import { AppError } from '../lib/errors';
+import type { AppConfig } from '../env.js';
+import { AppError } from '../lib/errors.js';
 
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant';

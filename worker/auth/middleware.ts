@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
-import type { Env } from '../env';
-import { AppError } from '../lib/errors';
-import { bearerToken, verifyAccessToken, type AuthUser } from './jwt';
+import type { Env } from '../env.js';
+import { AppError } from '../lib/errors.js';
+import { bearerToken, verifyAccessToken, type AuthUser } from './jwt.js';
 
 export interface AppEnv {
   Bindings: Env;

@@ -1,4 +1,4 @@
-import type { Env } from '../worker/env';
+import type { Env } from '../worker/env.js';
 
 /**
  * Vercel (and any Node host) provides configuration as environment variables,

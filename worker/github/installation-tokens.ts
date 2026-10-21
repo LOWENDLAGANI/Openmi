@@ -1,13 +1,13 @@
-import type { Env } from '../env';
-import { loadConfig } from '../env';
+import type { Env } from '../env.js';
+import { loadConfig } from '../env.js';
 import {
   deleteCachedInstallationToken,
   readCachedInstallationToken,
   saveCachedInstallationToken,
-} from '../db/installations';
-import { decryptSecret, encryptSecret } from '../lib/crypto';
-import { log } from '../lib/logger';
-import { mintInstallationToken, requireGithubApp } from './app';
+} from '../db/installations.js';
+import { decryptSecret, encryptSecret } from '../lib/crypto.js';
+import { log } from '../lib/logger.js';
+import { mintInstallationToken, requireGithubApp } from './app.js';
 
 /**
  * Installation tokens live for ~1 hour and are reusable across concurrent

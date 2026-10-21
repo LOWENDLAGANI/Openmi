@@ -1,4 +1,4 @@
-import type { TreeEntry } from '../github/repo';
+import type { TreeEntry } from '../github/repo.js';
 
 /**
  * Cheap, deterministic context selection. We never dump a whole repo into the

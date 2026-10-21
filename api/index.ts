@@ -1,8 +1,8 @@
 import { getRequestListener } from '@hono/node-server';
 import { waitUntil } from '@vercel/functions';
-import { app } from '../worker/app';
-import { setBackgroundRunner } from '../worker/platform/background';
-import { envFromProcess } from './env';
+import { app } from '../worker/app.js';
+import { setBackgroundRunner } from '../worker/platform/background.js';
+import { envFromProcess } from './env.js';
 
 /**
  * Vercel entry point.

@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import type { z } from 'zod';
-import { AppError } from './errors';
+import { AppError } from './errors.js';
 
 /**
  * Parses and validates a JSON request body.

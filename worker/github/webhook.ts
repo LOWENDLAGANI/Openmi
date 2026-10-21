@@ -1,4 +1,4 @@
-import { hexToBytes } from '../lib/base64';
+import { hexToBytes } from '../lib/base64.js';
 
 /**
  * GitHub signs the exact raw request body with HMAC-SHA-256 and sends the

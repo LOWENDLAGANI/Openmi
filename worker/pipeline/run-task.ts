@@ -1,7 +1,7 @@
-import type { Env } from '../env';
-import type { ErrorCode } from '../lib/errors';
-import { AppError, REFUNDABLE_CODES, isAppError } from '../lib/errors';
-import { log } from '../lib/logger';
+import type { Env } from '../env.js';
+import type { ErrorCode } from '../lib/errors.js';
+import { AppError, REFUNDABLE_CODES, isAppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
 import {
   addTaskEvent,
   completeTask,
@@ -10,23 +10,23 @@ import {
   leaseTask,
   saveTaskPatch,
   setTaskBase,
-} from '../db/tasks';
-import { getProject } from '../db/projects';
-import { refundTaskQuota } from '../db/users';
-import { createOctokit } from '../github/client';
-import { getBranchHead, getBlobText, getCommitTreeSha, getRepoTree } from '../github/repo';
-import { commitPatchSet } from '../github/commit';
-import { resolveGithubAuth, hasGithubAuth } from '../github/auth';
-import { generatePatch } from '../agent/generate';
-import { selectContextFiles, truncateFileContent } from '../agent/context';
-import { isDeadlineExceeded } from './step-runner';
-import type { StepRunner } from './step-runner';
+} from '../db/tasks.js';
+import { getProject } from '../db/projects.js';
+import { refundTaskQuota } from '../db/users.js';
+import { createOctokit } from '../github/client.js';
+import { getBranchHead, getBlobText, getCommitTreeSha, getRepoTree } from '../github/repo.js';
+import { commitPatchSet } from '../github/commit.js';
+import { resolveGithubAuth, hasGithubAuth } from '../github/auth.js';
+import { generatePatch } from '../agent/generate.js';
+import { selectContextFiles, truncateFileContent } from '../agent/context.js';
+import { isDeadlineExceeded } from './step-runner.js';
+import type { StepRunner } from './step-runner.js';
 import type {
   ContextFile,
   PatchFile,
   RepoContext,
   TaskWorkflowParams,
-} from '../workflows/types';
+} from '../workflows/types.js';
 
 export interface PipelineResult {
   ok: boolean;

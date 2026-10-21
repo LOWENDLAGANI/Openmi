@@ -1,8 +1,8 @@
-import type { Env } from '../env';
-import { AppError } from '../lib/errors';
-import { log } from '../lib/logger';
-import type { TaskWorkflowParams } from '../workflows/types';
-import { background } from './background';
+import type { Env } from '../env.js';
+import { AppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
+import type { TaskWorkflowParams } from '../workflows/types.js';
+import { background } from './background.js';
 
 export type TaskRunnerKind = 'cloudflare_workflow' | 'http';
 

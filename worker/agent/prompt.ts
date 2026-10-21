@@ -1,5 +1,5 @@
-import type { RepoContext } from '../workflows/types';
-import { CONTEXT_LIMITS } from './context';
+import type { RepoContext } from '../workflows/types.js';
+import { CONTEXT_LIMITS } from './context.js';
 
 export const PATCH_SCHEMA_NAME = 'openmi_patch';
 

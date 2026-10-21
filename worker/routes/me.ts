@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import type { MeView, QuotaView } from '../../shared/types';
-import type { AppEnv } from '../auth/middleware';
-import { getInstallationForUser } from '../db/installations';
-import { ensureProfile, getDailyUsage, getGithubCredential } from '../db/users';
-import { loadConfig } from '../env';
-import { nextUtcMidnight } from '../lib/time';
+import type { MeView, QuotaView } from '../../shared/types.js';
+import type { AppEnv } from '../auth/middleware.js';
+import { getInstallationForUser } from '../db/installations.js';
+import { ensureProfile, getDailyUsage, getGithubCredential } from '../db/users.js';
+import { loadConfig } from '../env.js';
+import { nextUtcMidnight } from '../lib/time.js';
 
 export const meRoutes = new Hono<AppEnv>();
 

@@ -1,9 +1,9 @@
-import type { Env } from '../env';
-import { AppError } from '../lib/errors';
-import { log } from '../lib/logger';
-import { nextUtcMidnight, todayUtc } from '../lib/time';
-import { firestore } from './client';
-import type { GithubCredentialRow, ProfileRow, UsageRow } from './types';
+import type { Env } from '../env.js';
+import { AppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
+import { nextUtcMidnight, todayUtc } from '../lib/time.js';
+import { firestore } from './client.js';
+import type { GithubCredentialRow, ProfileRow, UsageRow } from './types.js';
 
 function dbError(context: string, error: { message: string } | null): never {
   log.error('db.error', { context, message: error?.message });

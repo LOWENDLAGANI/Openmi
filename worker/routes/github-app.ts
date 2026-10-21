@@ -1,18 +1,18 @@
 import { Hono } from 'hono';
-import type { AppEnv } from '../auth/middleware';
+import type { AppEnv } from '../auth/middleware.js';
 import {
   deleteInstallation,
   getInstallationById,
   setInstallationSuspended,
   upsertInstallation,
-} from '../db/installations';
-import { loadConfig } from '../env';
-import { AppError, isAppError } from '../lib/errors';
-import { log } from '../lib/logger';
-import { getAppInstallation, requireGithubApp } from '../github/app';
-import { invalidateInstallationToken } from '../github/installation-tokens';
-import { verifyInstallState } from '../github/state';
-import { parseInstallationEvent, verifyWebhookSignature } from '../github/webhook';
+} from '../db/installations.js';
+import { loadConfig } from '../env.js';
+import { AppError, isAppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
+import { getAppInstallation, requireGithubApp } from '../github/app.js';
+import { invalidateInstallationToken } from '../github/installation-tokens.js';
+import { verifyInstallState } from '../github/state.js';
+import { parseInstallationEvent, verifyWebhookSignature } from '../github/webhook.js';
 
 /**
  * Public GitHub App lifecycle endpoints.

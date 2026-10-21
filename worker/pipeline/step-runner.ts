@@ -1,4 +1,4 @@
-import { isAppError } from '../lib/errors';
+import { isAppError } from '../lib/errors.js';
 
 /**
  * The pipeline is written against this tiny interface instead of a specific

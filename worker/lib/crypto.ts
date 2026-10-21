@@ -1,5 +1,5 @@
-import { base64UrlToBytes, bytesToBase64Url } from './base64';
-import { AppError } from './errors';
+import { base64UrlToBytes, bytesToBase64Url } from './base64.js';
+import { AppError } from './errors.js';
 
 /**
  * AES-256-GCM envelope for secrets at rest (GitHub OAuth tokens).

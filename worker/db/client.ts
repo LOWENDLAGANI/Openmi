@@ -1,8 +1,8 @@
 import { cert, getApps, initializeApp, type App, type Credential } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { ExternalAccountClient } from 'google-auth-library';
-import { loadConfig, type Env, type GcpWifConfig } from '../env';
-import { AppError } from '../lib/errors';
+import { loadConfig, type Env, type GcpWifConfig } from '../env.js';
+import { AppError } from '../lib/errors.js';
 
 /**
  * Firebase Admin (service-role) Firestore client. Never expose the server

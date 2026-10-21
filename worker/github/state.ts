@@ -3,8 +3,8 @@ import {
   base64UrlEncode,
   base64UrlToBytes,
   bytesToBase64Url,
-} from '../lib/base64';
-import { AppError } from '../lib/errors';
+} from '../lib/base64.js';
+import { AppError } from '../lib/errors.js';
 
 /**
  * The GitHub App install flow returns the user to our callback with an

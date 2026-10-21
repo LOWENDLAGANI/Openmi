@@ -1,16 +1,16 @@
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
-import type { ApiErrorBody } from '../shared/types';
-import { requestContext, requireAuth, type AppEnv } from './auth/middleware';
-import { toAppError } from './lib/errors';
-import { log } from './lib/logger';
-import { githubAppRoutes } from './routes/github-app';
-import { internalRoutes } from './routes/internal';
-import { githubRoutes } from './routes/github';
-import { healthRoutes } from './routes/health';
-import { meRoutes } from './routes/me';
-import { projectRoutes } from './routes/projects';
-import { taskRoutes } from './routes/tasks';
+import type { ApiErrorBody } from '../shared/types.js';
+import { requestContext, requireAuth, type AppEnv } from './auth/middleware.js';
+import { toAppError } from './lib/errors.js';
+import { log } from './lib/logger.js';
+import { githubAppRoutes } from './routes/github-app.js';
+import { internalRoutes } from './routes/internal.js';
+import { githubRoutes } from './routes/github.js';
+import { healthRoutes } from './routes/health.js';
+import { meRoutes } from './routes/me.js';
+import { projectRoutes } from './routes/projects.js';
+import { taskRoutes } from './routes/tasks.js';
 
 const securityHeaders = createMiddleware<AppEnv>(async (c, next) => {
   await next();

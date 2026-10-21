@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import type { ConfigStatusView } from '../../shared/types';
-import type { AppEnv } from '../auth/middleware';
-import { firebaseClientConfig, missingConfig, resolveGithubAppConfig } from '../env';
+import type { ConfigStatusView } from '../../shared/types.js';
+import type { AppEnv } from '../auth/middleware.js';
+import { firebaseClientConfig, missingConfig, resolveGithubAppConfig } from '../env.js';
 
 export const healthRoutes = new Hono<AppEnv>();
 

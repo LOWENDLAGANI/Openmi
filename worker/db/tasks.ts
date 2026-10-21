@@ -3,12 +3,12 @@ import type {
   TaskDetail,
   TaskEventLevel,
   TaskSummary,
-} from '../../shared/types';
-import type { Env } from '../env';
-import { AppError } from '../lib/errors';
-import { log } from '../lib/logger';
-import { firestore } from './client';
-import type { TaskEventRow, TaskRow } from './types';
+} from '../../shared/types.js';
+import type { Env } from '../env.js';
+import { AppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
+import { firestore } from './client.js';
+import type { TaskEventRow, TaskRow } from './types.js';
 
 function dbError(context: string, error: { message: string } | null): never {
   log.error('db.error', { context, message: error?.message });

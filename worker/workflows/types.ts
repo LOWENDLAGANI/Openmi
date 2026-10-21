@@ -1,4 +1,4 @@
-import type { CommitMode } from '../../shared/types';
+import type { CommitMode } from '../../shared/types.js';
 
 /**
  * Payload persisted with the Workflow instance. Deliberately tiny: everything

@@ -1,7 +1,7 @@
 import type { Octokit } from '@octokit/rest';
-import type { GithubRepoView } from '../../shared/types';
-import { AppError } from '../lib/errors';
-import { createOctokit, mapGithubError, parseRepoFullName } from './client';
+import type { GithubRepoView } from '../../shared/types.js';
+import { AppError } from '../lib/errors.js';
+import { createOctokit, mapGithubError, parseRepoFullName } from './client.js';
 
 /** Files larger than this are never sent to the model. */
 export const MAX_CONTEXT_FILE_BYTES = 48 * 1024;

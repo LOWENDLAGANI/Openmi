@@ -1,10 +1,10 @@
-import type { CommitMode } from '../../shared/types';
-import { assertNoDestructiveChange } from '../agent/patch';
-import { AppError } from '../lib/errors';
-import { log } from '../lib/logger';
-import type { CommitResult, PatchFile } from '../workflows/types';
-import { createOctokit, mapGithubError, parseRepoFullName } from './client';
-import { createBlob, getCommitTreeSha, getRepoTree, type TreeEntry } from './repo';
+import type { CommitMode } from '../../shared/types.js';
+import { assertNoDestructiveChange } from '../agent/patch.js';
+import { AppError } from '../lib/errors.js';
+import { log } from '../lib/logger.js';
+import type { CommitResult, PatchFile } from '../workflows/types.js';
+import { createOctokit, mapGithubError, parseRepoFullName } from './client.js';
+import { createBlob, getCommitTreeSha, getRepoTree, type TreeEntry } from './repo.js';
 
 export interface CommitPatchInput {
   token: string;

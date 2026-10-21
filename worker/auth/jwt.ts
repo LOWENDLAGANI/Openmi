@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
-import type { Env } from '../env';
-import { AppError } from '../lib/errors';
+import type { Env } from '../env.js';
+import { AppError } from '../lib/errors.js';
 
 /**
  * Firebase Auth ID-token verification inside the Worker / Vercel function.

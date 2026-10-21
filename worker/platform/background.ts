@@ -1,4 +1,4 @@
-import { log } from '../lib/logger';
+import { log } from '../lib/logger.js';
 
 type BackgroundRunner = (promise: Promise<unknown>) => void;
 
