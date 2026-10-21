@@ -301,10 +301,10 @@ commit. The browser UI is not exercised by automated tests.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 0 | Walking skeleton: SPA, API, Firebase auth, health/config | 100% |
-| 1 | Quota, durable agent, atomic commits, timeline, commit link | 100% |
-| 2 | GitHub App install tokens, signed install state, webhooks, token cache | 100% |
-| 2.5 | Vercel runtime: step runner, leases, HTTP dispatch, cron recovery | 95% (deploy unverified) |
+| 0 | Walking skeleton: SPA, API, Firebase auth, health/config | 0% |
+| 1 | Quota, durable agent, atomic commits, timeline, commit link | 0% |
+| 2 | GitHub App install tokens, signed install state, webhooks, token cache | 0% |
+| 2.5 | Vercel runtime: step runner, leases, HTTP dispatch, cron recovery | 0 |
 | 3 | Repo file browser, live streaming progress, retry failed tasks, preview builds, PR review comments, per-user token budget | 0% |
 | 4 | Team workspaces, Stripe billing, usage analytics | 0% |
 
