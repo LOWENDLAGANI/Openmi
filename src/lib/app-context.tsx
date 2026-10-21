@@ -130,10 +130,16 @@ export function AppProvider({
           // it in the auth listener fired a false positive on every
           // successful sign-in.
           if (active && flow) {
+            // NOTE: neither branch advises adding the origin to Authorized
+            // domains — seeing this branch at all PROVES the origin passed
+            // Firebase's pre-navigation check (`_openRedirect` awaits
+            // `_originValidation` before leaving the page, so an unauthorized
+            // origin rejects signInWithRedirect/linkWithRedirect at start with
+            // `auth/unauthorized-domain`, surfaced by the catch handler below).
             setError(
               flow === 'link'
-                ? `GitHub authorization returned to ${window.location.origin} without completing. Add this domain to Firebase → Authentication → Settings → Authorized domains, verify the GitHub OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`
-                : `Sign-in returned to ${window.location.origin} without establishing a session. Add this domain to Firebase → Authentication → Settings → Authorized domains, verify the Google OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`,
+                ? `GitHub authorization returned to ${window.location.origin} without completing. If you cancelled on GitHub that's expected; otherwise verify the GitHub OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`
+                : `Google sign-in returned to ${window.location.origin} with no session — it didn't finish. If you cancelled at Google that's expected; otherwise try again, and if it keeps happening a content blocker or strict storage setting may be interrupting the Firebase redirect.`,
             );
           }
           return;
