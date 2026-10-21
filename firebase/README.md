@@ -1,22 +1,26 @@
 # Firebase setup
 
-OpenMi uses Firebase Auth (GitHub sign-in) and Firestore on the server
+OpenMi uses Firebase Auth (Google sign-in, with GitHub linked to the
+account afterwards) and Firestore on the server
 (Vercel / Node, via `firebase-admin`). The browser only uses the Firebase JS
 SDK for sign-in; all data flows through the `/api/*` endpoints.
 
 ## 1. Create the project
 
 1. Create a Firebase project at <https://console.firebase.google.com>.
-2. Enable **Authentication** → Sign-in method → **GitHub**. Register a GitHub
-   OAuth app (callback URL shown in the Firebase console) and request the
-   `repo` and `read:user` scopes.
-3. Enable **Cloud Firestore** (production mode).
-4. Project settings → **Service accounts** → Generate new private key. This
+2. Enable **Authentication** → Sign-in method → **Google** — this is the
+   only sign-in method users see on the landing page.
+3. Enable **Authentication** → Sign-in method → **GitHub** — used only to
+   link GitHub to the signed-in account from the Connect GitHub screen.
+   Register a GitHub OAuth app (callback URL shown in the Firebase console)
+   and request the `repo` and `read:user` scopes.
+4. Enable **Cloud Firestore** (production mode).
+5. Project settings → **Service accounts** → Generate new private key. This
    gives you `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY`.
-5. Project settings → **General** → Your apps → register a web app. This gives
+6. Project settings → **General** → Your apps → register a web app. This gives
    you `FIREBASE_API_KEY` and `FIREBASE_APP_ID`; `FIREBASE_AUTH_DOMAIN` is
    `<project-id>.firebaseapp.com` (set it only if you use a custom domain).
-6. Add your Vercel domain to **Authentication** → Settings →
+7. Add your Vercel domain to **Authentication** → Settings →
    Authorized domains.
 
 ## 2. Deploy rules and indexes

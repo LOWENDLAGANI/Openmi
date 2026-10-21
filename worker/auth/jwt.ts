@@ -13,8 +13,9 @@ import { AppError } from '../lib/errors.js';
  *
  * The GitHub username (login) is not part of the ID token; it is persisted to
  * the user's profile by `/api/github/link` (which reads it from the GitHub API
- * using the OAuth provider token captured at sign-in). `login` here is only a
- * best-effort fallback (Firebase `displayName`).
+ * using the OAuth provider token captured when GitHub is linked to the
+ * signed-in account). `login` here is only a best-effort fallback (Firebase
+ * `displayName` — the Google display name for Google sign-ins).
  */
 export interface AuthUser {
   id: string;

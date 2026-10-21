@@ -14,7 +14,11 @@ meRoutes.get('/me', async (c) => {
 
   const profile = await ensureProfile(c.env, {
     id: user.id,
-    login: user.login,
+    // `login: null` never overwrites github_login. The ID-token name claim is
+    // the Google display name for Google sign-ins, and the GitHub login is
+    // only ever written by POST /github/link (the linking step) — reading the
+    // profile here must not clobber it with the Google name.
+    login: null,
     avatarUrl: user.avatarUrl,
   });
   const [used, credential, installation] = await Promise.all([

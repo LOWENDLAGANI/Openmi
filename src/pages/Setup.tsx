@@ -28,9 +28,8 @@ export function Setup({ config }: { config: RuntimeConfig }) {
       <Card className="space-y-3 p-4">
         <SectionLabel>1 · Firebase project</SectionLabel>
         <p className="text-[13px] leading-relaxed text-zinc-400">
-          Create a Firebase project, enable Firestore and GitHub sign-in (with the{' '}
-          <code>repo</code> scope), then deploy the rules and indexes in{' '}
-          <code className="text-zinc-200">firebase/</code>. Set{' '}
+          Create a Firebase project, enable Firestore and both Google and GitHub sign-in, then
+          deploy the rules and indexes in <code className="text-zinc-200">firebase/</code>. Set{' '}
           <code className="text-zinc-200">FIREBASE_PROJECT_ID</code>,{' '}
           <code className="text-zinc-200">FIREBASE_API_KEY</code>, and a service account (
           <code className="text-zinc-200">FIREBASE_CLIENT_EMAIL</code> +{' '}
@@ -41,9 +40,12 @@ export function Setup({ config }: { config: RuntimeConfig }) {
           <code className="text-zinc-200">GITHUB_TOKEN_ENC_KEY</code> (32 random bytes, base64) and{' '}
           <code className="text-zinc-200">OPENROUTER_API_KEY</code> as Vercel environment variables.
         </p>
-        <SectionLabel>3 · GitHub OAuth</SectionLabel>
+        <SectionLabel>3 · Google + GitHub OAuth</SectionLabel>
         <p className="text-[13px] leading-relaxed text-zinc-400">
-          Enable the GitHub provider in Firebase Auth with the <code>repo</code> scope, then sign in.
+          Enable the <strong className="text-zinc-200">Google</strong> provider (used to sign in)
+          and the <strong className="text-zinc-200">GitHub</strong> provider with the{' '}
+          <code>repo</code> scope (used only to link GitHub to the signed-in account), then sign in
+          with Google.
         </p>
       </Card>
 

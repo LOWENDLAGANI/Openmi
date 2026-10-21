@@ -14,7 +14,7 @@ GitHub commits), Phase 2 (GitHub App installation tokens, webhooks, token cachin
 
 ```
 phone browser
-    │  Firebase session (GitHub OAuth)
+    │  Firebase session (Google sign-in, GitHub linked later)
     ▼
 Vite SPA  ──/api/*──►  Vercel Function (Hono, Node 22)
                           │  verify Firebase ID token (firebase-admin)
@@ -46,7 +46,7 @@ persisted state. Task state lives in Firestore, not in the client.
 | Orchestration | Step pipeline with Firestore transaction leases + self re-dispatch |
 | API | Hono + TypeScript |
 | Frontend | Vite + React 19 + Tailwind CSS v4 (mobile-first SPA) |
-| Database / Auth | Firebase Auth (GitHub sign-in) + Firestore (admin SDK; rules deny client access) |
+| Database / Auth | Firebase Auth (Google sign-in; GitHub linked to the account afterwards) + Firestore (admin SDK; rules deny client access) |
 | Models | OpenRouter (`qwen/qwen3-coder` default), optional Groq fallback |
 | GitHub | `@octokit/rest` — Git Data API, `base_tree` commits, `force: false` ref updates |
 | GitHub auth | GitHub App installation tokens (per-repo, revocable) with OAuth fallback |
@@ -63,8 +63,10 @@ npm install
 
 ### 2. Create the Firebase project
 
-Create a Firebase project, enable **Authentication → Sign-in method → GitHub** (request
-`repo read:user` scopes) and **Cloud Firestore**, then deploy the rules and composite indexes:
+Create a Firebase project, enable **Authentication → Sign-in method → Google** (the way users
+sign in) and **Authentication → Sign-in method → GitHub** (linked after sign-in so the agent can
+push; request `repo read:user` scopes) and **Cloud Firestore**, then deploy the rules and
+composite indexes:
 
 ```bash
 cd firebase
@@ -200,7 +202,7 @@ token>`.
 | `GET` | `/api/health` | Liveness + which config keys are missing (never values) |
 | `GET` | `/api/config` | Public runtime config for the SPA |
 | `GET` | `/api/me` | Profile, GitHub link state, remaining daily quota |
-| `POST` | `/api/github/link` | Store the OAuth token (encrypted) from sign-in |
+| `POST` | `/api/github/link` | Store the OAuth token (encrypted) from the GitHub link step |
 | `POST` | `/api/github/app/install` | Mint a signed GitHub App install URL |
 | `GET` | `/api/github-app/callback` | Public App setup redirect (signed state) |
 | `POST` | `/api/webhooks/github` | Public webhook (HMAC verified) for install lifecycle |

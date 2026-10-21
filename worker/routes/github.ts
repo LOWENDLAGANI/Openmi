@@ -20,7 +20,9 @@ const linkSchema = z.object({
 });
 
 /**
- * Persists the GitHub OAuth token obtained during Firebase sign-in.
+ * Persists the GitHub OAuth token obtained when the user LINKS GitHub to
+ * their (Google-signed-in) Firebase account — GitHub is never a sign-in
+ * method itself.
  *
  * This remains as the fallback path for users without a GitHub App
  * installation. When the App is configured, repo writes use installation

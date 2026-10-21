@@ -12,7 +12,7 @@ import { getRedirectResult, onAuthStateChanged, signOut as firebaseSignOut, type
 import type { MeView, ProjectView } from '@shared/types';
 import { createApiClient, type ApiClient } from './api';
 import type { RuntimeConfig } from './config';
-import { githubProviderTokenFrom, initFirebase, type Auth } from './firebase';
+import { consumeOAuthFlow, githubProviderTokenFrom, initFirebase, type Auth, type OAuthFlow } from './firebase';
 
 interface AppContextValue {
   config: RuntimeConfig;
@@ -33,24 +33,9 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 const ACTIVE_PROJECT_KEY = 'openmi.activeProjectId';
-/** Set before the OAuth redirect navigates away; consumed to detect a silent break. */
-const OAUTH_PENDING_KEY = 'openmi:oauthPending';
-function clearOAuthPending(): void {
-  try {
-    sessionStorage.removeItem(OAUTH_PENDING_KEY);
-  } catch {
-    /* storage unavailable */
-  }
-}
-/** Returns true if a redirect was in flight, and clears the flag atomically. */
-function consumeOAuthPending(): boolean {
-  try {
-    const pending = sessionStorage.getItem(OAUTH_PENDING_KEY) === '1';
-    sessionStorage.removeItem(OAUTH_PENDING_KEY);
-    return pending;
-  } catch {
-    return false;
-  }
+/** Human label per in-flight flow, for error banners on a broken redirect. */
+function flowLabel(flow: OAuthFlow): string {
+  return flow === 'link' ? 'GitHub authorization' : 'Sign-in';
 }
 
 export function AppProvider({
@@ -95,8 +80,8 @@ export function AppProvider({
       setBooting(true);
       try {
         // A GitHub OAuth provider token is only handed to the client on the
-        // sign-in redirect result, so persist it server-side the first time
-        // we see it.
+        // GitHub link redirect result, so persist it server-side the first
+        // time we see it.
         const providerToken = pendingProviderTokenRef.current;
         if (providerToken && linkedTokenRef.current !== providerToken) {
           linkedTokenRef.current = providerToken;
@@ -131,6 +116,9 @@ export function AppProvider({
     // This must run once on mount; the token is unavailable afterwards.
     getRedirectResult(auth)
       .then((result) => {
+        // Consumed only by the active run — the single judge of which redirect
+        // was in flight (a StrictMode-inactive run must not steal the marker).
+        const flow = active ? consumeOAuthFlow() : null;
         if (!result) {
           // Two possible reasons: the user simply opened the site signed-out
           // (flag absent), or we started an OAuth redirect that came back
@@ -138,17 +126,18 @@ export function AppProvider({
           // blocked Firebase auth-handler iframe, storage cleared mid-flow).
           // The SDK always emits onAuthStateChanged(null) BEFORE this promise
           // settles (init finishes first, the redirect result is delivered
-          // afterwards), so the pending flag must be judged here — consuming
+          // afterwards), so the pending flow must be judged here — consuming
           // it in the auth listener fired a false positive on every
           // successful sign-in.
-          if (active && consumeOAuthPending()) {
+          if (active && flow) {
             setError(
-              `GitHub sign-in returned to ${window.location.origin} without establishing a session. Add this domain to Firebase → Authentication → Settings → Authorized domains, verify the GitHub OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`,
+              flow === 'link'
+                ? `GitHub authorization returned to ${window.location.origin} without completing. Add this domain to Firebase → Authentication → Settings → Authorized domains, verify the GitHub OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`
+                : `Sign-in returned to ${window.location.origin} without establishing a session. Add this domain to Firebase → Authentication → Settings → Authorized domains, verify the Google OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`,
             );
           }
           return;
         }
-        clearOAuthPending();
         const token = githubProviderTokenFrom(result);
         if (token) {
           pendingProviderTokenRef.current = token;
@@ -162,18 +151,22 @@ export function AppProvider({
           // run, so the captured token must survive the cleanup.
           const current = userRef.current;
           if (current) void refresh(current);
-        } else if (active) {
-          // Signed in, but Firebase returned no GitHub provider token (rare).
-          // Linking would then never succeed; tell the user instead of
-          // silently leaving them on the Connect-GitHub screen.
+        } else if (active && flow === 'link') {
+          // The GitHub link completed but Firebase returned no provider token
+          // (rare). Linking would then never succeed; tell the user instead of
+          // silently leaving them on the Connect-GitHub screen. A Google
+          // sign-in carries no GitHub token by design — that is not an error.
           setError(
-            'GitHub sign-in completed but the repository access token was not returned. Install the OpenMi GitHub App below, or sign in again.',
+            'GitHub authorization completed but the repository access token was not returned. Install the OpenMi GitHub App below, or connect again.',
           );
         }
       })
       .catch((redirectError) => {
         if (!active) return;
-        clearOAuthPending(); // a specific error is surfaced below; don't double-report
+        // A specific error is surfaced below; consume the marker first so a
+        // stale flag never doubles the report on a later load.
+        const flow = consumeOAuthFlow();
+        const label = flowLabel(flow ?? 'signin');
         // A failed redirect leaves the user signed out. The previous code
         // swallowed this entirely, so the bounce back to the login screen
         // looked like an endless loop with no explanation. Surface the real
@@ -189,19 +182,26 @@ export function AppProvider({
         }
         setError(
           code === 'auth/account-exists-with-different-credential'
-            ? 'This email is already linked to another sign-in method. Sign in with your original provider, then link GitHub from account settings.'
-            : code === 'auth/web-storage-unsupported' ||
-                code === 'auth/operation-not-supported-in-this-environment'
-              ? 'Your browser blocks the storage Firebase needs to keep you signed in. Allow cookies and site data, then try again.'
-              : code === 'auth/timeout'
-                ? 'GitHub sign-in timed out. Please try again.'
-                : code === 'auth/invalid-credential' || code === 'auth/invalid-verification-code'
-                  ? 'GitHub rejected the sign-in. Check the GitHub provider in Firebase console: Client ID, Client secret, and the authorized callback URL must match your GitHub OAuth app.'
-                  : code === 'auth/unauthorized-domain'
-                    ? `This domain is not allowed to use Firebase sign-in. Add ${window.location.origin.replace(/^https?:\/\//, '')} to Firebase → Authentication → Settings → Authorized domains, then try again.`
-                    : code === 'auth/network-request-failed'
-                      ? 'The sign-in could not finish because a request to Firebase failed. An ad blocker or network restriction may be interfering — allow Firebase/auth domains for this site and try again.'
-                      : `GitHub sign-in did not complete (${code ?? 'unknown error'}). Try again.`,
+            ? 'This email is already linked to another sign-in method. Sign in with your original provider, then connect GitHub from the Connect GitHub screen.'
+            : code === 'auth/credential-already-in-use'
+              ? 'That GitHub account is already connected to a different OpenMi account. Disconnect it there first, or sign in with that account.'
+              : code === 'auth/provider-already-linked'
+                ? 'GitHub is already connected but its access token was missing. Install the OpenMi GitHub App below, or sign out and back in to retry.'
+                : code === 'auth/web-storage-unsupported' ||
+                    code === 'auth/operation-not-supported-in-this-environment'
+                  ? 'Your browser blocks the storage Firebase needs to keep you signed in. Allow cookies and site data, then try again.'
+                  : code === 'auth/timeout'
+                    ? `${label} timed out. Please try again.`
+                    : code === 'auth/invalid-credential' ||
+                        code === 'auth/invalid-verification-code'
+                      ? flow === 'link'
+                        ? 'GitHub rejected the authorization. Check the GitHub provider in Firebase console: Client ID, Client secret, and the authorized callback URL must match your GitHub OAuth app.'
+                        : 'Google rejected the sign-in. Check the Google provider in Firebase console: the authorized web origins and OAuth client must match this site.'
+                      : code === 'auth/unauthorized-domain'
+                        ? `This domain is not allowed to use Firebase sign-in. Add ${window.location.origin.replace(/^https?:\/\//, '')} to Firebase → Authentication → Settings → Authorized domains, then try again.`
+                        : code === 'auth/network-request-failed'
+                          ? `${label} could not finish because a request to Firebase failed. An ad blocker or network restriction may be interfering — allow Firebase/auth domains for this site and try again.`
+                          : `${label} did not complete (${code ?? 'unknown error'}). Try again.`,
         );
       });
 
@@ -211,16 +211,19 @@ export function AppProvider({
       setUser(nextUser);
       setAuthReady(true);
       if (nextUser) {
-        clearOAuthPending();
+        // Deliberately does NOT clear the pending OAuth flow: a GitHub link
+        // attempt starts while already signed in, so this emission would wipe
+        // the marker before getRedirectResult judges a silently broken
+        // redirect. The .then/.catch handlers above consume it instead.
         // A failed attempt's banner must not outlive a successful sign-in
         // (the pending-flag check runs before the redirect result lands, so
         // errors set during this load can go stale).
         setError(null);
         void refresh(nextUser);
       }
-      // Signed-out emission: do NOT judge the oauth pending flag here. The SDK
+      // Signed-out emission: do NOT judge the oauth pending flow here. The SDK
       // always emits onAuthStateChanged(null) before getRedirectResult() settles
-      // on the return page, so consuming the flag here fired a false "sign-in
+      // on the return page, so consuming the flow here fired a false "sign-in
       // returned without a session" error on every *successful* sign-in. The
       // null-result branch of getRedirectResult above is the single judge.
     });

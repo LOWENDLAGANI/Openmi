@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useApp } from '@/lib/app-context';
-import { signInWithGithub } from '@/lib/firebase';
+import { linkGithub } from '@/lib/firebase';
 import { Banner, Button, Card } from '@/components/ui';
 import { GithubMark, Lock } from '@/components/icons';
 
 /**
- * Shown when the session exists but there is no GitHub credential yet.
+ * Shown after sign-in when the session exists but GitHub is not linked yet —
+ * Google creates the account, GitHub is connected here so the agent can push.
  *
  * Preferred path is the GitHub App: per-repository, revocable, no re-auth. The
- * OAuth path stays available for deployments without an App configured and for
- * users who only need to browse repositories.
+ * OAuth path (a redirect that LINKS GitHub to the signed-in account) stays
+ * available for deployments without an App configured and for users who only
+ * need to browse repositories.
  */
 export function GrantGithub() {
   const { auth, config, api, signOut, error } = useApp();
@@ -36,9 +38,11 @@ export function GrantGithub() {
     setBusy('oauth');
     setLocalError(null);
     try {
-      await signInWithGithub(auth);
+      await linkGithub(auth);
     } catch (signInError) {
-      setLocalError(signInError instanceof Error ? signInError.message : 'Sign-in failed');
+      setLocalError(
+        signInError instanceof Error ? signInError.message : 'Could not connect GitHub',
+      );
       setBusy(null);
     }
   }
@@ -51,8 +55,9 @@ export function GrantGithub() {
         </div>
         <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white">Connect GitHub</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-zinc-400">
-          The background agent needs write access to commit on your behalf. Install the OpenMi app on
-          only the repositories you want it to touch — you can revoke access at any time.
+          Your account is ready — one last step. The background agent needs GitHub write access to
+          commit on your behalf. Install the OpenMi app on only the repositories you want it to
+          touch — you can revoke access at any time.
         </p>
       </div>
 
@@ -86,7 +91,7 @@ export function GrantGithub() {
               disabled={busy !== null}
               className="w-full py-2 text-[12px] font-medium text-zinc-400 underline-offset-4 active:underline disabled:opacity-60"
             >
-              {busy === 'oauth' ? 'Redirecting…' : 'Use a personal OAuth token instead'}
+              {busy === 'oauth' ? 'Redirecting…' : 'Connect GitHub with OAuth instead'}
             </button>
           </>
         ) : (

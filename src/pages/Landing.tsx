@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { signInWithGithub } from '@/lib/firebase';
+import { signInWithGoogle } from '@/lib/firebase';
 import { useApp } from '@/lib/app-context';
 import { Banner, Button } from '@/components/ui';
-import { Bolt, GithubMark, GitCommit, Lock } from '@/components/icons';
+import { Bolt, GitCommit, GoogleMark, Lock } from '@/components/icons';
 
 const GUARANTEES = [
   {
@@ -37,7 +37,7 @@ export function Landing() {
     setLoading(true);
     setError(null);
     try {
-      await signInWithGithub(auth);
+      await signInWithGoogle(auth);
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : 'Sign-in failed');
       setLoading(false);
@@ -82,12 +82,12 @@ export function Landing() {
 
       <div className="space-y-3 pb-2">
         <Button fullWidth loading={loading} onClick={handleSignIn} className="min-h-14 text-base">
-          <GithubMark className="size-5" />
-          Continue with GitHub
+          <GoogleMark className="size-5" />
+          Continue with Google
         </Button>
         <p className="px-2 text-center text-[11px] leading-relaxed text-zinc-600">
-          OpenMi requests repository access so the agent can commit on your behalf. Access can be
-          revoked on GitHub at any time.
+          Sign in with Google to open your workspace. GitHub connects next — only then can the agent
+          commit on your behalf, and access stays revocable at any time.
         </p>
       </div>
     </main>

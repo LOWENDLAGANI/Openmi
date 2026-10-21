@@ -5,7 +5,7 @@ rules_version = '2';
 // The SPA never reads or writes Firestore directly: every mutation and query
 // goes through the Vercel API (/api/*), which uses the Firebase Admin SDK and
 // scopes every query by owner id. The client SDK is only used for Auth
-// (sign-in with GitHub), so direct client access to data is denied entirely.
+// (sign-in with Google), so direct client access to data is denied entirely.
 //
 // If client-side realtime listeners are added later (Phase 3+), scope reads to
 // `request.auth.uid == resource.data.owner_id` per collection instead of the
