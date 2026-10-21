@@ -41,6 +41,24 @@ function Bootstrap() {
 
   if (!config.ready) return <Setup config={config} />;
 
+  // Canonical-origin guard. Firebase sessions (and the OAuth redirect flag) are
+  // origin-bound. If the site is reachable on multiple origins (www vs apex,
+  // http vs https, vercel.app vs custom domain), sign-in can start on one and
+  // return on another, silently dropping the session and looping to login with
+  // no error. Redirect to the configured origin before any auth flow starts.
+  if (config.appOrigin && window.location.origin !== config.appOrigin) {
+    window.location.replace(
+      `${config.appOrigin}${window.location.pathname}${window.location.search}${window.location.hash}`,
+    );
+    return (
+      <main className="flex min-h-dvh items-center justify-center">
+        <div className="flex size-11 animate-pulse items-center justify-center rounded-2xl bg-emerald-400 text-lg font-black text-emerald-950">
+          M
+        </div>
+      </main>
+    );
+  }
+
   return (
     <AppProvider config={config}>
       <App />

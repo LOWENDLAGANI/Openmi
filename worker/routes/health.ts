@@ -13,6 +13,12 @@ export const healthRoutes = new Hono<AppEnv>();
 healthRoutes.get('/config', (c) => {
   const missing = missingConfig(c.env);
   const githubApp = resolveGithubAppConfig(c.env);
+  // Canonical origin the app should be served from. Sessions and the OAuth
+  // redirect flag are origin-bound; serving the app on multiple origins (www
+  // vs apex, http vs https, vercel.app vs custom domain) silently drops the
+  // session on redirect return. Handed to the client so it can redirect to a
+  // single origin before any auth flow starts.
+  const appOrigin = c.env.APP_ORIGIN?.trim().replace(/\/+$/, '') ?? null;
   return c.json(
     {
       firebase: firebaseClientConfig(c.env),
@@ -20,6 +26,7 @@ healthRoutes.get('/config', (c) => {
       ready: missing.length === 0,
       missing,
       githubApp: { enabled: githubApp.enabled, slug: githubApp.slug },
+      appOrigin,
     },
     200,
     { 'cache-control': 'public, max-age=60' },

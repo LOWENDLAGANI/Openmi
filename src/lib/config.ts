@@ -9,6 +9,7 @@ export interface RuntimeConfig {
     enabled: boolean;
     slug: string | null;
   };
+  appOrigin: string | null;
 }
 
 let cached: Promise<RuntimeConfig> | null = null;
@@ -31,6 +32,7 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
       ready?: boolean;
       missing?: string[];
       githubApp?: { enabled?: boolean; slug?: string | null };
+      appOrigin?: string;
     };
     return {
       firebase: {
@@ -47,6 +49,7 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
         enabled: Boolean(body.githubApp?.enabled),
         slug: body.githubApp?.slug ?? null,
       },
+      appOrigin: typeof body.appOrigin === 'string' && body.appOrigin ? body.appOrigin : null,
     };
   })();
   return cached;
