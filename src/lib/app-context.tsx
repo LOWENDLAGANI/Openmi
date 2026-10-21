@@ -114,7 +114,16 @@ export function AppProvider({
       .then((result) => {
         if (!active || !result) return;
         const token = githubProviderTokenFrom(result);
-        if (token) pendingProviderTokenRef.current = token;
+        if (token) {
+          pendingProviderTokenRef.current = token;
+          // onAuthStateChanged usually fires — and calls refresh() — before
+          // this async result lands, so refresh() already ran with an empty
+          // pending token and never linked GitHub. Refresh again now that the
+          // token is captured. The linkedTokenRef guard makes a double-link a
+          // no-op if the first refresh already won the race.
+          const current = userRef.current;
+          if (current) void refresh(current);
+        }
       })
       .catch(() => {
         // A failed/cancelled redirect leaves no token; sign-in state is still

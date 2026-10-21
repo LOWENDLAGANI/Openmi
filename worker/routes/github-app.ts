@@ -6,7 +6,7 @@ import {
   setInstallationSuspended,
   upsertInstallation,
 } from '../db/installations.js';
-import { loadConfig } from '../env.js';
+import { loadConfig, type Env } from '../env.js';
 import { AppError, isAppError } from '../lib/errors.js';
 import { log } from '../lib/logger.js';
 import { getAppInstallation, requireGithubApp } from '../github/app.js';
@@ -22,6 +22,18 @@ import { parseInstallationEvent, verifyWebhookSignature } from '../github/webhoo
  * authenticated by the signed `state` we issued to a logged-in user; the
  * webhook is authenticated by its HMAC signature.
  */
+/**
+ * Post-install redirect must land on the frontend origin that owns the
+ * Firebase session — auth persistence is origin-bound, so a relative redirect
+ * from a callback served on a different (function/worker/preview) origin drops
+ * the user back at the login screen. APP_ORIGIN is inferred from the Vercel
+ * deployment URL; when unset (same-origin deploys) we fall back to a relative
+ * path, preserving the previous behaviour.
+ */
+function appHomeRedirect(env: Env, flag: string): string {
+  const origin = env.APP_ORIGIN?.trim().replace(/\/+$/, '');
+  return `${origin ?? ''}/?github_app=${encodeURIComponent(flag)}`;
+}
 export const githubAppRoutes = new Hono<AppEnv>();
 
 githubAppRoutes.get('/github-app/callback', async (c) => {
@@ -31,7 +43,7 @@ githubAppRoutes.get('/github-app/callback', async (c) => {
 
   if (setupAction === 'request') {
     // An org owner must approve the request; nothing to link yet.
-    return c.redirect('/?github_app=pending', 302);
+    return c.redirect(appHomeRedirect(c.env, 'pending'), 302);
   }
 
   try {
@@ -51,7 +63,7 @@ githubAppRoutes.get('/github-app/callback', async (c) => {
       installationId,
     );
     if (installation.suspended) {
-      return c.redirect('/?github_app=suspended', 302);
+      return c.redirect(appHomeRedirect(c.env, 'suspended'), 302);
     }
 
     await upsertInstallation(c.env, {
@@ -65,14 +77,14 @@ githubAppRoutes.get('/github-app/callback', async (c) => {
     await invalidateInstallationToken(c.env, installation.id);
 
     log.info('github.app_installed', { installationId: installation.id, userId });
-    return c.redirect('/?github_app=installed', 302);
+    return c.redirect(appHomeRedirect(c.env, 'installed'), 302);
   } catch (error) {
     log.warn('github.app_callback_rejected', {
       installationId: Number.isFinite(installationId) ? installationId : null,
       code: isAppError(error) ? error.code : 'UNKNOWN',
       message: error instanceof Error ? error.message : String(error),
     });
-    return c.redirect('/?github_app=error', 302);
+    return c.redirect(appHomeRedirect(c.env, 'error'), 302);
   }
 });
 
