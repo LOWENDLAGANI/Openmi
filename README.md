@@ -307,9 +307,7 @@ commit. The browser UI is not exercised by automated tests.
 | 2.5 | Vercel runtime: step runner, leases, HTTP dispatch, cron recovery | 0 |
 | 3 | Repo file browser, live streaming progress, retry failed tasks, preview builds, PR review comments, per-user token budget | 0% |
 | 4 | Team workspaces, Stripe billing, usage analytics | 0% |
-
-Rough completion: **~100% of the Phase 0–2 MVP**, **~95% of a deployable production site** (blocked
-only on your accounts and a first deploy), and **~55% of the full roadmap**.
+*.
 
 ## Repo layout
 
