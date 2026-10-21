@@ -112,6 +112,35 @@ export function AppProvider({
 
   useEffect(() => {
     let active = true;
+    // Snapshot the SDK's pending-redirect marker BEFORE getRedirectResult can
+    // consume it — init doesn't (getAuth() is registered without a
+    // popupRedirectResolver, so only getRedirectResult clears this key, after
+    // awaiting init). It splits the two silent-null causes on the return leg:
+    // missing = storage cleared mid-flow; present = redirect started but the
+    // auth-domain event hand-off never delivered a result (blocked third-party
+    // storage / abandoned at the provider). document.referrer names the hop
+    // that brought the browser back.
+    const pendingRedirectAtLoad = (() => {
+      try {
+        return (
+          sessionStorage.getItem(
+            `firebase:pendingRedirect:${config.firebase.apiKey}:[DEFAULT]`,
+          ) !== null
+        );
+      } catch {
+        return null;
+      }
+    })();
+    const referrerHost = (() => {
+      try {
+        return document.referrer ? new URL(document.referrer).host : null;
+      } catch {
+        return null;
+      }
+    })();
+    const returnLeg = ` [return leg: pending-redirect ${
+      pendingRedirectAtLoad === null ? 'unreadable' : pendingRedirectAtLoad ? 'present' : 'missing'
+    }, last hop ${referrerHost ?? 'none'}]`;
     // Capture the GitHub provider token from a just-completed OAuth redirect.
     // This must run once on mount; the token is unavailable afterwards.
     getRedirectResult(auth)
@@ -138,8 +167,12 @@ export function AppProvider({
             // `auth/unauthorized-domain`, surfaced by the catch handler below).
             setError(
               flow === 'link'
-                ? `GitHub authorization returned to ${window.location.origin} without completing. If you cancelled on GitHub that's expected; otherwise verify the GitHub OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.`
-                : `Google sign-in returned to ${window.location.origin} with no session — it didn't finish. If you cancelled at Google that's expected; otherwise try again, and if it keeps happening a content blocker or strict storage setting may be interrupting the Firebase redirect.`,
+                ? `GitHub authorization returned to ${window.location.origin} without completing. If you cancelled on GitHub that's expected; otherwise verify the GitHub OAuth callback URL (<authDomain>/__/auth/handler) in the Firebase console, then try again.${returnLeg}`
+                : `Google sign-in returned to ${window.location.origin} with no session — it didn't finish. If you cancelled at Google that's expected. Otherwise the redirect started but Firebase delivered no result: a content blocker or third-party-storage restriction on the auth-domain hand-off is the usual cause (see Firebase's redirect best practices for non-Firebase-hosted apps).${
+                    pendingRedirectAtLoad === false
+                      ? ' Note: the pending redirect was already missing when this page loaded — site data was cleared mid-flow.'
+                      : ''
+                  }${returnLeg}`,
             );
           }
           return;
