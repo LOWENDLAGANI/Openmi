@@ -20,10 +20,16 @@ export function envFromProcess(source: NodeJS.ProcessEnv = process.env): Env {
     FIREBASE_API_KEY: value('FIREBASE_API_KEY'),
     FIREBASE_AUTH_DOMAIN: optional('FIREBASE_AUTH_DOMAIN'),
     FIREBASE_APP_ID: optional('FIREBASE_APP_ID'),
-    // Service account (server-only). Generate at:
-    // Project settings -> Service accounts -> Generate new private key.
+    // Service account (server-only, local-dev fallback). Leave EMPTY on Vercel
+    // if using keyless Workload Identity Federation (below).
     FIREBASE_CLIENT_EMAIL: optional('FIREBASE_CLIENT_EMAIL'),
     FIREBASE_PRIVATE_KEY: optional('FIREBASE_PRIVATE_KEY'),
+    // Keyless server identity (preferred on Vercel): Workload Identity Federation.
+    // All values are non-secret config copied from the Google Cloud Console.
+    GCP_PROJECT_NUMBER: optional('GCP_PROJECT_NUMBER'),
+    GCP_WORKLOAD_IDENTITY_POOL_ID: optional('GCP_WORKLOAD_IDENTITY_POOL_ID'),
+    GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID: optional('GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID'),
+    GCP_SERVICE_ACCOUNT_EMAIL: optional('GCP_SERVICE_ACCOUNT_EMAIL'),
     GITHUB_TOKEN_ENC_KEY: optional('GITHUB_TOKEN_ENC_KEY'),
     GITHUB_APP_ID: optional('GITHUB_APP_ID'),
     GITHUB_APP_CLIENT_ID: optional('GITHUB_APP_CLIENT_ID'),

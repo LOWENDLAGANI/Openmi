@@ -5,6 +5,10 @@ import { AppError } from './lib/errors';
  * Worker bindings and configuration. Secrets are optional at the type level so
  * a half-configured deployment can still boot and report `SETUP_REQUIRED`
  * instead of crashing at import time.
+ *
+ * Server identity for Firestore: either a Firebase service account
+ * (FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY) OR keyless Workload Identity
+ * Federation (the GCP_* vars below). Never both required.
  */
 export interface Env {
   // Platform bindings. Present on Cloudflare; absent on Vercel, where static
@@ -33,11 +37,23 @@ export interface Env {
   GITHUB_APP_CLIENT_ID?: string;
   GITHUB_APP_SLUG?: string;
 
-  // Secrets (wrangler secret / Vercel env / .dev.vars)
-  // Firebase Admin service account. Generate at:
-  //   Project settings -> Service accounts -> Generate new private key
+  // Server identity option A: Firebase service account (local dev fallback).
+  // Generate at: Project settings -> Service accounts -> Generate new private key.
   FIREBASE_CLIENT_EMAIL?: string;
   FIREBASE_PRIVATE_KEY?: string;
+
+  // Server identity option B (preferred, keyless): Workload Identity Federation.
+  // Vercel mints short-lived OIDC tokens; Google trusts them via a WIF pool.
+  // No private key is ever created or stored. All values are non-secret config.
+  GCP_PROJECT_NUMBER?: string;
+  GCP_WORKLOAD_IDENTITY_POOL_ID?: string;
+  GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID?: string;
+  // Optional: if set, the federated identity impersonates this service account.
+  // If omitted, grant Firestore IAM roles directly to the federated principal
+  // (no service account object exists at all).
+  GCP_SERVICE_ACCOUNT_EMAIL?: string;
+
+  // Secrets (wrangler secret / Vercel env / .dev.vars)
   GITHUB_TOKEN_ENC_KEY?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_APP_WEBHOOK_SECRET?: string;
@@ -49,8 +65,6 @@ export interface Env {
 const REQUIRED_SECRETS = [
   'FIREBASE_PROJECT_ID',
   'FIREBASE_API_KEY',
-  'FIREBASE_CLIENT_EMAIL',
-  'FIREBASE_PRIVATE_KEY',
   'GITHUB_TOKEN_ENC_KEY',
   'OPENROUTER_API_KEY',
 ] as const;
@@ -67,6 +81,17 @@ export interface GithubAppConfig {
   stateSecret: string | null;
 }
 
+export interface GcpWifConfig {
+  projectNumber: string;
+  poolId: string;
+  providerId: string;
+  serviceAccountEmail: string | null;
+  /** `//iam.googleapis.com/...` form used in the ExternalAccountClient config. */
+  audience: string;
+  /** `https://iam.googleapis.com/...` form requested as the OIDC token audience. */
+  tokenAudience: string;
+}
+
 export interface FirebaseClientConfig {
   apiKey: string;
   authDomain: string;
@@ -80,8 +105,9 @@ export interface AppConfig {
   firebaseApiKey: string;
   firebaseAuthDomain: string;
   firebaseAppId: string;
-  firebaseClientEmail: string;
-  firebasePrivateKey: string;
+  firebaseClientEmail: string | null;
+  firebasePrivateKey: string | null;
+  gcpWif: GcpWifConfig | null;
   githubTokenEncKey: string;
   openRouterApiKey: string;
   groqApiKey: string | null;
@@ -131,6 +157,22 @@ export function resolveGithubAppConfig(env: Env): GithubAppConfig {
   };
 }
 
+function resolveGcpWif(env: Env): GcpWifConfig | null {
+  const projectNumber = trimmed(env.GCP_PROJECT_NUMBER);
+  const poolId = trimmed(env.GCP_WORKLOAD_IDENTITY_POOL_ID);
+  const providerId = trimmed(env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID);
+  if (!projectNumber || !poolId || !providerId) return null;
+  const path = `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`;
+  return {
+    projectNumber,
+    poolId,
+    providerId,
+    serviceAccountEmail: trimmed(env.GCP_SERVICE_ACCOUNT_EMAIL),
+    audience: `//iam.googleapis.com/${path}`,
+    tokenAudience: `https://iam.googleapis.com/${path}`,
+  };
+}
+
 /** Public client config handed to the browser. Never includes secrets. */
 export function firebaseClientConfig(env: Env): FirebaseClientConfig {
   const projectId = (env.FIREBASE_PROJECT_ID ?? '').trim();
@@ -164,8 +206,9 @@ export function loadConfig(env: Env): AppConfig {
     firebaseAuthDomain:
       trimmed(env.FIREBASE_AUTH_DOMAIN) ?? `${projectId}.firebaseapp.com`,
     firebaseAppId: trimmed(env.FIREBASE_APP_ID) ?? '',
-    firebaseClientEmail: env.FIREBASE_CLIENT_EMAIL as string,
-    firebasePrivateKey: normalizePem(trimmed(env.FIREBASE_PRIVATE_KEY)) as string,
+    firebaseClientEmail: trimmed(env.FIREBASE_CLIENT_EMAIL),
+    firebasePrivateKey: normalizePem(trimmed(env.FIREBASE_PRIVATE_KEY)),
+    gcpWif: resolveGcpWif(env),
     githubTokenEncKey: env.GITHUB_TOKEN_ENC_KEY as string,
     openRouterApiKey: env.OPENROUTER_API_KEY as string,
     groqApiKey: env.GROQ_API_KEY?.trim() || null,

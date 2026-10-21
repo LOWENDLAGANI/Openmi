@@ -58,3 +58,47 @@ queries rely on (active-task counts, project/task listings, stale-lease scan).
   checks `tasks_started < limit` and increments atomically, so the last slot
   can never be double-spent. `refundTaskQuota` decrements in a transaction
   (floored at 0).
+
+## 5. Keyless server identity (Workload Identity Federation, recommended on Vercel)
+
+A service account key is a long-lived secret. On Vercel you can avoid it
+entirely: Vercel mints a short-lived OIDC token at runtime, and Google trusts
+it via a one-time Workload Identity Federation (WIF) setup. No private key is
+ever created or stored. All values below are non-secret config.
+
+In the **Google Cloud Console** (the project behind your Firebase project):
+
+1. **IAM & Admin → Workload Identity Federation → Create Pool.** Name/ID e.g.
+   `vercel`.
+2. **Add Provider → OpenID Connect (OIDC).** Name/ID e.g. `vercel`.
+   - Issuer URL: for a Vercel team, `https://oidc.vercel.com/<TEAM_SLUG>`; for a
+     personal/Global account, `https://oidc.vercel.com`.
+   - Audience: select **Default audience** (recommended). After creation, copy
+     the audience URL from the provider details page — it looks like
+     `https://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/vercel/providers/vercel`.
+   - Attribute mapping: set `google.subject` = `assertion.sub`. Save.
+3. Grant access. Two options:
+   - **(a) Impersonate a service account** (the Vercel-documented path): create
+     a service account (e.g. `openmi`), grant it the **Cloud Datastore User**
+     role (Firestore), then on its "Grant users access" panel paste the IAM
+     principal from the pool details page
+     (`principal://iam.googleapis.com/projects/<NUMBER>/locations/global/workloadIdentityPools/vercel/subject/owner:<TEAM>:project:<VERCEL_PROJECT>:environment:<production>` —
+     add one per environment). Set `GCP_SERVICE_ACCOUNT_EMAIL`.
+   - **(b) No service account at all:** skip creating a service account. Instead,
+     in **IAM & Admin → IAM → Grant Access**, add the pool's principalSet
+     (`principalSet://iam.googleapis.com/projects/<NUMBER>/locations/global/workloadIdentityPools/vercel/attribute...`)
+     and grant **Cloud Datastore User** (`roles/datastore.user`). Leave
+     `GCP_SERVICE_ACCOUNT_EMAIL` unset.
+4. Set these Vercel environment variables (all non-secret):
+   `GCP_PROJECT_NUMBER` (IAM & Admin → Settings), `GCP_WORKLOAD_IDENTITY_POOL_ID`,
+   `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`, and optionally
+   `GCP_SERVICE_ACCOUNT_EMAIL`.
+
+Leave `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` empty — the server uses
+WIF automatically. For local dev you can still set the service account pair as
+a fallback (WIF tokens only exist on Vercel).
+
+Auth verification is already keyless: ID tokens are verified against Google's
+public JWKS (`securetoken@system.gserviceaccount.com`) with `jose` — no admin
+SDK, no secret.
+

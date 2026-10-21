@@ -25,7 +25,7 @@
   // Cloudflare Workers edge. The Vercel/Node runtime (api/index.ts) is the
   // supported deployment target after the Firebase pivot. wrangler config is
   // retained for reference and is marked external so it still bundles.
-  "external": ["firebase-admin"],
+  "external": ["firebase-admin", "google-auth-library", "@vercel/oidc"],
   "vars": {
     "FIREBASE_PROJECT_ID": "",
     "FIREBASE_API_KEY": "",
