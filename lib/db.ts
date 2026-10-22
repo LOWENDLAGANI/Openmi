@@ -1,6 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Chat, ChatFolder, ChatMessage, Memory } from "./types";
-import type { ScheduledMessage } from "./scheduler";
+import type { Chat, ChatFolder, ChatMessage } from "./types";
 import type { TrashEntry } from "./trash";
 import { displayedContent } from "./variants";
 
@@ -13,9 +12,7 @@ import { displayedContent } from "./variants";
 export class OpenmiDB extends Dexie {
   chats!: Table<Chat, string>;
   messages!: Table<ChatMessage, string>;
-  memories!: Table<Memory, string>;
   folders!: Table<ChatFolder, string>;
-  scheduled!: Table<ScheduledMessage, string>;
   trash!: Table<TrashEntry, string>;
 
   constructor() {
@@ -52,6 +49,16 @@ export class OpenmiDB extends Dexie {
       memories: "id, createdAt",
       folders: "id, name",
       scheduled: "id, sendAt",
+      trash: "id, deletedAt",
+    });
+    // The overhaul removed two device-local features — the memory list and
+    // queued sends — so their tables are dropped. Omitting a store from a later
+    // version is how Dexie deletes a table; leaving them declared would keep
+    // dead data on every existing browser for ever.
+    this.version(5).stores({
+      chats: "id, updatedAt, pinned, folder",
+      messages: "id, chatId, createdAt",
+      folders: "id, name",
       trash: "id, deletedAt",
     });
   }
@@ -97,13 +104,12 @@ export async function deleteChat(chatId: string): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction("rw", db.chats, db.messages, db.folders, db.scheduled, db.trash, async () => {
+  await db.transaction("rw", db.chats, db.messages, db.folders, db.trash, async () => {
     await db.messages.clear();
     await db.chats.clear();
-    // "Clear" means clear: the trash and anything queued for later go with the
-    // rest, or a wiped browser is one restore away from being unwiped.
+    // "Clear" means clear: the trash goes with the rest, or a wiped browser is
+    // one restore away from being unwiped.
     await db.folders.clear();
-    await db.scheduled.clear();
     await db.trash.clear();
   });
 }

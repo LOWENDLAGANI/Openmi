@@ -2,12 +2,9 @@
 
 import type { Appearance, ReasoningEffort, ResponseLength } from "@/lib/settings";
 import type { SearchMode } from "@/lib/types";
-import { firebaseConfigured } from "@/lib/firebaseHistory";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
 import DataControls from "@/components/DataControls";
-import GoogleToolsSection from "@/components/GoogleToolsSection";
-import MemoryPanel from "@/components/MemoryPanel";
 import PushSettings from "@/components/PushSettings";
 
 interface SettingsPanelProps {
@@ -142,7 +139,6 @@ export default function SettingsPanel({
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 stagger-children">
           <AccountSection displayName={displayName} />
           <DataControls />
-          <MemoryPanel syncAvailable={firebaseConfigured} />
 
           <div className="grid grid-cols-1 gap-4" style={{ ['--stagger' as string]: 3 }}>
             <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter">
@@ -262,7 +258,6 @@ export default function SettingsPanel({
             </section>
           </div>
 
-          <GoogleToolsSection />
           <PushSettings />
         </div>
       </section>

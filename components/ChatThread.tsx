@@ -1,22 +1,16 @@
 "use client";
 
-import type { ChatMessage, GeneratedImage } from "@/lib/types";
+import type { ChatMessage } from "@/lib/types";
 import { getModelDisplayName } from "@/lib/models";
-import { imageDownloadName } from "@/lib/imageGeneration";
 import { displayedContent, variantCount, variantPosition } from "@/lib/variants";
-import { downloadChatImage } from "@/lib/shareImage";
-import { buildShareLink } from "@/lib/shareLink";
 import Markdown from "./Markdown";
 import OpenmiMark from "./OpenmiMark";
 import { useSmoothText } from "@/lib/useSmoothText";
-import { speak, speechSupported, stopSpeaking } from "@/lib/tts";
 import { useEffect, useRef, useState } from "react";
 
 interface ChatThreadProps {
   messages: ChatMessage[];
   streamingId: string | null;
-  /** Assistant message currently being drawn by the image model, if any. */
-  drawingId: string | null;
   isEmpty: boolean;
   onRegenerate: (assistantId: string) => void;
   onEditMessage: (messageId: string, content: string) => void;
@@ -184,16 +178,12 @@ function VariantNav({
   );
 }
 
-function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSwitchVariant, speaking, onSpeak, onStopSpeak }: {
+function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVariant }: {
   msg: ChatMessage;
   streaming: boolean;
-  drawing: boolean;
   onRegenerate: () => void;
   onEditMessage: (content: string) => void;
   onSwitchVariant: (index: number | null) => void;
-  speaking?: boolean;
-  onSpeak?: () => void;
-  onStopSpeak?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
@@ -278,12 +268,24 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
         <VariantNav message={msg} onSwitch={onSwitchVariant} />
       </div>
 
-      {drawing && <DrawingPlaceholder />}
-
-      {msg.generatedImages && msg.generatedImages.length > 0 && (
-        <div className="mb-2 max-w-md">
-          {msg.generatedImages.map((image) => (
-            <GeneratedImageCard key={image.createdAt} image={image} />
+      {/* What the agent read to answer this. Kept to one line per read: a wall
+          of tool JSON buries the answer, and the path is the part a reader
+          needs. A failed read stays visible rather than being tidied away —
+          it is the difference between "that file is empty" and "that file was
+          never opened". */}
+      {msg.steps && msg.steps.length > 0 && (
+        <div className="mb-2 space-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+          {msg.steps.map((step, index) => (
+            <div
+              key={`${step.tool}-${index}`}
+              className="flex items-start gap-2 text-[11px] leading-relaxed text-white/45"
+            >
+              <span
+                aria-hidden
+                className={`mt-[5px] h-1 w-1 shrink-0 rounded-full ${step.ok ? "bg-[#7fd1a1]/70" : "bg-red-300/70"}`}
+              />
+              <span className="min-w-0 flex-1 break-words">{step.label}</span>
+            </div>
           ))}
         </div>
       )}
@@ -323,35 +325,6 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
         <div className="mt-2 flex items-center gap-1">
           <MessageActions onRegenerate={onRegenerate} />
           <CopyMessageButton text={displayText} />
-          {speechSupported() && onSpeak && onStopSpeak && (
-            speaking ? (
-              <button
-                onClick={onStopSpeak}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12]"
-                aria-label="Stop reading aloud"
-                title="Stop reading"
-                type="button"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                  <path d="m16 9 5 6M21 9l-5 6" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                onClick={onSpeak}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80"
-                aria-label="Read this answer aloud"
-                title="Read aloud"
-                type="button"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                  <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12" />
-                </svg>
-              </button>
-            )
-          )}
         </div>
       )}
 
@@ -377,51 +350,6 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
         </div>
       )}
     </div>
-  );
-}
-
-function DrawingPlaceholder() {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-white/10" role="status" aria-live="polite">
-      <div className="flex aspect-[4/3] w-full max-w-md items-center justify-center bg-white/[0.03]">
-        <span className="animate-breathe flex items-center gap-2 text-[12px] text-white/45">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#a9d8bb]/40 border-t-transparent" />
-          Drawing…
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function GeneratedImageCard({ image }: { image: GeneratedImage }) {
-  const download = () => {
-    const link = document.createElement("a");
-    link.href = image.url;
-    link.download = imageDownloadName(image);
-    link.click();
-  };
-  return (
-    <figure className="animate-pop group/img mb-2 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={image.url}
-        alt={image.prompt}
-        className="w-full cursor-zoom-in object-cover"
-        onClick={() => window.open(image.url, "_blank")}
-      />
-      <figcaption className="flex items-center gap-2 border-t border-white/[0.07] px-3 py-2">
-        <span className="min-w-0 flex-1 truncate text-[11px] text-white/40" title={image.prompt}>
-          {image.prompt}
-        </span>
-        <button
-          type="button"
-          onClick={download}
-          className="lift shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
-        >
-          Save
-        </button>
-      </figcaption>
-    </figure>
   );
 }
 
@@ -607,7 +535,6 @@ function nextHeadline(): string {
 
 export default function ChatThread({  messages,
   streamingId,
-  drawingId,
   isEmpty,
   onRegenerate,
   onEditMessage,
@@ -619,89 +546,8 @@ export default function ChatThread({  messages,
   const stickRef = useRef(true);
   const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
   const [showSourceHistory, setShowSourceHistory] = useState(false);
-  // Rendering a share image takes a moment (measure, draw at 2×, encode), and
-  // the button says so rather than appearing to do nothing.
-  const [sharing, setSharing] = useState(false);
-  const [shareNotice, setShareNotice] = useState<string | null>(null);
-  const [linkBusy, setLinkBusy] = useState(false);
-  // Which answer the voice is reading, so exactly one message shows Stop.
-  const [speakingId, setSpeakingId] = useState<string | null>(null);
-  // Leaving the thread must not leave a voice reading to an empty screen.
-  useEffect(() => () => stopSpeaking(), []);
   // Seeded deterministically for SSR, then randomized after mount.
   const [headline, setHeadline] = useState(EMPTY_STATE_HEADLINES[0]);
-
-  const handleSpeak = (msg: ChatMessage, text: string) => {
-    if (speakingId === msg.id) {
-      stopSpeaking();
-      setSpeakingId(null);
-      return;
-    }
-    const started = speak(text, () =>
-      setSpeakingId((current) => (current === msg.id ? null : current))
-    );
-    setSpeakingId(started ? msg.id : null);
-  };
-
-  const handleShareImage = async () => {
-    if (sharing) return;
-    setSharing(true);
-    try {
-      const title = messages.find((message) => message.role === "user")?.content ?? "";
-      await downloadChatImage(messages, title);
-      setShareNotice("Image saved");
-    } catch (cause) {
-      setShareNotice(cause instanceof Error ? cause.message : "Could not build the image");
-    } finally {
-      setSharing(false);
-      setTimeout(() => setShareNotice(null), 3000);
-    }
-  };
-
-  /**
-   * Hands this conversation over as a URL that carries it inside itself.
-   *
-   * The native share sheet goes first where the browser has one — this is a
-   * phone-first product and "share" on a phone means the sheet — with the
-   * clipboard as the fallback everywhere else, including desktop. Cancelling
-   * the sheet is not a failure and says nothing.
-   */
-  const handleShareLink = async () => {
-    if (linkBusy || sharing) return;
-    setLinkBusy(true);
-    try {
-      const title = messages.find((message) => message.role === "user")?.content ?? "";
-      const link = await buildShareLink(messages, title);
-      const summary =
-        link.included < link.total
-          ? `Link copied · latest ${link.included} of ${link.total} messages`
-          : "Link copied";
-
-      if (typeof navigator !== "undefined" && navigator.share) {
-        try {
-          await navigator.share({ title: "A chat from Openmi", url: link.url });
-          setShareNotice(
-            link.included < link.total
-              ? `Shared · latest ${link.included} of ${link.total} messages`
-              : "Shared"
-          );
-          return;
-        } catch (cause) {
-          if (cause instanceof Error && cause.name === "AbortError") return;
-          // Any other refusal (an insecure context, a browser that exposes
-          // `share` but rejects URLs) falls through to the clipboard.
-        }
-      }
-
-      await navigator.clipboard.writeText(link.url);
-      setShareNotice(summary);
-    } catch (cause) {
-      setShareNotice(cause instanceof Error ? cause.message : "Could not build the link");
-    } finally {
-      setLinkBusy(false);
-      setTimeout(() => setShareNotice(null), 4000);
-    }
-  };
 
   useEffect(() => {
     if (!isEmpty) return;
@@ -752,13 +598,6 @@ export default function ChatThread({  messages,
     <div ref={containerRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-4 pb-8 pt-4 md:px-7 md:pt-6">
         <div className="mb-5 flex items-center justify-end gap-1 text-[10px] text-white/30">
-          {shareNotice && <span className="animate-rise mr-1 rounded-lg bg-white/[0.06] px-2 py-1.5 text-white/55">{shareNotice}</span>}
-          <button type="button" onClick={() => void handleShareLink()} disabled={linkBusy || sharing} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50">
-            {linkBusy ? "Building…" : "Share link"}
-          </button>
-          <button type="button" onClick={() => void handleShareImage()} disabled={sharing} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50">
-            {sharing ? "Rendering…" : "Share image"}
-          </button>
           <button type="button" onClick={onCopyConversation} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy chat</button>
           {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Sources ({allSources.length})</button>}
           {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy links</button>}
@@ -770,16 +609,9 @@ export default function ChatThread({  messages,
               key={msg.id}
               msg={msg}
               streaming={msg.id === streamingId}
-              drawing={msg.id === drawingId}
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
               onSwitchVariant={(index) => onSwitchVariant(msg.id, index)}
-              speaking={msg.id === speakingId}
-              onSpeak={() => handleSpeak(msg, displayedContent(msg))}
-              onStopSpeak={() => {
-                stopSpeaking();
-                setSpeakingId(null);
-              }}
             />
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
@@ -813,16 +645,9 @@ import { getMode } from "@/lib/models";
 
 function ModelBadge({ model }: { model?: string }) {
   const mode = getMode(model ?? "auto");
-  const isAzure = mode.id === "self";
   const isCode = mode.id === "code";
-  
-  const badgeClass = isAzure 
-    ? "model-badge model-badge-azure" 
-    : isCode 
-      ? "model-badge model-badge-code" 
-      : "model-badge model-badge-auto";
-  
-  const label = isAzure ? "Openmi Azure" : isCode ? "Openmi Code" : mode.display;
+  const badgeClass = isCode ? "model-badge model-badge-code" : "model-badge model-badge-auto";
+  const label = mode.display;
   
   return (
     <span className={badgeClass}>
@@ -834,17 +659,7 @@ function ModelBadge({ model }: { model?: string }) {
 
 function ModelIcon({ model }: { model?: string }) {
   const mode = getMode(model ?? "auto");
-  const isAzure = mode.id === "self";
   const isCode = mode.id === "code";
-  
-  if (isAzure) {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#5b9bd5] flex-shrink-0" aria-hidden="true">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-      </svg>
-    );
-  }
   if (isCode) {
     return (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#e08e6b] flex-shrink-0" aria-hidden="true">

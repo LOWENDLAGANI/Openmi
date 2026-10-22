@@ -1,24 +1,39 @@
-// ── Dew — Openmi's pay-as-you-go currency ─────────────────────────────────────
-// Pure logic only: no Firebase, no fetch. Everything about what a token costs,
-// what a balance means, and what a balance looks like on screen is decided
-// here, so the chat route, the image route, the client and the tests cannot
-// drift apart.
+// ── Dew — the product's pay-as-you-go currency ────────────────────────────────
+// Pure logic only: no Firebase, no fetch. Everything about what a request costs,
+// what a balance means, and what a balance looks like on screen is decided here,
+// so the routes, the client and the tests cannot drift apart.
 //
 // One Dew is 1/100 of a US dollar in value. Balances are held and computed in
-// exactly three decimal places and stored rounded to that, so a balance a
-// client computes from the same node the server read is the same balance the
-// server enforced with.
+// exactly three decimal places and stored rounded to that, so a balance a client
+// computes from the same node the server read is the same balance the server
+// enforced with.
+//
+// ── Flat pricing ──────────────────────────────────────────────────────────────
+// A request costs a fixed number of Dew for the model it runs on. Tokens are
+// still counted, reported to the client and stored on the message; they are
+// telemetry now, not the bill. Two reasons for the change:
+//
+//   1. Predictability. A chat whose price depends on how much the model decided
+//      to write is impossible to budget for, and users read a falling balance as
+//      a bug rather than as usage.
+//   2. A coding agent's turns vary by an order of magnitude. Billing by token
+//      makes the cheap turns subsidise nothing and the expensive ones feel like
+//      an accident; a flat price per model makes the trade-off legible up front.
+//
+// The price is per *completed request*, not per model call inside it. An agent
+// loop that takes several internal steps is still one request to the person who
+// sent one message — but the loop is capped elsewhere, so the flat price cannot
+// buy an unbounded number of calls. See MAX_STEPS in the agent specification.
+
+import type { ModeId } from "./models";
 
 export const DEW_PER_UNIT = 100; // 100 Dew = $1.00 of value
 export const TRIAL_DEW = 25; // granted once at account creation
 /** Below this balance a request is refused before it reaches a model. */
 export const DUST_THRESHOLD = 0.05;
-/** Openmi Azure's smallest plausible answer; refuse below this rather than burning a slot. */
-export const AZURE_FLOOR = 0.25;
-/** ~Claude Opus 5.5 runs the 72B model, so its floor is double Azure's. */
-export const OPUS_FLOOR = 0.5;
 /** The balance at which the UI chip turns amber, warning of a top-up. */
 export const LOW_BALANCE_THRESHOLD = 10;
+
 /** A pack somebody can transfer for, in Dew and ringgit. */
 export interface DewPack {
   id: string;
@@ -37,27 +52,28 @@ export const DEW_QR_CAPTION = "Scan with your banking app · DuitNow";
 /** Rounding: three decimals is the finest a Dew figure is ever kept. */
 export const DEW_PRECISION = 3;
 
-/** What one image generation costs, charged on completion. */
-export const IMAGE_DEW_COST = 1;
-
-/** Which pricing tier a request bills as. */
-export type DewTier = "fast" | "pro";
-
 /**
- * Cost in Dew per 1,000 tokens.
+ * The flat price of one completed request, per model.
  *
- * Fast covers the flash models Auto and Code run on. Pro covers Openmi Azure and
- * any request that explicitly asked for medium or high reasoning. Input and
- * output are priced separately because they cost the deployment separately.
+ * Adding a model means adding one line here. The number is what the request
+ * costs, full stop: not a rate, not a per-1,000-token figure, and not something
+ * a longer answer changes. `code` is dearer because it is the model tuned for
+ * reading and changing a repository, which is the more expensive request to
+ * serve.
  */
-export const DEW_PRICING: Record<DewTier, { input: number; output: number }> = {
-  fast: { input: 0.015, output: 0.06 },
-  pro: { input: 0.25, output: 1.0 },
+export const DEW_PER_REQUEST: Record<ModeId, number> = {
+  auto: 0.25,
+  code: 0.5,
 };
 
 export interface TokenUsage {
   prompt: number;
   completion: number;
+}
+
+/** The flat price of one request in a given mode. */
+export function requestPrice(mode: ModeId): number {
+  return DEW_PER_REQUEST[mode] ?? DEW_PER_REQUEST.auto;
 }
 
 /** Rounds away float drift so a balance never shows 0.2999999999999998. */
@@ -71,30 +87,13 @@ export function toMillidew(value: number): number {
   return Math.round(value * 1000);
 }
 
-/** The fast/premium distinction is about how expensive the model is to serve. */
-export function tierForRequest(mode: "auto" | "code" | "self" | "opus" | "fable", effort: string | null): DewTier {
-  if (mode === "self" || mode === "opus") return "pro";
-  if (effort === "medium" || effort === "high") return "pro";
-  return "fast";
-}
-
-/**
- * The exact cost of one request, in Dew.
- */
-export function calcDewCost(tier: DewTier, usage: TokenUsage): number {
-  const pricing = DEW_PRICING[tier];
-  const inCost = (Math.max(0, usage.prompt) / 1000) * pricing.input;
-  const outCost = (Math.max(0, usage.completion) / 1000) * pricing.output;
-  return roundDew(inCost + outCost);
-}
-
 /**
  * Rough token estimate for streams whose provider never reports usage.
  *
- * The 4-chars-per-token heuristic is deliberately crude; it is only used when
- * the honest number is unavailable, and it always errs in the same direction a
- * long answer errs - low for code-dense text. A provider that reports usage
- * overrides this entirely.
+ * Tokens no longer decide the bill, but they are still recorded: they are what
+ * makes a wrong price visible, and what a future per-model or per-token option
+ * would need. The 4-chars-per-token heuristic is deliberately crude; it is only
+ * used when the honest number is unavailable.
  */
 export function estimateTokenUsage(text: string): TokenUsage {
   return { prompt: 0, completion: Math.ceil(text.length / 4) };
@@ -134,7 +133,7 @@ export function sumCredits(credits: Record<string, unknown> | null | undefined):
  *
  * The stored shape is two numbers and a map of credits:
  *   dew/{uid} = { credits: { TRIAL: 25, CODE1: 100 }, spent: 12.375 }
- * The balance is always derived - credits minus spent - never read from a
+ * The balance is always derived — credits minus spent — never read from a
  * single scalar a client could have written.
  */
 export function dewBalanceFrom(
@@ -155,12 +154,17 @@ export function nextSpent(previous: number, charge: number): number {
   return roundDew(Math.max(0, previous) + Math.max(0, charge));
 }
 
-/** True when this balance covers starting a request at `floor`. */
-export function canAfford(balance: number, floor: number = DUST_THRESHOLD): boolean {
-  return balance >= floor;
+/**
+ * True when this balance covers starting a request at `price`.
+ *
+ * The default is the dust threshold, which keeps the function usable for the
+ * "is there any balance at all" question. Routes pass the model's flat price.
+ */
+export function canAfford(balance: number, price: number = DUST_THRESHOLD): boolean {
+  return balance >= price;
 }
 
 /** The sentence the chat shows when somebody has run dry. */
 export function outOfDewMessage(): string {
-  return "**You're out of Dew.** Top up on the /plus page, or redeem a Dew code. Every message is billed for the tokens it uses, so the balance only drops as fast as you actually chat.";
+  return "**You're out of Dew.** Top up on the /plus page, or redeem a Dew code. Each message costs a fixed amount of Dew for the model you pick, so you can see the price before you send it.";
 }

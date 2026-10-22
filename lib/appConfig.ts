@@ -1,6 +1,5 @@
 import { onValue, ref } from "firebase/database";
 import { getServices } from "./firebaseHistory";
-import { normalizeNotes, type DevNote } from "./notes";
 
 // ── Runtime controls, read by the server on every request ───────────────────
 // The administrator sets these from the admin console. They live in Realtime
@@ -38,30 +37,15 @@ export function isBanActive(ban: BanRecord, now = Date.now()): boolean {
   return ban.expiresAt === null || ban.expiresAt > now;
 }
 
-export interface AppConfig {
-  /** Master switch for chat. */
+export interface AppConfig {  /** Master switch for chat. */
   chatEnabled: boolean;
-  /** Master switch for image generation. */
-  imageEnabled: boolean;
   /** Master switch for web search inside chat. */
   searchEnabled: boolean;
-  /**
-   * Master switch for the Google tools (Calendar, Tasks, Sheets, Docs, Maps)
-   * inside chat. Absent in an older config, so the default is on and the
-   * normalize step treats a missing value as on.
-   */
-  googleToolsEnabled: boolean;
   /** A short line shown to every visitor. Empty hides the banner. */
   announcement: string;
-  /** Heading on the notes page, e.g. "News From Developers". */
-  notesTitle: string;
-  /** Everything published under "News from the developers". Empty list hides
-   *  the section entirely rather than showing an empty page. */
-  notes: DevNote[];
+
   /** Messages per visitor per day. 0 means unlimited. */
   dailyChatCap: number;
-  /** Images per visitor per day. 0 means unlimited. */
-  dailyImageCap: number;
   /** Everyone the server refuses, with the reason and the length of the ban. */
   bans: BanRecord[];
   /**
@@ -76,14 +60,9 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   chatEnabled: true,
-  imageEnabled: true,
   searchEnabled: true,
-  googleToolsEnabled: true,
   announcement: "",
-  notesTitle: "News From Developers",
-  notes: [],
   dailyChatCap: 0,
-  dailyImageCap: 0,
   bans: [],
   maintenanceEnabled: false,
   maintenanceMessage: "Openmi is down for maintenance. Please check back soon.",
@@ -152,17 +131,9 @@ export function normalizeConfig(raw: unknown): AppConfig {
   const value = (raw ?? {}) as Record<string, unknown>;
   return {
     chatEnabled: asBool(value.chatEnabled, DEFAULT_CONFIG.chatEnabled),
-    imageEnabled: asBool(value.imageEnabled, DEFAULT_CONFIG.imageEnabled),
     searchEnabled: asBool(value.searchEnabled, DEFAULT_CONFIG.searchEnabled),
-    googleToolsEnabled: asBool(value.googleToolsEnabled, DEFAULT_CONFIG.googleToolsEnabled),
     announcement: typeof value.announcement === "string" ? value.announcement.slice(0, 200) : "",
-    notesTitle:
-      typeof value.notesTitle === "string" && value.notesTitle.trim()
-        ? value.notesTitle.slice(0, 60)
-        : DEFAULT_CONFIG.notesTitle,
-    notes: normalizeNotes(value.notes),
     dailyChatCap: asCount(value.dailyChatCap),
-    dailyImageCap: asCount(value.dailyImageCap),
     bans: normalizeBans(value.bans, value.bannedUids),
     maintenanceEnabled: asBool(value.maintenanceEnabled, DEFAULT_CONFIG.maintenanceEnabled),
     maintenanceMessage:

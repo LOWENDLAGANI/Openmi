@@ -29,22 +29,12 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
 
   // Dexie's transaction type takes at most five tables, so the wipe is two
   // transactions rather than one. The conversations go first — they are the
-  // thing being deleted — and the two bookkeeping tables follow.
-  await db.transaction(
-    "rw",
-    db.chats,
-    db.messages,
-    db.folders,
-    db.memories,
-    db.scheduled,
-    async () => {
-      await db.messages.clear();
-      await db.chats.clear();
-      await db.folders.clear();
-      await db.memories.clear();
-      await db.scheduled.clear();
-    }
-  );
+  // thing being deleted — and the trash follows.
+  await db.transaction("rw", db.chats, db.messages, db.folders, async () => {
+    await db.messages.clear();
+    await db.chats.clear();
+    await db.folders.clear();
+  });
   await db.transaction("rw", db.trash, async () => {
     await db.trash.clear();
   });

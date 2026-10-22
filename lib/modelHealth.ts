@@ -1,4 +1,4 @@
-// ── Openmi model health checks (server only) ───────────────────────────────────
+// ── Model health checks (server only) ────────────────────────────────────────
 // Asks one configured model to return a fixed test message, so an administrator
 // can see, per model, whether it is reachable and actually answering — rather
 // than inferring it from a chat that fell over.
@@ -7,9 +7,9 @@
 //
 //   1. No provider name, wire model id, endpoint, or key may leave this module.
 //      The admin panel is browser code, so what it receives is an opaque id and
-//      a Openmi name. The id is a hash of the wire model, which is stable across
-//      restarts (so a stored id still resolves after a deploy) and carries
-//      nothing readable.
+//      a product name. The id is a hash of the wire model, which is stable
+//      across restarts (so a stored id still resolves after a deploy) and
+//      carries nothing readable.
 //   2. A probe is a real request, so it is a real cost. The prompt is tiny, the
 //      reply is capped, and the whole call is bounded by a timeout, because a
 //      hanging model must report as offline rather than leave the button
@@ -19,15 +19,13 @@ import { createHash } from "node:crypto";
 import { getModelDisplayName } from "./models";
 import { toOpenmiName } from "./modelEngines";
 import { getProviders, type ProviderConfig } from "./providers";
-import { probeSpace } from "./gradioSpace";
-import { mentionsProvider, sanitizeIdentity } from "./identity";
 
 export type ModelRole = "auto" | "version" | "backup";
 
 export interface ModelTarget {
   /** Opaque, stable handle the panel sends back to run a check. */
   id: string;
-  /** The Openmi name. Never a provider name, never a wire model id. */
+  /** The product name. Never a provider name, never a wire model id. */
   name: string;
   role: ModelRole;
 }
@@ -36,9 +34,9 @@ export interface ProbeResult extends ModelTarget {
   ok: boolean;
   /** Round-trip time in milliseconds, measured around the provider call. */
   ms: number;
-  /** The model's own words, scrubbed, so a human can confirm it really replied. */
+  /** The model's own words, so a human can confirm it really replied. */
   reply: string;
-  /** Why the check failed, in Openmi's language. Empty when it succeeded. */
+  /** Why the check failed. Empty when it succeeded. */
   error: string;
 }
 
@@ -80,8 +78,8 @@ const STATUS_REASON: Record<number, string> = {
  * A raw provider body is machine output: JSON, escaped quotes, stack-trace
  * tails, and documentation URLs. Pasting that into a status panel makes the
  * panel unreadable and buries the one fact that matters. A short plain sentence
- * that names no provider is kept, because "check your plan and billing" is
- * exactly the kind of thing that saves a trip to the provider's dashboard.
+ * is kept, because "check your plan and billing" is exactly the kind of thing
+ * that saves a trip to the provider's dashboard.
  */
 export function providerDetail(body: string): string {
   let message = "";
@@ -100,7 +98,7 @@ export function providerDetail(body: string): string {
     .replace(/[`"'{}[\]]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!cleaned || mentionsProvider(cleaned)) return "";
+  if (!cleaned) return "";
   // Only the first sentence. A provider error trails a paragraph of advice
   // about where to read more, and a status line is not a place for it.
   const first = cleaned.split(/(?<=[.!?])\s/)[0] ?? cleaned;
@@ -138,15 +136,11 @@ export function listModelTargets(): ModelTarget[] {
   let backups = 0;
   for (const provider of getProviders("auto")) {
     if (provider.family === "groq") {
-      // The last-resort models all present to users as plain "Openmi", so a list
-      // of identical names would be unreadable and untestable one by one. They
-      // are numbered in the order the chat route would fall back through them.
+      // The last-resort models all present to users as plain "Openmi", so a
+      // list of identical names would be unreadable and untestable one by one.
+      // They are numbered in the order the chat route falls back through them.
       backups += 1;
       targets.push({ id: modelTargetId(provider.model), name: `Openmi Backup ${backups}`, role: "backup" });
-      continue;
-    }
-    if (provider.family === "space") {
-      targets.push({ id: modelTargetId(provider.model), name: "Openmi Azure", role: "backup" });
       continue;
     }
     targets.push({
@@ -163,7 +157,7 @@ function findProvider(id: string): ProviderConfig | null {
   // Both mode lists are searched so an id from either resolves. In practice
   // "auto" is a superset of "code", but a model being reachable from only one
   // mode is exactly the sort of thing this panel exists to reveal.
-  for (const mode of ["auto", "code", "self", "fable"] as const) {
+  for (const mode of ["auto", "code"] as const) {
     const match = getProviders(mode).find((provider) => modelTargetId(provider.model) === id);
     if (match) return match;
   }
@@ -176,9 +170,6 @@ function nameFor(provider: ProviderConfig, backups: Map<string, number>): ModelT
     const index = (backups.get(provider.family) ?? 0) + 1;
     backups.set(provider.family, index);
     return { id: modelTargetId(provider.model), name: `Openmi Backup ${index}`, role: "backup" };
-  }
-  if (provider.family === "space") {
-    return { id: modelTargetId(provider.model), name: "Openmi Azure", role: "backup" };
   }
   return {
     id: modelTargetId(provider.model),
@@ -220,16 +211,6 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
   const { stream_options: _streamOptions, ...extraBody } = provider.extraBody ?? {};
 
   try {
-    // Openmi's own model is not an OpenAI-compatible endpoint, so it is probed
-    // through the Space adapter instead of being fetched. The adapter returns
-    // the same SSE shape, so the parsing below is unchanged.
-    if (provider.family === "space") {
-      const reply = sanitizeIdentity((await probeSpace(abort)).trim());
-      return reply
-        ? { ...target, ok: true, ms: Date.now() - startedAt, reply: reply.slice(0, 120), error: "" }
-        : { ...target, ok: false, ms: Date.now() - startedAt, reply: "", error: "Openmi Azure returned an empty answer." };
-    }
-
     const response = await fetch(provider.url, {
       method: "POST",
       headers: {
@@ -241,8 +222,8 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
         model: provider.model,
         messages: [
           // A minimal system prompt keeps the reply to the test message. The
-          // full Openmi persona is not used: this checks the plumbing, not the
-          // product, and a persona that insists on a preamble would make every
+          // full product prompt is not used: this checks the plumbing, not the
+          // product, and a prompt that insists on a preamble would make every
           // model look like it failed.
           { role: "system", content: "You are running a connectivity check. Follow the instruction exactly." },
           { role: "user", content: PROBE_PROMPT },
@@ -269,7 +250,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
       choices?: { message?: { content?: string | null }; finish_reason?: string | null }[];
     } | null;
     const choice = payload?.choices?.[0];
-    const reply = sanitizeIdentity((choice?.message?.content ?? "").trim());
+    const reply = (choice?.message?.content ?? "").trim();
 
     if (!reply) {
       // An empty answer has two very different causes, and they point at
@@ -289,17 +270,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
       };
     }
 
-    return {
-      ...target,
-      ok: true,
-      ms: Date.now() - startedAt,
-      reply,
-      error: "",
-      // A reply to a fixed two-word question is either the answer or nothing,
-      // so there is nothing here to flag as cut short. Reporting a complete
-      // reply as "stopped at the length limit" trains an administrator to
-      // ignore the flag that matters in the chat.
-    };
+    return { ...target, ok: true, ms: Date.now() - startedAt, reply: reply.slice(0, 120), error: "" };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     // A timeout is the common case and deserves its own words: "offline" and

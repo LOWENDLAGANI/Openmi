@@ -37,11 +37,26 @@ export interface DocumentAttachment {
   truncated?: boolean;
 }
 
+/**
+ * One read the agent made while answering, as shown in the thread.
+ *
+ * Deliberately not the raw tool call: a timeline that says `read
+ * src/app/page.tsx` is what a person needs to see, while the JSON arguments
+ * and the whole file the tool returned belong in the transcript, not on screen.
+ */
+export interface AgentStep {
+  tool: "list_files" | "read_file" | "search_code";
+  label: string;
+  ok: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   chatId: string;
   role: Role;
   content: string;
+  /** Read-only work the repository agent did for this answer. */
+  steps?: AgentStep[];
   images?: ImageAttachment[];
   /** set when the message was produced by the image model rather than chat */
   generatedImages?: GeneratedImage[];

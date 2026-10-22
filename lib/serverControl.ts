@@ -201,6 +201,49 @@ function fail(reason: string, detail?: unknown): null {
 }
 
 /** Whether a verified caller is the administrator named in the rules. */
+/**
+ * True when a mutating request did not come from another site.
+ *
+ * Auth here is a Bearer token that the app's own code attaches, so a cross-site
+ * form post cannot authenticate in the first place. This is the second lock,
+ * and it is the one that still holds the day a route accepts a cookie.
+ *
+ * A request with no `Origin` header is allowed — server-to-server calls, curl
+ * and older clients send none — because the job is to reject a *stated* foreign
+ * origin, not to require a header. `Origin: null` (a sandboxed frame or a
+ * `file://` page) is rejected: it is a browser telling us it cannot name itself.
+ */
+export function isSameOriginRequest(headers: Headers): boolean {
+  const origin = headers.get("origin");
+  if (!origin) return true;
+  if (origin === "null") return false;
+
+  let host: string;
+  try {
+    host = new URL(origin).host.toLowerCase();
+  } catch {
+    return false;
+  }
+
+  const siteHost = (() => {
+    const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+    if (!configured) return null;
+    try {
+      return new URL(configured).host.toLowerCase();
+    } catch {
+      return null;
+    }
+  })();
+
+  const candidates = [headers.get("x-forwarded-host"), headers.get("host"), siteHost]
+    .filter((value): value is string => Boolean(value))
+    // A proxy chain lists hosts left to right; the first is the one the browser
+    // asked for.
+    .map((value) => value.split(",")[0]!.trim().toLowerCase());
+
+  return candidates.some((candidate) => candidate === host);
+}
+
 export function isAdmin(identity: CallerIdentity | null): boolean {
   return Boolean(identity && adminEmail && identity.email === adminEmail);
 }

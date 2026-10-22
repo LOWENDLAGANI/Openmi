@@ -73,16 +73,6 @@ await test("the last-resort models are listed separately and are distinguishable
   });
 });
 
-await test("Openmi's own model is reachable without any vendor key, and can be switched off", async () => {
-  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: undefined, OPENMI_HF_SPACE: undefined }, () => {
-    const names = listModelTargets().map((target) => target.name);
-    assert.deepEqual(names, ["Openmi Azure"], "the Space is the only model, and it needs no key");
-  });
-  await withKeys({ OPENMI_HF_SPACE: "off" }, () => {
-    assert.equal(listModelTargets().length, 0, "OPENMI_HF_SPACE=off removes it entirely");
-  });
-});
-
 await test("nothing in the list carries a provider name or a wire model", async () => {
   await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: "test-key" }, () => {
     const serialised = JSON.stringify(listModelTargets());
@@ -131,7 +121,6 @@ await test("a check asks the model it was pointed at, not the fallback chain", (
 await test("the probe is a real, bounded, vendor-scrubbed request", () => {
   const health = read("lib/modelHealth.ts");
   assert.match(health, /AbortSignal\.timeout\(PROBE_TIMEOUT_MS\)/, "a hanging model would never be reported");
-  assert.match(health, /sanitizeIdentity/, "the model's reply is shown without the identity filter");
   assert.match(health, /max_tokens/, "the reply is uncapped, so one check can be expensive");
   assert.match(health, /content: PROBE_PROMPT/, "the model is not asked for a comparable answer");
   // A cap tight enough to be consumed by a reasoning model makes healthy models
@@ -163,33 +152,30 @@ await test("a provider error is one sentence, not a machine dump", () => {
 
 await test("a status an administrator cannot act on is still named", () => {
   // This is the check doing its job: a model id the provider no longer serves.
+  // The product no longer hides vendor names from its own administrator, so the
+  // detail survives — as one clean sentence, not as JSON.
   assert.equal(
     describeFailure(404, JSON.stringify({ error: { message: "The model `llama-3.3-70b-versatile` does not exist or you do not have access to it." } })),
-    "The provider no longer offers this model. (HTTP 404)"
+    "The provider no longer offers this model. The model llama-3.3-70b-versatile does not exist or you do not have access to it."
   );
   assert.equal(describeFailure(402, ""), "The account is out of credit. (HTTP 402)");
   assert.equal(describeFailure(503, ""), "The model has no capacity right now. (HTTP 503)");
   assert.equal(describeFailure(418, ""), "The request failed. (HTTP 418)");
 });
 
-await test("a detail that names a provider is dropped, not mangled", () => {
-  // Rewriting a model id produces "Openmi model service-oss-120b" and breaks the
-  // URLs around it. Saying nothing beats saying something half-redacted.
+await test("a machine dump is reduced to one sentence", () => {
+  // JSON, backticks and documentation URLs make a status line unreadable. The
+  // sentence itself is kept: an administrator needs to know which model the
+  // provider has stopped serving.
   assert.equal(
     providerDetail(JSON.stringify({ error: { message: "The model `gpt-oss-120b` does not exist." } })),
-    ""
+    "The model gpt-oss-120b does not exist"
   );
   assert.equal(
     providerDetail("fetch failed: getaddrinfo ENOTFOUND api.example.com"),
     "fetch failed: getaddrinfo ENOTFOUND api.example.com"
   );
   assert.equal(providerDetail(""), "");
-});
-
-await test("a model's own reply is never rewritten into nonsense", () => {
-  const { sanitizeIdentity } = require("../lib/identity") as typeof import("../lib/identity");
-  assert.equal(sanitizeIdentity("Openmi online"), "Openmi online");
-  assert.match(sanitizeIdentity("I am Gemini"), /Openmi/);
 });
 
 await test("an unreachable model is reported, not thrown", async () => {

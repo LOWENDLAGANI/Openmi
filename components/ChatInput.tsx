@@ -1,17 +1,8 @@
 "use client";
 
 import type { DocumentAttachment, ImageAttachment } from "@/lib/types";
-import {
-  SCHEDULE_PRESETS,
-  earliestSchedule,
-  formatScheduleTime,
-  nextMorningAt,
-  type ScheduledMessage,
-} from "@/lib/scheduler";
 import { secondsRemaining } from "@/lib/rateLimit";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
-import { MEMORY_TEXT_LIMIT, addMemory } from "@/lib/memory";
-import { syncMemoryUp } from "@/lib/firebaseHistory";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
@@ -21,17 +12,6 @@ interface ChatInputProps {
   onSend: (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => void;
   disabled: boolean;
   onStop?: () => void;
-  /** Image mode turns the composer into a prompt box for the image model. */
-  imageMode: boolean;
-  onImageModeChange: (enabled: boolean) => void;
-  imageAvailable: boolean;
-  /** Whether memories can follow the account to another device. */
-  syncAvailable: boolean;
-  /** Queues the composer's contents to be sent at `sendAt`. */
-  onSchedule: (text: string, images: ImageAttachment[], documents: DocumentAttachment[], sendAt: number) => void;
-  /** Messages this device has queued, rendered as chips above the composer. */
-  scheduled: ScheduledMessage[];
-  onCancelScheduled: (id: string) => void;
   /** Epoch ms until which the server has asked us to hold off; null when free. */
   rateLimitUntil: number | null;
 }
@@ -60,18 +40,8 @@ export default function ChatInput({
   onSend,
   disabled,
   onStop,
-  imageMode,
-  onImageModeChange,
-  imageAvailable,
-  syncAvailable,
-  onSchedule,
-  scheduled,
-  onCancelScheduled,
   rateLimitUntil,
 }: ChatInputProps) {
-  // Image generation is billed per picture in Dew, the same as every message —
-  // see lib/dew.ts for the price and the routes for the enforcement. Nothing is
-  // locked by a plan, so the button below simply opens the mode.
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
@@ -80,15 +50,9 @@ export default function ChatInput({
   const [dragOver, setDragOver] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [showTools, setShowTools] = useState(false);
-  const [showRemember, setShowRemember] = useState(false);
-  const [rememberText, setRememberText] = useState("");
-  const [rememberNotice, setRememberNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
-  const scheduleRef = useRef<HTMLDivElement>(null);
-  const [showSchedule, setShowSchedule] = useState(false);
-  const [customDate, setCustomDate] = useState("");
   // Ticks once a second while a rate limit is counting down, so the chip
   // loses a number rather than sitting frozen until the next render.
   const [now, setNow] = useState(() => Date.now());
@@ -103,20 +67,15 @@ export default function ChatInput({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   useEffect(() => {
-    if (!showTools && !showSchedule) return;
+    if (!showTools) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (!toolsRef.current?.contains(event.target as Node)) setShowTools(false);
-      if (!scheduleRef.current?.contains(event.target as Node)) setShowSchedule(false);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [showTools, showSchedule]);
+  }, [showTools]);
 
-  // In image mode the prompt is the only input, so attachments and documents
-  // are hidden and cannot be attached to an image request.
-  const hasContent = imageMode
-    ? text.trim().length > 0
-    : text.trim().length > 0 || attachments.length > 0 || documents.length > 0;
+  const hasContent = text.trim().length > 0 || attachments.length > 0 || documents.length > 0;
   const rateRemaining = rateLimitUntil ? secondsRemaining(rateLimitUntil, now) : 0;
   const rateLimited = rateRemaining > 0;
   const canSend = hasContent && !compressing && !rateLimited;
@@ -214,7 +173,7 @@ export default function ChatInput({
       return;
     }
     if (!canSend) return;
-    onSend(text.trim(), imageMode ? [] : attachments, imageMode ? [] : documents);
+    onSend(text.trim(), attachments, documents);
     clearComposer();
   };
 
@@ -224,22 +183,6 @@ export default function ChatInput({
     setDocuments([]);
     setErrors([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-  };
-
-  const commitSchedule = (sendAt: number) => {
-    if (!hasContent || imageMode) return;
-    onSchedule(text.trim(), attachments, documents, sendAt);
-    clearComposer();
-    setShowSchedule(false);
-    setCustomDate("");
-  };
-
-  /** The rate-limited escape hatch: the message waits in the queue instead of
-   *  the composer, and fires the moment the server will hear us out. */
-  const queueInstead = () => {
-    if (!rateLimitUntil || !hasContent || imageMode) return;
-    onSchedule(text.trim(), attachments, documents, rateLimitUntil + 1000);
-    clearComposer();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -298,73 +241,11 @@ export default function ChatInput({
               <path d="M12 7v5l3 2" />
             </svg>
             <span className="min-w-0 flex-1">Rate limited — you can send again in {rateRemaining}s.</span>
-            {hasContent && !imageMode && (
-              <button
-                type="button"
-                onClick={queueInstead}
-                className="shrink-0 rounded-lg bg-white/[0.08] px-2.5 py-1 text-[10px] font-semibold text-white/80 transition-colors hover:bg-white/[0.14]"
-              >
-                Queue until then
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Scheduled messages waiting their turn. Horizontally scrollable on a
-            phone rather than wrapping into a stack that buries the composer. */}
-        {scheduled.length > 0 && (
-          <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5" aria-label="Scheduled messages">
-            {scheduled.map((item) => (
-              <span
-                key={item.id}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-[#a9d8bb]/20 bg-[#a9d8bb]/[0.07] py-1 pl-2.5 pr-1 text-[10px] text-[#c9e6d4]"
-                title={item.content || "Attachment"}
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 7v5l3 2" />
-                </svg>
-                <span className="font-semibold">{formatScheduleTime(item.sendAt)}</span>
-                <span className="max-w-[110px] truncate text-white/45">{item.content || "Attachment"}</span>
-                <button
-                  type="button"
-                  onClick={() => onCancelScheduled(item.id)}
-                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
-                  aria-label="Cancel this scheduled message"
-                >
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Image mode indicator — a title is enough; no explanation needed. */}
-        {imageMode && (
-          <div className="mb-2 flex items-center gap-2 animate-rise">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#a9d8bb]/12 text-[#a9d8bb]">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="16" rx="3.5" /><circle cx="8.75" cy="9.75" r="1.6" /><path d="M20.5 15.5 16 11l-9 9.5" />
-              </svg>
-            </span>
-            <span className="text-[12px] font-medium text-white/70">Image</span>
-            <button
-              type="button"
-              onClick={() => onImageModeChange(false)}
-              className="ml-auto shrink-0 rounded-full p-1 text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white"
-              aria-label="Exit image mode"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
           </div>
         )}
 
         {/* Attachment previews */}
-        {!imageMode && attachments.length > 0 && (
+        {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 animate-rise">
             {attachments.map((img, i) => (
               <div key={i} className="group relative">
@@ -397,7 +278,7 @@ export default function ChatInput({
           </div>
         )}
 
-        {!imageMode && documents.length > 0 && (
+        {documents.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 animate-rise">
             {documents.map((document, i) => (
               <div key={`${document.name}-${i}`} className="flex max-w-full items-center gap-2 rounded-xl border border-line bg-white/[0.05] px-3 py-2">
@@ -518,40 +399,6 @@ export default function ChatInput({
                   </span>
                   <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">{isListening ? "Listening…" : "Voice input"}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowTools(false);
-                    setShowRemember(true);
-                  }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 20.5s-7-4.4-7-9.4a4.1 4.1 0 0 1 7-2.9 4.1 4.1 0 0 1 7 2.9c0 5-7 9.4-7 9.4Z" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Remember this</span>
-                </button>
-                <button
-                  type="button"                  onClick={() => {
-                      setShowTools(false);
-                      onImageModeChange(true);
-                    }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="m12 3 1.9 4.8L19 9.6l-4.1 3 1.2 5.1L12 15.2 7.9 17.7l1.2-5.1L5 9.6l5.1-1.8z" />
-                    </svg>
-                  </span>
-                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">
-                    Create image
-                    {!imageAvailable && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="Not configured in the deployment environment" />
-                    )}
-                  </span>
-                </button>
               </div>
             )}
             <input
@@ -599,80 +446,9 @@ export default function ChatInput({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}
-            placeholder={
-              imageMode
-                ? "Describe the image to create…"
-                : compressing
-                  ? "Compressing…"
-                  : "Ask Openmi anything…"
-            }
+            placeholder={compressing ? "Compressing…" : "Ask Openmi anything…"}
             className="max-h-[180px] flex-1 resize-none bg-transparent py-3.5 text-[16px] leading-snug text-white/90 placeholder-white/32 outline-none md:text-[17px]"
           />
-
-          {/* Send later — only when there is something to send, and never in
-              image mode, where the draw happens through its own pipeline. */}
-          {!disabled && !imageMode && hasContent && (
-            <div ref={scheduleRef} className="relative shrink-0">
-              <button
-                onClick={() => setShowSchedule((value) => !value)}
-                className="mb-1 flex h-10 w-10 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80"
-                aria-label="Schedule this message"
-                aria-expanded={showSchedule}
-                type="button"
-                title="Send later"
-              >
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 7v5l3 2" />
-                </svg>
-              </button>
-              {showSchedule && (
-                <div className="animate-pop absolute bottom-12 right-0 z-50 w-56 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/[0.08] bg-[#141f1a]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl">
-                  <div className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
-                    Send later
-                  </div>
-                  {SCHEDULE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() =>
-                        commitSchedule(
-                          preset.offsetMs ? Date.now() + preset.offsetMs : nextMorningAt(preset.hour ?? 9)
-                        )
-                      }
-                      className="block w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                  <div className="mt-1 flex items-center gap-1.5 border-t border-white/[0.07] px-2 pb-1 pt-2">
-                    <input
-                      type="datetime-local"
-                      min={earliestSchedule()}
-                      value={customDate}
-                      onChange={(event) => setCustomDate(event.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] text-white outline-none [color-scheme:dark]"
-                      aria-label="Custom send time"
-                    />
-                    <button
-                      type="button"
-                      disabled={!customDate}
-                      onClick={() => {
-                        const at = new Date(customDate).getTime();
-                        if (Number.isFinite(at) && at > Date.now()) commitSchedule(at);
-                      }}
-                      className="shrink-0 rounded-lg bg-[#2a6142] px-2 py-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-[#35744f] disabled:opacity-40"
-                    >
-                      Set
-                    </button>
-                  </div>
-                  <p className="px-2.5 pb-1.5 pt-1.5 text-[9px] leading-relaxed text-white/30">
-                    Fires from this tab while it is open — keep it open if the timing matters.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Send / Stop */}
           {disabled ? (
@@ -727,85 +503,6 @@ export default function ChatInput({
         <div className="safe-bottom md:hidden" />
       </div>
 
-      {/* "Remember this" — the composer route into memory.
-          Sits in the tools menu rather than Settings alone, because a fact
-          worth keeping is noticed while it is being said, and a panel nobody
-          opens is a feature nobody uses. Nothing is ever saved without this
-          explicit step. */}
-      {showRemember && (
-        <div
-          className="fixed inset-0 z-[120] flex items-end justify-center px-3 pb-3"
-          onPointerDown={(event) => {
-            if (event.target === event.currentTarget) setShowRemember(false);
-          }}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Remember something"
-            className="animate-pop w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#121c18]/[0.98] p-4 pb-3 shadow-2xl shadow-black/80 backdrop-blur-2xl"
-          >
-            <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-white">
-              What should Openmi remember?
-            </h3>
-            <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/45">
-              One short sentence about you. Openmi uses it in every conversation
-              until you remove it.
-            </p>
-
-            <textarea
-              value={rememberText}
-              onChange={(event) => setRememberText(event.target.value)}
-              maxLength={MEMORY_TEXT_LIMIT}
-              rows={2}
-              autoFocus
-              placeholder="I work mostly in TypeScript and React"
-              className="mt-3 w-full resize-none rounded-2xl border border-white/[0.09] bg-white/[0.03] p-3 text-[14px] leading-relaxed text-white outline-none transition-colors placeholder:text-white/25 focus:border-white/[0.18]"
-              aria-label="Memory to remember"
-            />
-
-            {rememberNotice && (
-              <p role="status" className="mt-2 text-[11.5px] leading-relaxed text-amber-100/75">
-                {rememberNotice}
-              </p>
-            )}
-
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  const result = await addMemory(rememberText);
-                  if (result.error) {
-                    setRememberNotice(result.error);
-                    return;
-                  }
-                  if (syncAvailable && result.memory) void syncMemoryUp(result.memory);
-                  setRememberText("");
-                  setShowRemember(false);
-                  setRememberNotice(null);
-                  // The panel reads Dexie live, so there is nothing to refresh.
-                }}
-                disabled={!rememberText.trim()}
-                className="flex-1 rounded-full px-4 py-2.5 text-[14px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-30"
-                style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
-              >
-                Remember
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRemember(false);
-                  setRememberText("");
-                  setRememberNotice(null);
-                }}
-                className="shrink-0 rounded-full border border-white/[0.12] px-4 py-2.5 text-[14px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
-              >
-                Cancel
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </div>
   );
 }

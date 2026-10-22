@@ -95,9 +95,8 @@ test("each wire model maps to a Openmi name", () => {
   assert.equal(toOpenmiName("gemini-3.8-flash"), "Openmi V3");
 });
 
-test("the router and image engine keep their own names", () => {
+test("the router keeps its own name", () => {
   assert.equal(toOpenmiName("openrouter/auto"), "Openmi Auto");
-  assert.equal(toOpenmiName("openmi-canvas"), "Openmi Canvas");
 });
 
 test("a wire id never becomes the wire id", () => {
@@ -121,7 +120,7 @@ test("a wire id never becomes the wire id", () => {
 });
 
 test("a stored Openmi name survives display unchanged", () => {
-  for (const name of ["Openmi V1", "Openmi V2", "Openmi V3", "Openmi Auto", "Openmi Canvas"]) {
+  for (const name of ["Openmi V1", "Openmi V2", "Openmi V3", "Openmi Auto"]) {
     assert.equal(getModelDisplayName(name), name);
   }
 });
@@ -135,12 +134,11 @@ test("a stored provider id from an old backup is not shown", () => {
 
 const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
 
-// The Opus and Fable personas are shown to the user under these names on
-// purpose — the tilde marks them as a product name, and lib/models.ts says so
-// where it defines them. They are not a leaked provider id, so the guard below
-// ignores them. Every other spelling of a vendor word still fails, and the
-// guard is deliberately narrow about which occurrences it forgives.
-const SANCTIONED_DISPLAY_NAMES = ["~Claude Opus 5.5", "~Claude Fable 5.1"];
+// The overhaul removed the vendor-persona modes, so there is nothing the guard
+// needs to forgive. It stays as an empty list rather than being deleted: adding
+// a display name that legitimately contains a vendor word must go through here,
+// so the exemption cannot be widened by accident.
+const SANCTIONED_DISPLAY_NAMES: string[] = [];
 
 /**
  * The source with the sanctioned display names removed.
@@ -176,18 +174,6 @@ test("no provider name reaches a client module", () => {
       leaks,
       [],
       `${file} mentions ${leaks.map((w) => `"${w}"`).join(", ")}, which would reach the client`
-    );
-  }
-});
-
-test("the sanctioned display names are still the ones lib/models.ts uses", () => {
-  // A renamed persona must not quietly turn the exemption above into a hole:
-  // the guard forgives these exact strings, so a new one has to be listed.
-  const source = readFileSync(join(process.cwd(), "lib/models.ts"), "utf8");
-  for (const name of SANCTIONED_DISPLAY_NAMES) {
-    assert.ok(
-      source.includes(name),
-      `lib/models.ts no longer uses "${name}"; update SANCTIONED_DISPLAY_NAMES to match`
     );
   }
 });

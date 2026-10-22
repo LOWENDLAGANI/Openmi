@@ -5,7 +5,6 @@ import { DEFAULT_CONFIG, isBanActive, subscribeAppConfig, type AppConfig, type B
 import { endAdminSession, listUsage, saveAppConfig, type AdminUsage, type AdminUser } from "@/lib/firebaseAdmin";
 import { getServices } from "@/lib/firebaseHistory";
 import { broadcastPush } from "@/lib/push";
-import AdminNotes from "./AdminNotes";
 
 // ── Runtime controls ────────────────────────────────────────────────────────
 // These are enforced by the server, not by this screen. A switch here closes
@@ -161,11 +160,11 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
     [onError]
   );
 
-  const toggle = (key: "chatEnabled" | "imageEnabled" | "searchEnabled") => (value: boolean) => {
+  const toggle = (key: "chatEnabled" | "searchEnabled") => (value: boolean) => {
     void save({ ...config, [key]: value });
   };
 
-  const setCap = (key: "dailyChatCap" | "dailyImageCap") => (value: number) => {
+  const setCap = (key: "dailyChatCap") => (value: number) => {
     void save({ ...config, [key]: value });
   };
 
@@ -267,7 +266,6 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
           onChange={(value) => void save({ ...config, maintenanceEnabled: value })}
         />
         <Switch label="Chat" checked={config.chatEnabled} onChange={toggle("chatEnabled")} />
-        <Switch label="Image generation" checked={config.imageEnabled} onChange={toggle("imageEnabled")} />
         <Switch label="Web search" checked={config.searchEnabled} onChange={toggle("searchEnabled")} />
       </div>
 
@@ -290,7 +288,6 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
 
       <div className="mt-3 space-y-1.5">
         <CapField label="Daily messages" value={config.dailyChatCap} onChange={setCap("dailyChatCap")} />
-        <CapField label="Daily images" value={config.dailyImageCap} onChange={setCap("dailyImageCap")} />
       </div>
 
       <div className="mt-3">
@@ -333,12 +330,6 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
             {pushNotice}
           </p>
         )}
-      </div>
-
-      {/* Notes get their own component because it is a composer rather than a
-          switch, but it writes through the same `save` as everything above. */}
-      <div className="mt-4">
-        <AdminNotes onError={onError} onSave={save} saving={saving} />
       </div>
 
       <div className="mt-4">

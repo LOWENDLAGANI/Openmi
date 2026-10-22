@@ -1,15 +1,13 @@
-// ── Openmi mode catalog ────────────────────────────────────────────────────────
+// ── Model catalog ─────────────────────────────────────────────────────────────
 // This module is imported by client components, so it deliberately contains no
 // provider name, no API key name, and no wire model id. Those live in
 // lib/modelEngines.ts, which is server-only.
 //
-// The split is not tidiness. A vendor's model id reaching the browser is not a
-// cosmetic problem: it is written into every stored message, included in the
-// backup file a user downloads, and readable in the page source. The product's
-// identity stance is that Openmi is Openmi, and a name that reaches a user's
-// downloads is a name the user can see.
+// The catalog is the product's public face of the models: what a user picks,
+// what a stored message is labelled, and what the price list in lib/dew.ts is
+// keyed by. Adding a model starts here.
 
-export type ModeId = "auto" | "code" | "self" | "opus" | "fable";
+export type ModeId = "auto" | "code";
 
 export interface ModeOption {
   id: ModeId;
@@ -21,7 +19,7 @@ export interface ModeOption {
    * continuing the current conversation under a different model.
    */
   separateSession: boolean;
-  /** Short explanation shown in the mode menu */
+  /** Short explanation shown in the mode menu. */
   blurb: string;
 }
 
@@ -31,71 +29,35 @@ export const OPENMI_MODES: ModeOption[] = [
     name: "Auto",
     display: "Openmi Auto",
     separateSession: false,
-    blurb: "Best available model",
+    blurb: "Routes each message to the best available model",
   },
   {
     id: "code",
     name: "Code",
-    display: "Code",
+    display: "Openmi Code",
     separateSession: true,
-    blurb: "Openmi V3 · V2 · V1 only",
-  },
-  {
-    id: "self",
-    name: "Azure",
-    display: "Openmi Azure",
-    separateSession: true,
-    blurb: "Openmi's own model",
-  },
-  {
-    id: "opus",
-    name: "Opus",
-    display: "~Claude Opus 5.5",
-    separateSession: true,
-    blurb: "Qwen 72B · Opus persona",
-  },
-  {
-    id: "fable",
-    name: "Fable",
-    display: "~Claude Fable 5.1",
-    separateSession: true,
-    blurb: "Xingchen 29B · Fable persona",
+    blurb: "Tuned for reading and changing a repository",
   },
 ];
 
 export const DEFAULT_MODE_ID: ModeId = "auto";
-
-/** Engine label used for messages produced by the image model. */
-export const IMAGE_ENGINE = "openmi-canvas";
-
-export const IMAGE_ENGINE_NAME = "Openmi Canvas";
 
 export function getMode(id: string): ModeOption {
   return OPENMI_MODES.find((m) => m.id === id) ?? OPENMI_MODES[0];
 }
 
 /**
- * A name Openmi is willing to show. Anything else is not a Openmi name.
+ * A name the product is willing to show. Anything else is not one of its names.
  *
- * `Self` is still accepted even though the mode is now called Openmi Azure: it
- * is what was written into every message stored before the rename, and dropping
- * it would blank out the model name on a year of existing conversations.
+ * Messages store the display name rather than a provider id, so this is
+ * normally a pass-through. It is still a filter rather than an echo, because a
+ * message written by an older version of the app — or restored from a backup —
+ * can carry a provider id, and rendering that to a user is the one thing that
+ * must never happen.
  */
-// "~Claude Opus 5.5" is allowed through verbatim: it is the product name for
-// the Opus mode, not a vendor leak. Everything else is still normalised.
-const OPENMI_NAME = /^(?:Openmi(?: Auto| Self| Azure| Canvas| V\d+)?|~Claude Opus 5\.5|~Claude Fable 5\.1)$/;
+const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?)$/;
 
-/**
- * Normalises whatever a message carries into a name safe to show.
- *
- * Messages store the Openmi name rather than a provider id, so this is normally a
- * pass-through. It is still a filter rather than an echo, because a message
- * written by an older version of the app — or restored from a backup made
- * before the rename — can carry a provider id, and the one thing that must never
- * happen is rendering that to a user. An unrecognised value becomes plain
- * "Openmi": correct, if less specific.
- */
 export function getModelDisplayName(model?: string): string {
   if (!model) return "Openmi";
-  return OPENMI_NAME.test(model) ? model : "Openmi";
+  return PRODUCT_NAME.test(model) ? model : "Openmi";
 }

@@ -58,6 +58,11 @@
             ".validate": "newData.hasChildren(['id','title','createdAt','updatedAt','messages'])"
           }
         },
+        "github": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['v','token','login','scopes','linkedAt']) && newData.child('v').val() === 1 && newData.child('token').isString() && newData.child('token').val().length > 0 && newData.child('login').isString() && newData.child('login').val().length <= 100 && newData.child('scopes').isString() && newData.child('scopes').val().length <= 200 && newData.child('linkedAt').isNumber()"
+        },
         "profile": {
           ".read": "auth != null && auth.uid === $uid",
           ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length <= 40"
@@ -67,6 +72,17 @@
           "$memoryId": {
             ".validate": "newData.hasChildren(['id','text','createdAt','updatedAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 200"
           }
+        }
+      }
+    },
+    "projects": {
+      ".read": false,
+      ".write": false,
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$projectId": {
+          ".validate": "newData.hasChildren(['id','repoFullName','defaultBranch','baseSha','addedAt','updatedAt']) && newData.child('id').val() === $projectId && newData.child('repoFullName').isString() && newData.child('repoFullName').val().length <= 140 && newData.child('defaultBranch').isString() && newData.child('defaultBranch').val().length <= 120 && newData.child('baseSha').isString() && newData.child('baseSha').val().length <= 64 && newData.child('canPush').isBoolean() && newData.child('addedAt').isNumber() && newData.child('updatedAt').isNumber()"
         }
       }
     },

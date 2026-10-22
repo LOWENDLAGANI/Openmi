@@ -1,13 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import AuthWarmup from "@/components/AuthWarmup";
 import ServiceWorker from "@/components/ServiceWorker";
+import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
-const DESCRIPTION =
-  "Openmi is a private AI assistant by Minetallest. Multi-model chat, vision, image understanding, and image generation.";
+const DESCRIPTION = `${BRAND.name} reads your repository and proposes the change. It commits only when you approve it.`;
 
 export const metadata: Metadata = {
-  title: "Openmi — AI Assistant by Minetallest",
+  title: `${BRAND.name} — ${BRAND.product}`,
   description: DESCRIPTION,
   // Relative share links resolve against whatever domain this deployment is
   // served from, so a preview and production both produce a correct absolute
@@ -23,14 +23,14 @@ export const metadata: Metadata = {
   // preview cannot drift from what the app looks like.
   openGraph: {
     type: "website",
-    siteName: "Openmi",
-    title: "Openmi — AI Assistant by Minetallest",
+    siteName: BRAND.name,
+    title: `${BRAND.name} — ${BRAND.product}`,
     description: DESCRIPTION,
-    images: [{ url: "/openmi-splash.jpg", alt: "Openmi" }],
+    images: [{ url: "/openmi-splash.jpg", alt: BRAND.name }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Openmi — AI Assistant by Minetallest",
+    title: `${BRAND.name} — ${BRAND.product}`,
     description: DESCRIPTION,
     images: ["/openmi-splash.jpg"],
   },

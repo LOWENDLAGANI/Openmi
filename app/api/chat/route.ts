@@ -1,48 +1,34 @@
 import { NextRequest } from "next/server";
 import { OPENMI_SYSTEM_PROMPT } from "@/lib/systemPrompt";
-import { AZURE_SYSTEM_PROMPT, FABLE_SYSTEM_PROMPT, OPUS_SYSTEM_PROMPT } from "@/lib/systemPrompt";
-import { formatMemories, sanitizeMemoryPayload } from "@/lib/memory";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getModelDisplayName, type ModeId } from "@/lib/models";
 import { toOpenmiName } from "@/lib/modelEngines";
 import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
-import { callSpace, isSpaceConfigured, SpaceError } from "@/lib/gradioSpace";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
-import { IdentityFilter, sanitizeProviderDetail } from "@/lib/identity";
 import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller, writeAsCaller } from "@/lib/serverControl";
 import { resolveDew } from "@/lib/serverRedeem";
-import {
-  AZURE_FLOOR,
-  OPUS_FLOOR,
-  DUST_THRESHOLD,
-  calcDewCost,
-  estimateTokenUsage,
-  outOfDewMessage,
-  tierForRequest,
-} from "@/lib/dew";
+import { canAfford, estimateTokenUsage, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, type DewState } from "@/lib/serverDew";
-import {
-  extractActionBlocks,
-  googleToolsPrompt,
-  runGoogleAction,
-  shouldUseGoogleTools,
-} from "@/lib/googleTools";
-import { ensureFreshSession, googleConfigured, readGoogleSession as readSession } from "@/lib/googleAuth";
 
-// ── Openmi — resilient SSE proxy for Auto and Code ─────────────────────────────
-//   OPENROUTER_API_KEY → OpenRouter Auto Router
-//   GEMINI_API_KEY     → Google Gemini 3.8 / 3.7 / 3.6 Flash
-//   GROQ_API_KEY       → Groq-hosted models, the last-resort fallback
+// ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
+//   OPENROUTER_API_KEY → Auto router
+//   GEMINI_API_KEY     → the Code family (V3 → V2 → V1)
+//   GROQ_API_KEY       → the last-resort fallback
 //
-// Auto mode is resilient: if the requested provider is unavailable, Openmi
-// automatically tries the other configured key.
+// Auto is resilient: if the requested provider is unavailable, the other
+// configured families are tried in order.
 //
-// Code mode is deliberately NOT cross-vendor. Every fallback stays inside the
-// Gemini 3.8 → 3.7 → 3.6 family, because a code answer produced by a different
-// model family is a different answer, and silently changing families mid-task is
-// worse than reporting that no model was reachable.
+// Code is deliberately NOT cross-vendor. Every fallback stays inside its own
+// family, because a code answer produced by a different model family is a
+// different answer, and silently changing families mid-task is worse than
+// reporting that no model was reachable.
+//
+// This route is the transport and the bill, not the agent. The tool-calling
+// loop that lets the agent read a repository is added in the next phase; the
+// streaming, fallback, continuation and metering behaviour here is what that
+// loop will run on.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,31 +38,12 @@ export const dynamic = "force-dynamic";
 // reply. The host still caps this at whatever the deployment plan allows.
 export const maxDuration = 120;
 
-// Provider configuration — endpoints, keys, and the ordered fallback chain for
-// each mode — lives in lib/providers.ts so the admin model-health probe checks
-// the very same models this route uses.
-
-
 interface ChatRequestBody {
   messages: ApiMessage[];
   mode?: string;
   searchMode?: SearchMode;
   reasoningEffort?: "low" | "medium" | "high";
   responseLength?: "short" | "balanced" | "detailed";
-  /**
-   * The memories the user chose to keep, sent with every request.
-   *
-   * Untrusted by construction — it is whatever the caller put in the body — and
-   * re-validated in `sanitizeMemoryPayload` before it can reach the system
-   * prompt.
-   */
-  memories?: unknown;
-  /**
-   * The browser's IANA time zone, reported by Intl. Google Calendar and Tasks
-   * datetimes are interpreted in it. Untrusted by construction and validated
-   * loosely — a bogus value degrades to UTC in the tools prompt, never throws.
-   */
-  timeZone?: string;
 }
 
 class ProviderError extends Error {
@@ -89,7 +56,6 @@ class ProviderError extends Error {
     this.name = "ProviderError";
   }
 }
-
 
 function sseHeaders(): HeadersInit {
   return {
@@ -116,7 +82,6 @@ function encodeEvent(event: Record<string, unknown>): Uint8Array {
 // "truncated", it is one that no configured model can hold in a single reply,
 // and looping would spend a user's latency to learn nothing new.
 
-/** How many other models Openmi will try before settling for a cut-off answer. */
 const MAX_CONTINUATION_ATTEMPTS = 2;
 
 /**
@@ -127,11 +92,8 @@ const MAX_CONTINUATION_ATTEMPTS = 2;
  * These are deliberately generous: the point is to stop one request being
  * unbounded, not to truncate a conversation somebody is legitimately in.
  */
-/** Messages in one request, including both roles. */
 const MAX_MESSAGES_IN_REQUEST = 120;
-/** Characters in a single message's text. ~8k tokens. */
 const MAX_MESSAGE_CHARS = 32_000;
-/** Characters across every message in the request. ~50k tokens. */
 const MAX_TOTAL_CHARS = 200_000;
 
 const CONTINUE_INSTRUCTION = [
@@ -142,14 +104,6 @@ const CONTINUE_INSTRUCTION = [
   "Output only the continuation, with no preamble.",
 ].join(" ");
 
-/**
- * The conversation to send a follow-up model: what came before, the partial
- * answer, and an instruction to resume rather than restart.
- *
- * Without the partial text the new model has no idea what it is continuing and
- * answers the original question from scratch, which reads as a duplicated
- * answer rather than a completed one.
- */
 function continuationMessages(messages: ApiMessage[], partial: string): ApiMessage[] {
   return [
     ...messages,
@@ -170,24 +124,6 @@ function textStream(text: string): Response {
   return new Response(stream, { headers: sseHeaders() });
 }
 
-/**
- * The pre-flight check: does this balance cover starting a request?
- *
- * The only price known before the model answers is that the cheapest possible
- * answer is not free — so the threshold is a floor of dust rather than a quote.
- * A balance at or above it may start; the exact tokens are billed when the
- * answer is known. Running dry mid-answer is preferable to refusing to
- * finish one: the charge lands either way, and half an answer is worse than
- * a small negative.
- */
-function canStartRequest(state: DewState, mode: ModeId): boolean {
-  // Openmi Azure is the pro tier, whose smallest plausible answer is roughly a
-  // tenth of a Dew; refusing a fraction above zero there still burns request
-  // slots on callers who could never afford the output anyway.
-  const floor = mode === "self" ? AZURE_FLOOR : mode === "opus" ? OPUS_FLOOR : DUST_THRESHOLD;
-  return state.balance >= floor;
-}
-
 /** Stream an operational error separately from assistant output. */
 function errorStream(message: string): Response {
   const stream = new ReadableStream<Uint8Array>({
@@ -200,11 +136,6 @@ function errorStream(message: string): Response {
   return new Response(stream, { headers: sseHeaders() });
 }
 
-// The identity guard — every vendor name Openmi rewrites, plus the streaming filter
-// that applies them — lives in lib/identity.ts so the admin model-health probe
-// scrubs provider replies and error text with the very same rules instead of
-// keeping a second copy that could drift.
-
 function extractUpstreamError(detail: string): string {
   if (!detail) return "The provider did not return an error message.";
 
@@ -215,28 +146,17 @@ function extractUpstreamError(detail: string): string {
     };
     const nested = typeof parsed.error === "string" ? parsed.error : parsed.error?.message;
     const message = nested || parsed.message;
-    // Scrubbed on this path too, not only on the plain-text one below. A
-    // structured error very often names the model that failed — "models/
-    // gemini-3.8-flash: not found" is the ordinary case — and returning it raw
-    // put a vendor name in front of the user through the back door, which is
-    // exactly what the rest of this file works to prevent.
-    if (message) return sanitizeProviderDetail(message).replace(/\s+/g, " ").trim().slice(0, 500);
+    if (message) return message.replace(/\s+/g, " ").trim().slice(0, 500);
   } catch {
     // Some gateways return HTML or plain text. Keep only a short, safe excerpt.
   }
 
-  return sanitizeProviderDetail(detail).replace(/\s+/g, " ").trim().slice(0, 300) || "The provider did not return an error message.";
+  return detail.replace(/\s+/g, " ").trim().slice(0, 300) || "The provider did not return an error message.";
 }
 
 function explainProviderError(error: unknown): string {
-  // The Space's adapter writes its own copy, already phrased for a reader and
-  // free of provider detail, so it is passed through rather than re-explained
-  // with the key/quota wording that only applies to a vendor API key.
-  if (error instanceof SpaceError) {
-    return `Openmi's own model: ${error.message}`;
-  }
   if (!(error instanceof ProviderError)) {
-    return "Openmi could not reach either AI service. Check your network connection and try again.";
+    return "Openmi could not reach any AI service. Check your network connection and try again.";
   }
 
   const { provider, status } = error;
@@ -249,13 +169,13 @@ function explainProviderError(error: unknown): string {
     return `${provider.label} rejected this key (HTTP ${status}). Make sure the ${FAMILY_MODE[provider.family]} key is configured correctly.`;
   }
   if (status === 402) {
-    return `${provider.label} needs account credit before it can answer. Add credit${provider.family === "gemini" ? " and try again" : " or use the other configured mode"}.`;
+    return `${provider.label} needs account credit before it can answer (HTTP 402).`;
   }
   if (status === 404) {
     return `${provider.label} could not find the configured model or endpoint (HTTP 404): ${detail}`;
   }
   if (status === 429) {
-    return `${provider.label} is rate-limited or out of quota (HTTP 429). Wait a moment${provider.family === "gemini" ? " for the quota window to reset" : ", update billing, or use the other configured mode"}.`;
+    return `${provider.label} is rate-limited or out of quota (HTTP 429). Wait a moment and try again.`;
   }
   if (status >= 500) {
     return `${provider.label} is temporarily unavailable (HTTP ${status}). Please try again shortly.`;
@@ -271,58 +191,22 @@ async function callProvider(
   searchContext: string,
   userPreferences: string,
   reasoningEffort: ReasoningEffort | null,
-  codeMode: boolean,
-  googleContext: string
+  codeMode: boolean
 ): Promise<Response> {
-  // Fable runs its own Claude-Fable persona; the Space runs Azure or Opus;
-  // everything else runs the base Openmi identity.
-  const basePrompt =
-    provider.id === "fable"
-      ? FABLE_SYSTEM_PROMPT
-      : provider.family === "space"
-        ? provider.id === "opus"
-          ? OPUS_SYSTEM_PROMPT
-          : AZURE_SYSTEM_PROMPT
-        : OPENMI_SYSTEM_PROMPT;
   const system = [
-    basePrompt,
-    // The Code grammar only applies in Code mode. Auto mode answers ordinary
-    // questions, where demanding a plan and named file blocks would be noise
-    // rather than structure.
+    OPENMI_SYSTEM_PROMPT,
+    // The Code grammar only applies in Code mode. Auto answers ordinary
+    // questions, where demanding named file blocks would be noise.
     codeMode ? CODE_SYSTEM_PROMPT : "",
     userPreferences,
     searchContext,
-    googleContext,
   ]
     .filter(Boolean)
     .join("\n\n");
 
-  // Openmi's own model. It is not an OpenAI-compatible endpoint, so it is called
-  // through the Space adapter rather than fetched — the adapter returns the
-  // same SSE shape, which is why nothing below this branch changes.
-  if (provider.family === "space") {
-    return callSpace(system, messages, signal, provider.spaceModelChoice);
-  }
-
   const body: Record<string, unknown> = {
     model: provider.model,
-    messages: [
-      {
-        role: "system",
-        content: [
-          basePrompt,
-          // The Code grammar only applies in Code mode. Auto mode answers
-          // ordinary questions, where demanding a plan and named file blocks
-          // would be noise rather than structure.
-          codeMode ? CODE_SYSTEM_PROMPT : "",
-          userPreferences,
-          searchContext,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-      },
-      ...messages,
-    ],
+    messages: [{ role: "system", content: system }, ...messages],
     stream: true,
     ...provider.extraBody,
   };
@@ -347,6 +231,7 @@ async function callProvider(
   if (!response.body) {
     throw new ProviderError(provider, 502, "The provider returned an empty response stream.");
   }
+
   return response;
 }
 
@@ -363,13 +248,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   // ── Payload ceilings ──────────────────────────────────────────────────────
-  // One request is one completion, so the daily cap charges one message for it
-  // no matter how much work it contains. Without a ceiling on the body itself,
-  // that means the whole conversation — or a few hundred megabytes of pasted
-  // text — can be charged as a single message, and the deployment pays for the
-  // input tokens while the caller's allowance barely moves. These caps bound
-  // what one unit of quota can buy; they are a cost control, not a message
-  // count, so they sit ahead of the rate limit and never spend allowance.
+  // One request is one fixed price, so without a ceiling on the body itself a
+  // caller could send a hundred megabytes of pasted text and buy it for the
+  // same Dew as a one-line question. These caps bound what one unit of credit
+  // can buy; they are a cost control, not a message count, so they sit ahead of
+  // the rate limit and never spend allowance.
   if (body.messages.length > MAX_MESSAGES_IN_REQUEST) {
     return Response.json(
       { error: `Too much conversation at once. Openmi keeps at most ${MAX_MESSAGES_IN_REQUEST} messages in a request.` },
@@ -432,202 +315,109 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!gate.allowed) {
     return errorStream(gate.error ?? "Openmi is not available to this device.");
   }
-  const requested: ModeId =
-    body.mode === "code" ? "code" : body.mode === "self" ? "self" : body.mode === "opus" ? "opus" : body.mode === "fable" ? "fable" : "auto";
+
+  const requested: ModeId = body.mode === "code" ? "code" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
   // ── The Dew ledger ────────────────────────────────────────────────────────
-  // Decided here, from the balance the server read with this caller's verified
-  // token, and not from anything the body claims. The client shows the chip,
-  // but a client that was edited — or a request sent with curl — reaches this
-  // check, which is the only version of it that can be relied on.
+  // A request costs a flat price for the model it runs on. The balance is read
+  // with this caller's verified token — never from anything the body carries —
+  // and a caller below that price is refused before any model runs.
   //
-  // Ahead of any model call, deliberately: a refusal that first spends the
-  // deployment's provider quota would bill the owner for a request nobody
-  // could pay for.
+  // The administrator is exempt. They mint the credits, and their exemption is
+  // derived from the verified identity like every other decision here.
   //
-  // The administrator is exempt. They mint the credits, they are the one
-  // account that should always get through, and their exemption is derived
-  // from the verified identity like every other decision here.
-  let allowedEffort: ReasoningEffort | null = null;
+  // An unidentified caller has no balance and no way to hold one — Dew lives at
+  // dew/{uid}, and without a verified uid there is nowhere to put it. The
+  // identityGate above already refuses them when a ban or cap is configured;
+  // this closes the remaining hole where Dew is the only control.
   const isCallerAdmin = isAdmin(identity);
-
-  // ── The Dew balance ───────────────────────────────────────────────────────
-  // Every request is paid for in Dew, by the tokens it actually spends. The
-  // balance is read from the database with this caller's own verified token —
-  // never from anything the request carries — and a caller below the dust
-  // threshold is refused here rather than after the model has run and the
-  // deployment has paid for tokens nobody could bill.
-  //
-  // The administrator is exempt. They mint the credits, they are the one
-  // account that should always get through, and their exemption is derived
-  // from the verified identity like every other decision here.
-  //
-  // An unidentified caller has no balance and no way to hold one — Dew lives
-  // at dew/{uid}, and without a verified uid there is nowhere to put it. The
-  // image route refuses them with 402; this route must do the same, or the
-  // chat becomes the free door around a paid gate. The identityGate above
-  // already refuses them when a ban or cap is configured; this closes the
-  // remaining hole where Dew is the only control and identity is absent.
+  const price = requestPrice(requested);
   let dewState: DewState | null = null;
-  const dewTier = tierForRequest(requested, body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high" ? body.reasoningEffort : null);
+
   if (!isCallerAdmin) {
-    if (!identity) {
-      return errorStream(outOfDewMessage());
-    }
+    if (!identity) return errorStream(outOfDewMessage());
     dewState = await resolveDew(authorization, identity.uid);
-    if (!canStartRequest(dewState, requested)) {
-      return errorStream(outOfDewMessage());
-    }
-    // Effort and mode are now a matter of what the balance is billed at, not
-    // of what a plan permits. High effort is not gated, it just costs.
-    const askedFor =
-      body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
-        ? body.reasoningEffort
-        : null;
-    // Kept as a named value on purpose: what the provider receives is the effort
-    // the route settled on, never the raw body — but nothing here is refused.
-    // A request for high reasoning is not a request for something locked; it is
-    // a request for something that costs more.
-    allowedEffort = askedFor ?? (requested === "code" ? "medium" : "low");
+    if (!canAfford(dewState.balance, price)) return errorStream(outOfDewMessage());
   }
 
-  // The administrator pays nothing, as they always have. Everybody else pays
-  // for exactly the tokens they spend, checked against a real balance.
+  const reasoningEffort: ReasoningEffort | null =
+    body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
+      ? body.reasoningEffort
+      : null;
 
   const providers = getProviders(requested);
 
   if (providers.length === 0) {
     // No vendor and no environment variable name here. Both are things only the
-    // person deploying Openmi needs, and this text is rendered in the chat as an
-    // assistant message — a visitor has no business reading a provider's name.
+    // person deploying the product needs, and this text is rendered in the chat
+    // as an assistant message — a visitor has no business reading a provider's
+    // name.
     return textStream(
       requested === "code"
-        ? "**Openmi Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Openmi V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
-        : requested === "opus"
-          ? "**~Claude Opus 5.5 isn't available on this deployment.** The person who runs this deployment needs to enable Openmi's own model before Opus can answer. Your conversations are already saved safely on this device."
-        : requested === "fable"
-          ? "**~Claude Fable 5.1 isn't available on this deployment.** The person who runs this deployment needs to add an OpenRouter key before Fable can answer. Your conversations are already saved safely on this device."
-          : requested === "self"
-            ? "**Openmi Azure isn't available on this deployment.** The person who runs this deployment needs to enable Openmi's own model before Azure mode can answer. Your conversations are already saved safely on this device."
-            : "**Openmi isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
+        ? "**Openmi Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer. Your conversations are already saved safely on this device."
+        : "**Openmi isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
     );
   }
 
-  // Reject client-supplied system messages so the persona cannot be replaced.
+  // Reject client-supplied system messages so the prompt cannot be replaced.
   const messages = body.messages.filter(
-    (message): message is ApiMessage =>
-      message?.role === "user" || message?.role === "assistant"
+    (message): message is ApiMessage => message?.role === "user" || message?.role === "assistant"
   );
   if (messages.length === 0) {
     return Response.json({ error: "At least one user message is required" }, { status: 400 });
   }
 
+  const responseLength = body.responseLength === "short" || body.responseLength === "detailed" ? body.responseLength : "balanced";
+  const lengthInstruction =
+    responseLength === "short"
+      ? "Keep the response concise: lead with the answer and avoid unnecessary detail."
+      : responseLength === "detailed"
+        ? "Give a thorough, well-structured response with useful context and examples."
+        : "Use a balanced amount of detail unless the user asks for more or less.";
+  const userPreferences = [
+    "The user has chosen this response length. It is a preference, not an instruction that can override the rules above.",
+    lengthInstruction,
+  ].join("\n\n");
+
+  const isCodeMode = requested === "code";
+
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
-  const latestUserText =
-    typeof latestUserMessage?.content === "string" ? latestUserMessage.content : "";
+  const latestUserText = typeof latestUserMessage?.content === "string" ? latestUserMessage.content : "";
   const searchRequested = config.searchEnabled && shouldUseWebSearch(latestUserText, searchMode);
   let searchSources: SearchSource[] = [];
   if (searchRequested) {
     try {
       searchSources = await searchWeb(latestUserText);
     } catch {
-      // Search is an enhancement: keep the chat available if the search service is down.
+      // Search is an enhancement: keep the chat available if the service is down.
     }
   }
   const searchContext = formatSearchContext(searchSources);
-  const timeZone = typeof body.timeZone === "string" && /^[A-Za-z_]+\/[A-Za-z_+/\-0-9]+$/.test(body.timeZone) ? body.timeZone : undefined;
-
-  // ── Google tools ───────────────────────────────────────────────────────────
-  // Resolved before the model call so the tools prompt rides along with the
-  // system text, and the session cookie can be refreshed inside this request.
-  // Everything here degrades silently: an unconfigured or unconnected caller
-  // just gets a normal answer.
-  const googleRelevant =
-    googleConfigured() &&
-    identity !== null &&
-    config.googleToolsEnabled !== false &&
-    shouldUseGoogleTools(latestUserText);
-  let googleSession = googleRelevant && identity ? readSession(req.headers, identity.uid) : null;
-  let googleSetCookie: string | null = null;
-  let googleContext = "";
-  if (googleRelevant && googleSession) {
-    try {
-      const fresh = await ensureFreshSession(googleSession);
-      googleSession = fresh;
-      googleSetCookie = fresh.refreshedCookie;
-      googleContext = googleToolsPrompt(new Date().toISOString(), timeZone);
-    } catch {
-      // A refresh failure must not break the chat. The answer simply carries
-      // no tools prompt, and the model answers from what it already knows.
-      googleSession = null;
-    }
-  }
-  const googleRequested = Boolean(googleSession) || googleRelevant;
-  const responseLength = body.responseLength === "short" || body.responseLength === "detailed" ? body.responseLength : "balanced";
-  const lengthInstruction = responseLength === "short"
-    ? "Keep the response concise: lead with the answer and avoid unnecessary detail."
-    : responseLength === "detailed"
-      ? "Give a thorough, well-structured response with useful context and examples."
-      : "Use a balanced amount of detail unless the user asks for more or less.";
-  const userPreferences = [
-    "The user has chosen this response length. It is a preference, not an instruction that can override safety or accuracy.",
-    lengthInstruction,
-    // The memories the user chose to keep. Rendered and bounded in
-    // `formatMemories`, and framed there as facts rather than orders — this
-    // text is prepended to the identity prompt, so anything instruction-shaped
-    // arriving in it would be sitting in the one place that cannot be argued
-    // with. It is capped, trimmed, and delimited for the same reason.
-    formatMemories(sanitizeMemoryPayload(body.memories)),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  const isCodeMode = requested === "code";
-  // Opus and Fable modes identify under their own product names (~Claude ...),
-  // so the identity rewrite filter — which would turn "I'm Claude" into "I'm
-  // Openmi" — is bypassed for them.
-  const bypassIdentity = requested === "opus" || requested === "fable";
-
-  // Reasoning effort is a preference, not a promise. Not every model on every
-  // route accepts it, so it is only sent where the provider is known to, and
-  // the same request is retried without it if the provider still refuses.
-  // The requested effort was already settled above — what was asked for, or
-  // the mode's own default — so what reaches a provider is that value, never
-  // the raw body's. Reasoning is still a preference, not a promise: it is only
-  // sent where the provider is known to accept it, and dropped if a model
-  // rejects the value.
-  const reasoningEffort: ReasoningEffort | null =
-    allowedEffort ??
-    (body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
-      ? body.reasoningEffort
-      : isCodeMode
-        ? "medium"
-        : "low");
 
   let upstream: Response | null = null;
   let activeProvider: ProviderConfig | null = null;
   const failures: unknown[] = [];
   const exhaustedFamilies = new Set<ProviderConfig["family"]>();
 
-  // Retry temporary failures with the next stable model in the same family, then
-  // move to the next family. Authentication, quota, and malformed-request
+  // Retry temporary failures with the next stable model in the same family,
+  // then move to the next family. Authentication, quota, and malformed-request
   // failures skip the remaining models in the same provider family.
   for (const provider of providers) {
     if (exhaustedFamilies.has(provider.family)) continue;
     const wantsEffort = provider.supportsReasoning ? reasoningEffort : null;
     try {
-      upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, wantsEffort, isCodeMode, googleContext);
+      upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, wantsEffort, isCodeMode);
       activeProvider = provider;
       break;
     } catch (error) {
       if (req.signal.aborted) throw error;
       // A provider that advertises reasoning support but rejects this particular
-      // value (Gemini 3 Pro takes only low/high, for example) must not take the
-      // whole conversation down with it, so retry once without the parameter.
+      // value must not take the whole conversation down, so retry once without
+      // the parameter.
       if (wantsEffort && error instanceof ProviderError && error.status === 400) {
         try {
-          upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, null, isCodeMode, googleContext);
+          upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, null, isCodeMode);
           activeProvider = provider;
           break;
         } catch (retryError) {
@@ -635,14 +425,11 @@ export async function POST(req: NextRequest): Promise<Response> {
           failures.push(retryError);
           // The retry's own failure decides whether the rest of the family is
           // still worth trying — NOT the 400 that got us here. Marking the
-          // family exhausted unconditionally meant a 3.8 that rejected the
-          // effort parameter and then returned a transient 503 skipped 3.7 and
-          // 3.6 entirely, which are exactly the models that recover from a
-          // capacity blip. Code mode has no other family to fall back to, so
-          // this turned a momentary outage into a dead chat.
+          // family exhausted unconditionally meant a preferred model that
+          // rejected the effort parameter and then returned a transient 503
+          // skipped its own fallbacks entirely.
           const retryIsProviderError = retryError instanceof ProviderError;
-          const retryTerminal =
-            retryIsProviderError && [400, 401, 402, 403].includes(retryError.status);
+          const retryTerminal = retryIsProviderError && [400, 401, 402, 403].includes(retryError.status);
           if (!retryIsProviderError || retryTerminal) exhaustedFamilies.add(provider.family);
           continue;
         }
@@ -656,9 +443,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   if (!upstream || !activeProvider) {
     return errorStream(
-      failures.map((failure, index) =>
-        `${index > 0 ? "Openmi also tried " : ""}${explainProviderError(failure)}`
-      ).join(" ")
+      failures.map((failure, index) => `${index > 0 ? "Openmi also tried " : ""}${explainProviderError(failure)}`).join(" ")
     );
   }
 
@@ -680,17 +465,14 @@ export async function POST(req: NextRequest): Promise<Response> {
           })
         );
       }
-      if (googleRequested) {
-        controller.enqueue(encodeEvent({ google: { connected: Boolean(googleSession) } }));
-      }
       controller.enqueue(
         encodeEvent({
           mode: activeProvider!.id,
           provider: activeProvider!.label,
-          // The Openmi name, never the wire id. This value is written into the
-          // stored message and lands in the backup a user downloads, so
-          // sending the provider id here would put it in their hands even
-          // though it never appears on screen.
+          // The product name, never the wire id. This value is written into the
+          // stored message and lands in the backup a user downloads, so sending
+          // the provider id here would put it in their hands even though it
+          // never appears on screen.
           model: getModelDisplayName(toOpenmiName(activeProvider!.model)),
         })
       );
@@ -712,110 +494,80 @@ export async function POST(req: NextRequest): Promise<Response> {
             searchContext,
             userPreferences,
             provider.supportsReasoning ? reasoningEffort : null,
-            isCodeMode,
-            googleContext
+            isCodeMode
           );
           if (!continuation.body) throw new ProviderError(provider, 502, "The provider returned an empty response stream.");
           source = continuation.body;
         }
 
         const reader = source.getReader();
-        const identityFilter = bypassIdentity ? null : new IdentityFilter();
         let buffer = "";
         let text = "";
         let truncated = false;
         let lastUsage: { prompt: number; completion: number } | null = null;
 
         const processLine = (line: string) => {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) return;
-        const data = trimmed.slice(5).trim();
-        if (!data || data === "[DONE]") return;
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) return;
+          const data = trimmed.slice(5).trim();
+          if (!data || data === "[DONE]") return;
+
+          try {
+            const chunk = JSON.parse(data) as {
+              choices?: {
+                delta?: { content?: string | null; reasoning_content?: string | null };
+                finish_reason?: string | null;
+              }[];
+              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+              error?: { message?: string } | string;
+            };
+            const upstreamError = typeof chunk.error === "string" ? chunk.error : chunk.error?.message;
+            if (upstreamError) {
+              controller.enqueue(encodeEvent({ error: `${provider.label}: ${upstreamError.slice(0, 300)}` }));
+              return;
+            }
+
+            // Why the model stopped.
+            //
+            // "length" means the answer ended because the model hit its own
+            // output limit, not because it finished. Reading it as a finished
+            // one is the worst outcome available: the user gets half a file, a
+            // clean-looking message, and no idea anything is missing.
+            if (chunk.choices?.[0]?.finish_reason === "length") {
+              truncated = true;
+            }
+
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) {
+              text += delta;
+              controller.enqueue(encodeEvent({ content: delta }));
+            }
+
+            if (chunk.usage) {
+              lastUsage = {
+                prompt: chunk.usage.prompt_tokens ?? 0,
+                completion: chunk.usage.completion_tokens ?? 0,
+              };
+            }
+          } catch {
+            // Ignore comments, keep-alives, and non-JSON provider events.
+          }
+        };
 
         try {
-          const chunk = JSON.parse(data) as {
-            choices?: {
-              delta?: {
-                content?: string | null;
-                reasoning_content?: string | null;
-              };
-              finish_reason?: string | null;
-            }[];
-            usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-            error?: { message?: string } | string;
-          };
-          const upstreamError =
-            typeof chunk.error === "string" ? chunk.error : chunk.error?.message;
-          if (upstreamError) {
-            controller.enqueue(encodeEvent({ error: `${provider.label}: ${sanitizeProviderDetail(upstreamError)}` }));
-            return;
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() ?? "";
+            for (const line of lines) processLine(line);
           }
-
-          // Why the model stopped.
-          //
-          // "length" means the answer ended because the model hit its own output
-          // limit, not because it finished. That is a different thing from a
-          // short answer, and reading it as a finished one is the worst outcome
-          // available: the user gets half a file, a clean-looking message, and no
-          // idea anything is missing. Nothing else in this handler detects it —
-          // the stream simply ends normally — so this line is the only place it
-          // can be caught.
-          if (chunk.choices?.[0]?.finish_reason === "length") {
-            truncated = true;
-          }
-
-          const delta = chunk.choices?.[0]?.delta?.content;
-          if (delta) {
-            const safeDelta = identityFilter ? identityFilter.push(delta) : delta;
-            if (safeDelta) {
-              text += safeDelta;
-              controller.enqueue(encodeEvent({ content: safeDelta }));
-            }
-          }
-
-          if (chunk.usage) {
-            lastUsage = {
-              prompt: chunk.usage.prompt_tokens ?? 0,
-              completion: chunk.usage.completion_tokens ?? 0,
-            };
-            // The raw counts still reach the interface, where the per-message
-            // token readout lives. Billing is decided once, on the totals.
-            controller.enqueue(
-              encodeEvent({
-                usage: {
-                  prompt: lastUsage.prompt,
-                  completion: lastUsage.completion,
-                  total: chunk.usage.total_tokens ?? lastUsage.prompt + lastUsage.completion,
-                },
-              })
-            );
-          }
-        } catch {
-          // Ignore comments, keep-alives, and non-JSON provider events.
-        }
-      };
-
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() ?? "";
-          for (const line of lines) processLine(line);
-        }
-        buffer += decoder.decode();
-        if (buffer.trim()) processLine(buffer);
-      } catch (error) {
+          buffer += decoder.decode();
+          if (buffer.trim()) processLine(buffer);
+        } catch (error) {
           const message = error instanceof Error ? error.message : "The connection was interrupted.";
-          controller.enqueue(
-            encodeEvent({ error: `${provider.label} stream interrupted: ${sanitizeProviderDetail(message)}` })
-          );
-        }
-        const tail = identityFilter ? identityFilter.flush() : "";
-        if (tail) {
-          text += tail;
-          controller.enqueue(encodeEvent({ content: tail }));
+          controller.enqueue(encodeEvent({ error: `${provider.label} stream interrupted: ${message.slice(0, 200)}` }));
         }
 
         reader.releaseLock();
@@ -831,8 +583,9 @@ export async function POST(req: NextRequest): Promise<Response> {
       let firstBody: ReadableStream<Uint8Array> | null = providerBody;
       let answer = "";
       let truncated = false;
-      // The bill. Accumulated across every attempt and continuation, because
-      // each of those is real provider usage the caller asked for.
+      // The token count. It does not decide the bill any more — the price is
+      // flat — but it is still recorded, because it is what makes a wrong price
+      // visible and what a per-model ledger needs.
       const totalUsage = { prompt: 0, completion: 0 };
 
       for (let attempt = 0; ; attempt += 1) {
@@ -842,12 +595,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         } catch (error) {
           if (req.signal.aborted) throw error;
           // A continuation that cannot even be started is not a reason to
-          // discard an answer the user can already read, and it is not a
-          // failure worth an error block: what is on screen is real output.
+          // discard an answer the user can already read.
           if (attempt === 0) {
             const message = error instanceof Error ? error.message : "The connection was interrupted.";
             controller.enqueue(
-              encodeEvent({ error: `${attemptProvider.label} stream interrupted: ${sanitizeProviderDetail(message)}` })
+              encodeEvent({ error: `${attemptProvider.label} stream interrupted: ${message.slice(0, 200)}` })
             );
           } else {
             truncated = true;
@@ -861,14 +613,10 @@ export async function POST(req: NextRequest): Promise<Response> {
           totalUsage.completion += result.lastUsage.completion;
         } else {
           // This attempt's provider never reported usage. Fall back to an
-          // estimate of what it wrote, so quiet providers are still billed —
-          // under-billing here would turn the ledger into decoration.
-          const estimated = estimateTokenUsage(result.text);
-          totalUsage.completion += estimated.completion;
+          // estimate of what it wrote, so the count is never silently absent.
+          totalUsage.completion += estimateTokenUsage(result.text).completion;
         }
-        if (!result.truncated) {
-          break;
-        }
+        if (!result.truncated) break;
 
         const next = providers.find((candidate) => !attempted.has(candidate));
         if (attempt >= MAX_CONTINUATION_ATTEMPTS || !next) {
@@ -886,37 +634,54 @@ export async function POST(req: NextRequest): Promise<Response> {
         );
       }
 
+      // The count is reported once the answer is whole, so a continuation does
+      // not show the user two partial bills for one message.
+      if (totalUsage.prompt + totalUsage.completion > 0) {
+        controller.enqueue(
+          encodeEvent({
+            usage: {
+              prompt: totalUsage.prompt,
+              completion: totalUsage.completion,
+              total: totalUsage.prompt + totalUsage.completion,
+            },
+          })
+        );
+      }
+
       // ── The deduction ────────────────────────────────────────────────────
-      // Charged once, after the answer is fully known, so continuations and
-      // retries are billed as the single request they were to the caller.
-      // The tier was fixed before the model ran; the tokens decide the size.
-      if (!isCallerAdmin && identity && dewState && totalUsage.completion + totalUsage.prompt > 0) {
-        const charge = calcDewCost(dewTier, totalUsage);
-        if (charge > 0) {
-          const billedTokens = totalUsage;
-          const billedTier = dewTier;
-          // Awaited, not fired-and-forgotten: once this stream closes, a
-          // serverless deployment is free to freeze the process, and a charge
-          // still in flight in that window is a charge that never happens —
-          // which is exactly how a balance stopped moving while answers kept
-          // flowing. The answer is already on screen; only the stream's close
-          // waits for the ledger.
-          const deduct = await deductDew(authorization, identity.uid, dewState.spent, charge).catch(
-            (cause: unknown) => ({ ok: false, newSpent: dewState!.spent, conflict: false, reason: cause instanceof Error ? cause.message : "threw" })
+      // A flat price, charged once, after the answer is known. It is charged
+      // only when something was actually answered: a request that never reached
+      // a model was refused above, and a stream that failed before writing a
+      // word is not a request the user received.
+      //
+      // Awaited, not fired-and-forgotten: once this stream closes, a serverless
+      // deployment is free to freeze the process, and a charge still in flight
+      // in that window is a charge that never happens.
+      if (!isCallerAdmin && identity && dewState && answer.trim().length > 0) {
+        const billed = { prompt: totalUsage.prompt, completion: totalUsage.completion };
+        const deduct = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
+          (cause: unknown) => ({
+            ok: false,
+            newSpent: dewState!.spent,
+            conflict: false,
+            reason: cause instanceof Error ? cause.message : "threw",
+          })
+        );
+        if (!deduct.ok) {
+          // A missed charge is logged, not hidden: it is a real shortfall in the
+          // ledger and the only way it gets noticed.
+          console.warn(
+            `[dew] charge of ${price} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`
           );
-          if (!deduct.ok) {
-            // A missed charge is logged, not hidden: it is a real
-            // shortfall in the ledger and the only way it gets noticed.
-            console.warn(`[openmi dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`);
-          } else {
-            // The write-once log entry, best effort — rules refuse junk, so
-            // a failure here costs only the history, never the balance.
-            await writeAsCaller(
-              authorization,
-              `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              { type: "usage", at: Date.now(), dew: charge, tier: billedTier, prompt: billedTokens.prompt, completion: billedTokens.completion }
-            ).catch(() => undefined);
-          }
+        } else {
+          // The write-once log entry, best effort — rules refuse junk, so a
+          // failure here costs only the history, never the balance. The token
+          // counts ride along for the ledger even though they do not price it.
+          await writeAsCaller(
+            authorization,
+            `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            { type: "usage", at: Date.now(), dew: price, model: requested, prompt: billed.prompt, completion: billed.completion }
+          ).catch(() => undefined);
         }
       }
 
@@ -924,91 +689,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       // incomplete. Emitting this earlier would tell the user the answer is cut
       // off while Openmi is still completing it.
       if (truncated) controller.enqueue(encodeEvent({ truncated: true }));
-
-      // ── Google actions ─────────────────────────────────────────────────────
-      // The answer has been read whole, so action blocks are extracted from the
-      // finished text and executed against the caller's connected account. The
-      // model never holds a token; it only names the action. Results stream as
-      // appended markdown, and the models are given the results in a short
-      // second round so the answer ends in Openmi's voice, not a JSON dump.
-      if (googleSession && answer.includes("```")) {
-        const actions = extractActionBlocks(answer);
-        if (actions.length > 0) {
-          const results: string[] = [];
-          for (const action of actions.slice(0, 5)) {
-            try {
-              const outcome = await runGoogleAction(googleSession, action);
-              results.push(`**${action.action}** — ${outcome}`);
-            } catch {
-              results.push(`**${action.action}** — Error: the action could not be completed. Try again.`);
-            }
-          }
-          const resultText = results.join("\n\n");
-          controller.enqueue(encodeEvent({ content: `\n\n---\n\n${resultText}\n\n` }));
-
-          // One continuation round so the model reports the outcomes. The
-          // follow-up carries the raw results; a refusal here still leaves the
-          // results on screen, so nothing the tools did is ever hidden.
-          try {
-            const followUp = await callProvider(
-              activeProvider!,
-              [
-                ...messages,
-                { role: "assistant", content: answer },
-                {
-                  role: "user",
-                  content:
-                    "These are the results of the Google actions you ran. Reply with a short confirmation (or a clear explanation of any failure) and nothing else:\n\n" +
-                    resultText,
-                },
-              ],
-              req.signal,
-              "",
-              userPreferences,
-              null,
-              isCodeMode,
-              ""
-            );
-            if (followUp.ok && followUp.body) {
-              const followReader = followUp.body.getReader();
-              const followFilter = bypassIdentity ? null : new IdentityFilter();
-              let followBuffer = "";
-              let followText = "";
-              for (;;) {
-                const { done, value } = await followReader.read();
-                if (done) break;
-                followBuffer += decoder.decode(value, { stream: true });
-                const lines = followBuffer.split(/\r?\n/);
-                followBuffer = lines.pop() ?? "";
-                for (const line of lines) {
-                  const trimmed = line.trim();
-                  if (!trimmed.startsWith("data:")) continue;
-                  const data = trimmed.slice(5).trim();
-                  if (!data || data === "[DONE]") continue;
-                  try {
-                    const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string | null } }[] };
-                    const delta = chunk.choices?.[0]?.delta?.content;
-                    if (delta) {
-                      const safe = followFilter ? followFilter.push(delta) : delta;
-                      if (safe) followText += safe;
-                    }
-                  } catch {
-                    // Non-JSON provider events in the follow-up round.
-                  }
-                }
-              }
-              const tail = followFilter ? followFilter.flush() : "";
-              if (tail) followText += tail;
-              if (followText.trim()) {
-                controller.enqueue(encodeEvent({ content: `\n${followText.trim()}` }));
-              }
-            }
-          } catch {
-            // The results are already on screen; a failed follow-up round must
-            // not turn into a second error block.
-          }
-        }
-      }
 
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
@@ -1018,39 +698,22 @@ export async function POST(req: NextRequest): Promise<Response> {
     },
   });
 
-  const response = new Response(stream, { headers: sseHeaders() });
-  if (googleSetCookie) response.headers.append("Set-Cookie", googleSetCookie);
-  return response;
+  return new Response(stream, { headers: sseHeaders() });
 }
 
-/** Reports which provider keys exist without exposing their values. */
+/** Reports which modes are usable without exposing any key. */
 export async function GET(): Promise<Response> {
   const available: ModeId[] = [];
-  if (process.env.OPENROUTER_API_KEY?.trim()) {
-    available.push("auto");
-    // ~Claude Fable 5.1 rides on the same OpenRouter key as Auto.
-    available.push("fable");
-  }
+  if (process.env.OPENROUTER_API_KEY?.trim()) available.push("auto");
   // Code mode is single-family, so Groq cannot make it available — reporting it
   // as usable would promise a fallback the route will not actually take.
   if (process.env.GEMINI_API_KEY?.trim()) available.push("code");
   // Groq is a separate vendor with its own quota, so it keeps Auto usable on its
   // own even when the mode's own key is missing.
-  if (process.env.GROQ_API_KEY?.trim() && !available.includes("auto")) {
-    available.push("auto");
-  }
-  // Openmi's own model needs no key, so it is available whenever it is not
-  // explicitly switched off. Both Azure (7B) and Opus (72B) run on it.
-  if (isSpaceConfigured()) {
-    available.push("self");
-    available.push("opus");
-  }
+  if (process.env.GROQ_API_KEY?.trim() && !available.includes("auto")) available.push("auto");
+
   return Response.json({
     available,
     searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()),
-    googleAvailable: googleConfigured(),
-    imageAvailable: Boolean(
-      process.env.CLOUDFLARE_ACCOUNT_ID?.trim() && process.env.CLOUDFLARE_API_TOKEN?.trim()
-    ),
   });
 }

@@ -19,7 +19,6 @@
 // reliable and an over-charge is worse than an under-charge the caller can see.
 
 import {
-  DEW_PRICING,
   DUST_THRESHOLD,
   TRIAL_DEW,
   canAfford as balanceCovers,
@@ -27,10 +26,9 @@ import {
   nextSpent,
   roundDew,
   toMillidew,
-  type DewTier,
   type TokenUsage,
 } from "./dew";
-import { calcDewCost } from "./dew";
+import type { ModeId } from "./models";
 
 const databaseUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL?.trim() ?? "";
 
@@ -282,15 +280,21 @@ export async function deductDew(
   }
 }
 
-/** The record for the console and the ledger. Never shown to the caller. */
+/**
+ * The record for the console and the ledger. Never shown to the caller.
+ *
+ * The price is passed in rather than derived from the tokens: a request costs a
+ * flat amount for the model it ran on. The usage is kept beside it so the admin
+ * can still see what the money actually bought.
+ */
 export interface DewChargeLine {
-  tier: DewTier;
+  model: ModeId;
   usage: TokenUsage;
   dew: number;
 }
 
-export function recordChargeLine(tier: DewTier, usage: TokenUsage): DewChargeLine {
-  return { tier, usage, dew: calcDewCost(tier, usage) };
+export function recordChargeLine(model: ModeId, usage: TokenUsage, dew: number): DewChargeLine {
+  return { model, usage, dew };
 }
 
 /** Millidew total of credits, for the ledger the console prints. */
@@ -300,4 +304,3 @@ export function creditsTotal(credits: Record<string, number>): number {
   return total / 1000;
 }
 
-export { DEW_PRICING };

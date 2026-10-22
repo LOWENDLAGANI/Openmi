@@ -21,7 +21,6 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import OpenmiMark from "@/components/OpenmiMark";
 import SearchOverlay from "@/components/SearchOverlay";
 import TrashOverlay from "@/components/TrashOverlay";
-import GalleryOverlay from "@/components/GalleryOverlay";
 import Link from "next/link";
 
 interface SidebarProps {
@@ -33,6 +32,7 @@ interface SidebarProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
+  onOpenRepo: () => void;
   displayName: string;
 }
 
@@ -140,6 +140,7 @@ export default function Sidebar({
   open,
   onClose,
   onOpenSettings,
+  onOpenRepo,
   displayName,
 }: SidebarProps) {
   const chats = useLiveQuery(
@@ -152,10 +153,8 @@ export default function Sidebar({
     [],
     [] as ChatFolder[]
   );
-  // The two queues the toolbar badges read: how many chats are in the trash
-  // and how many messages are waiting for their scheduled moment.
+  // The toolbar badge reads how many chats are in the trash.
   const trashCount = useLiveQuery(() => db.trash.count(), [], 0);
-  const scheduledCount = useLiveQuery(() => db.scheduled.count(), [], 0);
 
   // What this visitor can still spend. The Dew chip at the bottom of the
   // sidebar is their live wallet: balance now, amber when it runs low, and a
@@ -167,7 +166,6 @@ export default function Sidebar({
   const [notice, setNotice] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   // Folders: which one the list is filtered to, whether the new-folder input
@@ -342,7 +340,6 @@ export default function Sidebar({
     setMenuChatId(null);
     setSearchOpen(false);
     setTrashOpen(false);
-    setGalleryOpen(false);
     onSelectChat(chatId);
   };
 
@@ -454,11 +451,12 @@ export default function Sidebar({
               <path d="m16 16 4 4" />
             </svg>
           </ToolbarButton>
-          <ToolbarButton label="Image gallery" onClick={() => setGalleryOpen(true)}>
+          <ToolbarButton label="Repository — connect GitHub and browse files" onClick={onOpenRepo}>
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
-              <circle cx="9" cy="10" r="1.5" />
-              <path d="M20 15.5 15.5 11 6 19.5" />
+              <path d="M6 3v12a3 3 0 0 0 3 3h6" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="6" r="3" />
+              <path d="M18 9v3a3 3 0 0 1-3 3h-3" />
             </svg>
           </ToolbarButton>
           <ToolbarButton label="Trash — restore deleted chats" onClick={() => setTrashOpen(true)} badge={trashCount}>
@@ -592,18 +590,6 @@ export default function Sidebar({
                 : "Recent"}
             </span>
             <span className="flex shrink-0 items-center gap-2">
-              {scheduledCount > 0 && (
-                <span
-                  className="flex items-center gap-1 rounded-full bg-[#2f6b48]/15 px-1.5 py-0.5 text-[9px] font-semibold text-[#a9d8bb]"
-                  title={`${scheduledCount} message${scheduledCount === 1 ? "" : "s"} waiting to be sent`}
-                >
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 7v5l3 2" />
-                  </svg>
-                  {scheduledCount}
-                </span>
-              )}
               <button
                 type="button"
                 onClick={() => {
@@ -884,7 +870,6 @@ export default function Sidebar({
           chooseChat(chatId);
         }}
       />
-      <GalleryOverlay open={galleryOpen} onClose={() => setGalleryOpen(false)} onSelectChat={chooseChat} />
     </>
   );
 }

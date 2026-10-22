@@ -9,6 +9,8 @@ import ModeSelector from "@/components/ModelSelector";
 import OpenmiMark from "@/components/OpenmiMark";
 import OpenmiTutorial from "@/components/OpenmiTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
+import RepoPanel from "@/components/RepoPanel";
+import type { ProjectSummary } from "@/lib/projects";
 import NotificationNag from "@/components/NotificationNag";
 import NamePrompt from "@/components/NamePrompt";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
@@ -24,13 +26,13 @@ import {
   loadSelectedMode,
   saveSelectedMode,
 } from "@/lib/db";
-import { DEFAULT_MODE_ID, getMode, IMAGE_ENGINE, type ModeId } from "@/lib/models";
-import { generateImage, imageGenerationConfigured } from "@/lib/imageGeneration";
+import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
 import { refreshDew } from "@/lib/useDew";
 // getMode is used for the assistant message engine label below.
 import type {
   ApiContentPart,
   ApiMessage,
+  AgentStep,
   ChatMessage,
   DocumentAttachment,
   ImageAttachment,
@@ -58,7 +60,6 @@ import {
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
 import { TempThread, type MessageInput } from "@/lib/tempChat";
-import { dueFirst, isDue, type ScheduledMessage } from "@/lib/scheduler";
 import { purgeTrash } from "@/lib/trash";
 import { parseRetrySeconds } from "@/lib/rateLimit";
 
@@ -76,15 +77,6 @@ const ACCOUNT_NAME_TIMEOUT_MS = 3_000;
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
 import InstallPrompt from "@/components/InstallPrompt";
-import MemorySuggestions from "@/components/MemorySuggestions";
-import NotesPrompt from "@/components/NotesPrompt";
-import {
-  dismissSuggestions,
-  loadSuggestionEnabled,
-  requestMemorySuggestions,
-  shouldSuggest,
-  suggestionsDismissed,
-} from "@/lib/memorySuggestions";
 
 // ── Openmi — main client orchestration: modes, streaming, chats ────────────────
 
@@ -97,15 +89,6 @@ interface SessionUsage {
 interface SendOptions {
   editMessageId?: string;
   regenerateAssistantId?: string;
-  /** A queued message fires into the chat it was written from, whatever is
-      on screen at the time. */
-  chatId?: string;
-  /** The mode and search setting it was scheduled under, so an answer queued
-      from Code mode is still answered by Code mode. */
-  mode?: ModeId;
-  searchMode?: SearchMode;
-  /** The queue row to consume once the send is actually under way. */
-  scheduledId?: string;
 }
 
 export default function HomePage() {
@@ -115,6 +98,10 @@ export default function HomePage() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [repoOpen, setRepoOpen] = useState(false);
+  // The repository the agent is working on. Null means ordinary chat: nothing
+  // about the agent is active until a project is chosen.
+  const [project, setProject] = useState<ProjectSummary | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [resolvingAccount, setResolvingAccount] = useState(true);
@@ -123,9 +110,6 @@ export default function HomePage() {
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
-  const [imageMode, setImageMode] = useState(false);
-  const [imageAvailable, setImageAvailable] = useState(false);
-  const [drawingId, setDrawingId] = useState<string | null>(null);
   const [tutorialFinished, setTutorialFinished] = useState(false);
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
@@ -174,7 +158,6 @@ export default function HomePage() {
     else startTemporary();
   }, [endTemporary, startTemporary, temporary]);
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const memoryRunRef = useRef(0);
 
   const messages = useLiveQuery(
     async () => {
@@ -187,24 +170,27 @@ export default function HomePage() {
 
   const chats = useLiveQuery(() => db.chats.orderBy("updatedAt").reverse().toArray(), [], []);
 
-  // The send-later queue, read live so chips appear and vanish exactly as the
-  // rows do. Oldest appointment first — that is also the order they fire in.
-  const scheduled = useLiveQuery(
-    () => db.scheduled.orderBy("sendAt").toArray(),
-    [],
-    [] as ScheduledMessage[]
-  );
-
-  // Memories ride along with every request, so this is read live from Dexie
-  // rather than copied into state: a second browser writing to the same
-  // account must be able to change what the next answer is built on without
-  // this page knowing about it in advance.
-  const memorySnapshot = useLiveQuery(() => db.memories.toArray(), [], []);
-
-  // Facts Openmi noticed by itself and is offering, kept apart from the list
-  // until the user accepts. Offered, never stored — see MemorySuggestions.
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [checkingMemory, setCheckingMemory] = useState(false);
+  // Restore the most recently attached project. A failure here is not worth a
+  // banner — not being signed in, or having no database, simply means the
+  // workspace starts without a repository.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/projects", { headers: await authHeader() });
+        if (!response.ok) return;
+        const data = (await response.json()) as { projects?: ProjectSummary[] };
+        const first = data.projects?.[0];
+        if (!cancelled && first) setProject((current) => current ?? first);
+      } catch {
+        // Offline or unconfigured: the chat still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
 
   useEffect(() => {
     setSelectedMode(loadSelectedMode());
@@ -316,14 +302,6 @@ export default function HomePage() {
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     };
   }, [hydrated, chats, messages]);
-
-  // Image generation is optional: probe once and show the setup note in the
-  // composer tools if the Cloudflare keys are not in the environment.
-  useEffect(() => {
-    void imageGenerationConfigured()
-      .then(setImageAvailable)
-      .catch(() => setImageAvailable(false));
-  }, []);
 
   // The administrator's announcement, read live from the same public node the
   // server enforces. A visitor who blocks the read simply never sees it.
@@ -482,7 +460,6 @@ export default function HomePage() {
     setStreamingId(null);
     setActiveChatId(null);
     setSidebarOpen(false);
-    setImageMode(false);
   };
 
   const handleResponseLengthChange = (value: ResponseLength) => {
@@ -522,33 +499,6 @@ export default function HomePage() {
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
-  }, []);
-
-  // ── Send later ─────────────────────────────────────────────────────────────
-  const handleSchedule = useCallback(
-    (text: string, images: ImageAttachment[], documents: DocumentAttachment[], sendAt: number) => {
-      const item: ScheduledMessage = {
-        id: crypto.randomUUID(),
-        // A temporary thread is never written down, so there is no chat to
-        // come back to; the message fires into a fresh one instead.
-        chatId: temporary ? null : activeChatId,
-        content: text,
-        images: images.length > 0 ? images : undefined,
-        documents: documents.length > 0 ? documents : undefined,
-        mode: selectedMode,
-        searchMode,
-        sendAt,
-        createdAt: Date.now(),
-      };
-      void db.scheduled.add(item).catch((error: unknown) => {
-        console.error("[Openmi] Could not queue the message", error);
-      });
-    },
-    [activeChatId, searchMode, selectedMode, temporary]
-  );
-
-  const handleCancelScheduled = useCallback((id: string) => {
-    void db.scheduled.delete(id);
   }, []);
 
   // Turning the server's own refusal into a countdown the composer can show.
@@ -711,19 +661,7 @@ export default function HomePage() {
       if (streamingId) return;
       if (!text && images.length === 0 && documents.length === 0 && !options) return;
 
-      // A queued message is consumed only now, once the send is committed:
-      // a schedule that could not fire (a busy tab) stays in the queue rather
-      // than silently disappearing with it.
-      if (options?.scheduledId) await db.scheduled.delete(options.scheduledId);
-
-      // A schedule carries the settings it was written under, so it fires as
-      // the person who queued it meant it — not as whoever is on screen now.
-      const activeMode = options?.mode ?? selectedMode;
-      const activeSearch = options?.searchMode ?? searchMode;
-
       let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
-      // The chat to fire into is the one the schedule was made from.
-      if (options?.chatId) chatId = options.chatId;
       // The row the new answer streams into. Normally a fresh message; when a
       // retry or an edit turns the old reply into a branch point, it is that
       // reply — emptied above, with the previous answer kept beside it.
@@ -802,45 +740,12 @@ export default function HomePage() {
       // specific ends up in the local database or in an exported backup.
       const assistantMsg: ChatMessage =
         (reuseId ? await readMessage(reuseId) : undefined) ??
-        (await appendMessage({ chatId, role: "assistant", content: "", model: getMode(activeMode).display }));
+        (await appendMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display }));
       setStreamingId(assistantMsg.id);
 
       const controller = new AbortController();
       abortRef.current = controller;
       let sawError = false;
-
-      // Asks the server which durable facts this exchange revealed.
-      //
-      // Run against a counter rather than a boolean because a slow extraction
-      // must not be able to overwrite a newer one: answering again while the
-      // first check is still in flight is ordinary, and the later answer's
-      // suggestions are the ones on screen.
-      const considerMemory = async (history: ApiMessage[], answer: string) => {
-        const run = ++memoryRunRef.current;
-        const source = [...history].reverse().find((message) => message.role === "user");
-        const userText = typeof source?.content === "string" ? source.content : "";
-        if (
-          !shouldSuggest({
-            userText,
-            memories: memorySnapshot,
-            enabled: loadSuggestionEnabled(),
-            dismissed: suggestionsDismissed(),
-          })
-        ) {
-          return;
-        }
-        setSuggestions([]);
-        setCheckingMemory(true);
-        const found = await requestMemorySuggestions({
-          userText,
-          answer,
-          memories: memorySnapshot,
-          authorization: await authHeader(),
-        });
-        if (run !== memoryRunRef.current) return;
-        setCheckingMemory(false);
-        setSuggestions(found);
-      };
 
       try {
         const res = await fetch("/api/chat", {
@@ -848,16 +753,10 @@ export default function HomePage() {
           headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({
             messages: apiMessages,
-            // Sent with every request because memory applies to every answer.
-            // The server re-validates this rather than trusting the page.
-            memories: memorySnapshot,
-            mode: activeMode,
-            searchMode: activeSearch,
+            mode: selectedMode,
+            searchMode,
             responseLength,
             reasoningEffort,
-            // Lets the Google tools interpret "tomorrow at 3" in the user's
-            // own time zone. Read from the browser, validated server-side.
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
           }),
           signal: controller.signal,
         });
@@ -881,7 +780,7 @@ export default function HomePage() {
             const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await patchMessage(assistantMsg.id, { model: evt.model });
-              if (evt.model !== getMode(activeMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
+              if (evt.model !== getMode(selectedMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
             }
             if (evt.error) {
               // The server refuses inside the stream as well as before it, so
@@ -904,7 +803,7 @@ export default function HomePage() {
             if (evt.usage) await writeUsage(assistantMsg.id, evt.usage);
             if (evt.search) {
               await patchMessage(assistantMsg.id, { searchQuery: evt.search.query, sources: evt.search.sources ?? [] });
-              if (!evt.search.used && activeSearch !== "off") setModelNotice("Openmi checked the web but could not find a usable source.");
+              if (!evt.search.used && searchMode !== "off") setModelNotice("Openmi checked the web but could not find a usable source.");
             }
           } catch (err) {
             if (err instanceof Error && err.message !== "Stream interrupted") throw err;
@@ -920,11 +819,6 @@ export default function HomePage() {
         }
         if (buffer.trim()) await flushLine(buffer);
         if (!full.trim() && !sawError) await markError(assistantMsg.id, "Openmi returned an empty response. Try again.");
-
-        // Whether anything here is worth remembering is decided after the
-        // answer, on the user's machine, by a request they never wait for. It
-        // only ever produces an offer — nothing is stored until a tap.
-        if (full.trim() && !sawError) void considerMemory(apiMessages, full);
 
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === "AbortError";
@@ -951,19 +845,18 @@ export default function HomePage() {
         void refreshDew();
       }
     },
-    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, memorySnapshot, noteRateLimit, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
+    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
   );
 
-  // ── Image generation ───────────────────────────────────────────────────────
-  // The prompt becomes a normal user message so the image lives in the same
-  // thread as everything else, and the result is stored locally like any
-  // attachment. The Cloudflare key is only ever read by /api/image.
-  const drawImage = useCallback(
-    async (prompt: string) => {
-      if (drawingId) return;
-      const clean = prompt.trim();
-      if (!clean) return;
-
+  // ── The repository agent ───────────────────────────────────────────────────
+  //
+  // One turn is one paid request: the first step charges the flat Code price and
+  // returns a signed token that lets the rest of the turn continue without a
+  // second charge. The client drives the loop so Stop cancels the request in
+  // flight, and each read is written into the message as it happens.
+  const sendAgentMessage = useCallback(
+    async (text: string, options?: { regenerateAssistantId?: string }) => {
+      if (!project || streamingId) return;
       let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
       if (!chatId) {
         const chat = await createChat();
@@ -971,90 +864,120 @@ export default function HomePage() {
         setActiveChatId(chatId);
       }
       if (!chatId) return;
-      await appendMessage({ chatId, role: "user", content: clean });
-      if (!temporary) {
-        await maybeAutoTitle(chatId, clean);
-        setActiveChatId(chatId);
-      }
 
-      const assistantMsg = await appendMessage({ chatId, role: "assistant", content: "", model: IMAGE_ENGINE });
-      setDrawingId(assistantMsg.id);
+      // Regenerating re-runs the existing answer row instead of appending a new
+      // question: the old text is retired into its variants first, so the answer
+      // being judged is still readable behind the switch control.
+      let assistantId: string;
+      if (options?.regenerateAssistantId) {
+        const previous = await readMessage(options.regenerateAssistantId);
+        if (!previous) return;
+        assistantId = previous.id;
+        await branchAnswer(previous);
+        await patchMessage(assistantId, { content: "", steps: undefined, error: undefined });
+      } else {
+        await appendMessage({ chatId, role: "user", content: text });
+        if (!temporary) await maybeAutoTitle(chatId, text);
+        const assistant = await appendMessage({
+          chatId,
+          role: "assistant",
+          content: "",
+          model: getMode("code").display,
+        });
+        assistantId = assistant.id;
+      }
+      setStreamingId(assistantId);
       setModelNotice(null);
+
+      const history = (await threadHistory(chatId))
+        .filter((entry) => entry.role !== "system" && entry.content.trim().length > 0)
+        .map((entry) => ({ role: entry.role as "user" | "assistant", content: entry.content }));
+
       const controller = new AbortController();
       abortRef.current = controller;
+      let transcript: unknown[] = [];
+      let turnToken: string | undefined;
+      let content = "";
+      const steps: AgentStep[] = [];
+
       try {
-        const image = await generateImage({ prompt: clean, signal: controller.signal });
-        await patchMessage(assistantMsg.id, {
-          content: "",
-          generatedImages: [image],
-          model: IMAGE_ENGINE,
-        });
-        if (!imageAvailable) setImageAvailable(true);
-      } catch (err) {
-        const aborted = err instanceof DOMException && err.name === "AbortError";
+        for (let step = 0; step < 10; step += 1) {
+          const response = await fetch("/api/agent/step", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...(await authHeader()) },
+            body: JSON.stringify({ projectId: project.id, history, transcript, turnToken }),
+            signal: controller.signal,
+          });
+          const payload = (await response.json().catch(() => null)) as
+            | {
+                content?: string;
+                steps?: AgentStep[];
+                transcript?: unknown[];
+                turnToken?: string;
+                done?: boolean;
+                model?: string;
+                usage?: { prompt: number; completion: number };
+                error?: string;
+              }
+            | null;
+
+          if (!response.ok) {
+            const message = payload?.error ?? `The agent request failed (HTTP ${response.status}).`;
+            noteRateLimit(message);
+            await markError(assistantId, message);
+            return;
+          }
+          if (!payload) {
+            await markError(assistantId, "The agent returned an unreadable response.");
+            return;
+          }
+
+          transcript = payload.transcript ?? transcript;
+          turnToken = payload.turnToken ?? turnToken;
+          if (payload.steps?.length) steps.push(...payload.steps);
+          if (payload.content) content = content ? `${content}\n\n${payload.content}` : payload.content;
+          await patchMessage(assistantId, {
+            content,
+            steps: [...steps],
+            ...(payload.model ? { model: payload.model } : {}),
+          });
+          if (payload.usage) {
+            await writeUsage(assistantId, {
+              prompt: payload.usage.prompt,
+              completion: payload.usage.completion,
+              total: payload.usage.prompt + payload.usage.completion,
+            });
+          }
+          if (payload.done) break;
+        }
+
+        if (!content.trim() && steps.length === 0 && !controller.signal.aborted) {
+          await markError(assistantId, "The agent did not return an answer. Try asking again.");
+        }
+      } catch (error) {
+        const aborted = error instanceof DOMException && error.name === "AbortError";
         if (!aborted) {
-          const message = err instanceof Error ? err.message : "Image generation failed";
-          noteRateLimit(message);
-          await markError(assistantMsg.id, message);
+          await markError(assistantId, error instanceof Error ? error.message : "The agent request failed.");
+        }
+        if (aborted) {
+          const row = await readMessage(assistantId);
+          if (row && !row.content) {
+            if (temporary) {
+              tempThreadRef.current.drop(assistantId);
+              publishTemp();
+            } else {
+              await db.messages.delete(assistantId);
+            }
+          }
         }
       } finally {
-        setDrawingId(null);
+        setStreamingId(null);
         abortRef.current = null;
-        // Images are billed on completion; see the chat stream above.
         void refreshDew();
       }
     },
-    [activeChatId, appendMessage, drawingId, imageAvailable, markError, noteRateLimit, patchMessage, temporary]
+    [activeChatId, appendMessage, branchAnswer, markError, noteRateLimit, patchMessage, project, publishTemp, readMessage, streamingId, temporary, threadHistory, writeUsage]
   );
-
-  // ── The queue firing ──────────────────────────────────────────────────────
-  // This tab is the sender: the effect wakes at the earliest appointment and
-  // fires the oldest due message, one answer at a time. The row is consumed by
-  // sendMessage itself once the send is under way, so a schedule that could not
-  // fire is retried on the next tick instead of being lost.
-  const scheduleFiringRef = useRef(false);
-  const firedScheduleRef = useRef<Set<string>>(new Set());
-  const [scheduleTick, setScheduleTick] = useState(0);
-
-  useEffect(() => {
-    if (scheduled.length === 0) return;
-    const nowMs = Date.now();
-    const due = scheduled
-      .filter((item) => isDue(item, nowMs) && !firedScheduleRef.current.has(item.id))
-      .sort(dueFirst);
-    if (due.length === 0) {
-      // Sleep until the earliest appointment, capped so a clock that moved
-      // backwards still gets re-checked within the minute.
-      const wait = Math.max(500, Math.min(scheduled[0].sendAt - nowMs + 100, 60_000));
-      const timer = setTimeout(() => setScheduleTick((n) => n + 1), wait);
-      return () => clearTimeout(timer);
-    }
-    // One answer at a time: the queue waits for whatever is on screen, and for
-    // a temporary thread to end first — a scheduled message is always written
-    // down, which a temporary chat never is.
-    if (streamingId || drawingId || scheduleFiringRef.current) return;
-    if (temporary) {
-      endTemporary();
-      return;
-    }
-    const item = due[0];
-    firedScheduleRef.current.add(item.id);
-    if (firedScheduleRef.current.size > 50) {
-      firedScheduleRef.current = new Set([...firedScheduleRef.current].slice(-50));
-    }
-    scheduleFiringRef.current = true;
-    void sendMessage(item.content, item.images ?? [], item.documents ?? [], {
-      chatId: item.chatId ?? undefined,
-      mode: item.mode,
-      searchMode: item.searchMode,
-      scheduledId: item.id,
-    })
-      .catch(() => undefined)
-      .finally(() => {
-        scheduleFiringRef.current = false;
-        setScheduleTick((n) => n + 1);
-      });
-  }, [scheduled, scheduleTick, streamingId, drawingId, temporary, endTemporary, sendMessage]);
 
   const handleSend = useCallback(
     (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
@@ -1063,18 +986,31 @@ export default function HomePage() {
       // arrives as a custom event because the prompt decides for itself
       // whether to ask — this page only reports what happened.
       window.dispatchEvent(new Event("openmi:engage"));
-      if (imageMode) {
-        void drawImage(text);
+      // With a repository attached, a plain question goes to the agent. Anything
+      // carrying attachments stays in ordinary chat: the agent has no way to
+      // read an image, and silently dropping one would be worse than saying so.
+      if (project && images.length === 0 && (!documents || documents.length === 0)) {
+        void sendAgentMessage(text);
         return;
       }
       void sendMessage(text, images, documents);
     },
-    [drawImage, imageMode, sendMessage]
+    [project, sendAgentMessage, sendMessage]
   );
 
-  const handleRegenerate = useCallback((assistantId: string) => {
-    void sendMessage("", [], [], { regenerateAssistantId: assistantId });
-  }, [sendMessage]);
+  // With a repository attached, an answer was produced by the agent and has to
+  // be regenerated by it. Sending it back through plain chat would answer the
+  // same question with no repository access and no way to tell the difference.
+  const handleRegenerate = useCallback(
+    (assistantId: string) => {
+      if (project) {
+        void sendAgentMessage("", { regenerateAssistantId: assistantId });
+        return;
+      }
+      void sendMessage("", [], [], { regenerateAssistantId: assistantId });
+    },
+    [project, sendAgentMessage, sendMessage]
+  );
 
   const handleEditMessage = useCallback((messageId: string, content: string) => {
     void sendMessage(content, [], [], { editMessageId: messageId });
@@ -1114,7 +1050,7 @@ export default function HomePage() {
   // panel renders correctly but is filtered out of the thread before it is ever
   // reached, which is exactly the kind of bug that survives a code review.
   const visibleMessages = threadMessages.filter(
-    (m) => m.content || m.images || m.generatedImages || m.error || m.id === drawingId
+    (m) => m.content || m.images || m.error || (m.steps && m.steps.length > 0)
   );
 
   // Nothing is rendered until localStorage has been read, so a returning
@@ -1180,6 +1116,10 @@ export default function HomePage() {
           setSidebarOpen(false);
         }}
         displayName={displayName}
+        onOpenRepo={() => {
+          setRepoOpen(true);
+          setSidebarOpen(false);
+        }}
       />
 
       <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden animate-view-in">
@@ -1261,34 +1201,38 @@ export default function HomePage() {
             <ChatThread
               messages={visibleMessages}
               streamingId={streamingId}
-              drawingId={drawingId}
               isEmpty={visibleMessages.length === 0}
               onRegenerate={handleRegenerate}
               onEditMessage={handleEditMessage}
               onCopyConversation={handleCopyConversation}
               onSwitchVariant={handleSwitchVariant}
             />
-            <MemorySuggestions
-              suggestions={suggestions}
-              checking={checkingMemory}
-              syncAvailable={firebaseConfigured}
-              onStopSuggesting={() => {
-                dismissSuggestions();
-                setSuggestions([]);
-              }}
-              onHide={() => setSuggestions([])}
-            />
+            {project && (
+              <div className="mx-auto mb-1 flex w-full max-w-4xl items-center gap-2 px-4 md:px-7">
+                <button
+                  type="button"
+                  onClick={() => setRepoOpen(true)}
+                  className="flex min-w-0 items-center gap-2 rounded-full border border-[#a9d8bb]/15 bg-[#a9d8bb]/[0.05] px-3 py-1 text-[10.5px] text-white/60 transition-colors hover:border-[#a9d8bb]/30 hover:text-white/85"
+                  title="Open the repository workspace"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#7fd1a1]" />
+                  <span className="min-w-0 truncate font-mono">{project.repoFullName}</span>
+                  <span className="shrink-0 text-white/25">@{project.baseSha.slice(0, 7)}</span>
+                </button>
+                <span className="shrink-0 text-[10px] text-white/25">read-only</span>
+                <button
+                  type="button"
+                  onClick={() => setProject(null)}
+                  className="ml-auto shrink-0 rounded-full px-2 py-1 text-[10px] text-white/30 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+                >
+                  Leave repo
+                </button>
+              </div>
+            )}
             <ChatInput
               onSend={handleSend}
-              disabled={isStreaming || drawingId !== null}
+              disabled={isStreaming}
               onStop={stopStreaming}
-              imageMode={imageMode}
-              onImageModeChange={setImageMode}
-              imageAvailable={imageAvailable}
-              syncAvailable={firebaseConfigured}
-              onSchedule={handleSchedule}
-              scheduled={scheduled}
-              onCancelScheduled={handleCancelScheduled}
               rateLimitUntil={rateLimitUntil}
             />
           </div>
@@ -1304,6 +1248,12 @@ export default function HomePage() {
         />
       )}
 
+      <RepoPanel
+        open={repoOpen}
+        onClose={() => setRepoOpen(false)}
+        project={project}
+        onSelectProject={setProject}
+      />
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -1325,10 +1275,6 @@ export default function HomePage() {
 
       {/* Install prompt — mobile only, and only once Openmi has been used. */}
       <InstallPrompt />
-
-      {/* Developer notes — shows a newly published note once per reader, then
-          never again until the next one is published. */}
-      <NotesPrompt />
     </div>
   );
 }
