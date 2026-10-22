@@ -32,8 +32,12 @@ export interface TurnState {
   completion: number;
   /** Written by the server once the flat charge has landed. */
   charged: true;
-  /** The tools this turn may call. Phase 1 is read-only by construction. */
-  tools: "read-only";
+  /**
+   * What this turn is allowed to do. "propose" adds the staging tool; no value
+   * of this field ever permits a GitHub write. "read-only" is still accepted so
+   * a turn issued before Phase 2 can finish instead of being re-charged.
+   */
+  tools: "read-only" | "propose";
   issuedAt: number;
   exp: number;
 }
@@ -62,7 +66,7 @@ export function createTurn(input: {
     prompt: Math.max(0, input.usage.prompt),
     completion: Math.max(0, input.usage.completion),
     charged: true,
-    tools: "read-only",
+    tools: "propose",
     issuedAt: now,
     exp: now + TURN_TTL_MS,
   };
@@ -88,7 +92,7 @@ export function readTurn(
   if (typeof state.exp !== "number" || state.exp <= now) return null;
   if (state.uid !== expected.uid) return null;
   if (state.projectId !== expected.projectId) return null;
-  if (state.tools !== "read-only") return null;
+  if (state.tools !== "read-only" && state.tools !== "propose") return null;
   if (!Number.isFinite(state.steps) || state.steps < 0 || state.steps > MAX_STEPS) return null;
   return state;
 }

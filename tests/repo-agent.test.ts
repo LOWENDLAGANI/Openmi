@@ -22,7 +22,18 @@ import {
   type TreeFile,
 } from "../lib/github/tree";
 import { formatHits, pickSearchCandidates, searchFiles } from "../lib/github/search";
+import { clearRepoCache } from "../lib/github/cache";
+import { runAgentStep } from "../lib/agent/run";
 import { AGENT_TOOL_SCHEMAS, READ_ONLY_TOOLS, runTool, type ToolContext } from "../lib/agent/tools";
+import {
+  MAX_EDIT_BYTES,
+  MAX_EDITS_PER_CALL,
+  applyEdit,
+  diffLines,
+  stageEdits,
+  unifiedDiff,
+  type EditContext,
+} from "../lib/agent/edits";
 import {
   MAX_STEPS,
   MAX_TURN_TOKENS,
@@ -48,6 +59,15 @@ function test(name: string, fn: () => void): void {
     console.log(`  FAIL ${name}`);
     console.log(`       ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
   }
+}
+
+// Tests that read a base file are asynchronous, and this file is compiled as
+// CommonJS by tsx, so they cannot use top-level await. They are collected here
+// and run by the runner at the end, in the order they were declared.
+const deferred: Array<[string, () => Promise<void>]> = [];
+
+function later(name: string, fn: () => Promise<void>): void {
+  deferred.push([name, fn]);
 }
 
 async function atest(name: string, fn: () => Promise<void>): Promise<void> {
@@ -273,13 +293,13 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
-test("the model has exactly three tools and none of them writes", () => {
+test("the agent can read and propose, and no tool can write", () => {
   assert.deepEqual([...READ_ONLY_TOOLS], ["list_files", "read_file", "search_code"]);
   assert.deepEqual(
     AGENT_TOOL_SCHEMAS.map((schema) => schema.function.name),
-    ["list_files", "read_file", "search_code"]
+    ["list_files", "read_file", "search_code", "propose_edits"]
   );
-  for (const forbidden of ["write_file", "propose_edits", "commit", "delete_file", "run_command"]) {
+  for (const forbidden of ["write_file", "commit", "delete_file", "run_command", "merge_pull_request", "create_pull_request"]) {
     assert.equal(
       AGENT_TOOL_SCHEMAS.some((schema) => schema.function.name === (forbidden as never)),
       false,
@@ -382,6 +402,326 @@ test("broken argument JSON is treated as no arguments, not a crash", async () =>
   assert.match(result.content, /needs a query/i);
 });
 
+// ── proposals and diffs ─────────────────────────────────────────────────────
+console.log("\nedits");
+
+const DEW_FILE = 'export const DEW = 0.5;\nexport const MODES = ["auto", "code"];\n';
+
+function editContext(
+  texts: Record<string, string> = { "src/lib/dew.ts": DEW_FILE },
+  overrides: Partial<EditContext> = {}
+): EditContext {
+  return {
+    exists: (path) => path in texts,
+    readBase: async (path) => (path in texts ? { text: texts[path]!, truncated: false } : null),
+    ...overrides,
+  };
+}
+
+test("a diff names the file and counts what changed", () => {
+  const before = "one\ntwo\nthree\n";
+  const after = "one\nTWO\nthree\n";
+  const { diff, added, removed } = diffLines(before, after);
+  assert.equal(added, 1);
+  assert.equal(removed, 1);
+  assert.match(diff, /^@@ -1,3 \+1,3 @@$/m);
+  assert.match(diff, /^-two$/m);
+  assert.match(diff, /^\+TWO$/m);
+  assert.match(diff, /^ one$/m);
+  assert.equal(unifiedDiff("src/a.ts", before, after), `--- a/src/a.ts\n+++ b/src/a.ts\n${diff}`);
+});
+
+test("an unchanged file has no diff at all", () => {
+  assert.deepEqual(diffLines(DEW_FILE, DEW_FILE), { diff: "", added: 0, removed: 0 });
+  assert.equal(unifiedDiff("src/a.ts", DEW_FILE, DEW_FILE), "");
+});
+
+test("a small edit is shown with three lines of context, not the whole file", () => {
+  const before = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n") + "\n";
+  const after = before.replace("line 5", "line five");
+  const { diff } = diffLines(before, after);
+  assert.match(diff, /^@@ -2,7 \+2,7 @@$/m);
+  assert.match(diff, /^ line 2$/m);
+  assert.doesNotMatch(diff, /^ line 1$/m);
+});
+
+test("a file without a trailing newline is marked, as diff tooling expects", () => {
+  const { diff } = diffLines("a\nb", "a\nc");
+  assert.equal(diff.split("\\ No newline at end of file").length - 1, 2);
+});
+
+test("a new file is diffed against /dev/null", () => {
+  const diff = unifiedDiff("src/new.ts", "", "hello\n", "created");
+  assert.match(diff, /^--- \/dev\/null$/m);
+  assert.match(diff, /^\+\+\+ b\/src\/new\.ts$/m);
+  assert.match(diff, /^@@ -0,0 \+1 @@$/m);
+});
+
+test("a whole-file replacement applies and an identical one does not", () => {
+  const replaced = applyEdit(DEW_FILE, { path: "src/lib/dew.ts", content: "export const DEW = 0.25;\n" });
+  assert.equal(replaced.ok, true);
+  assert.equal(replaced.ok ? replaced.text : "", "export const DEW = 0.25;\n");
+
+  const identical = applyEdit(DEW_FILE, { path: "src/lib/dew.ts", content: DEW_FILE });
+  assert.equal(identical.ok, false);
+  assert.match(identical.ok ? "" : identical.reason, /nothing to change/i);
+});
+
+test("a unique old_string is replaced; an ambiguous one is refused", () => {
+  const replaced = applyEdit(DEW_FILE, { old_string: "0.5", new_string: "0.25" });
+  assert.equal(replaced.ok, true);
+  assert.match(replaced.ok ? replaced.text : "", /DEW = 0\.25/);
+
+  const ambiguous = applyEdit("a\na\n", { old_string: "a", new_string: "b" });
+  assert.equal(ambiguous.ok, false);
+  assert.match(ambiguous.ok ? "" : ambiguous.reason, /appears 2 times/);
+});
+
+test("a missing old_string is refused rather than appended", () => {
+  const result = applyEdit(DEW_FILE, { old_string: "not in the file", new_string: "x" });
+  assert.equal(result.ok, false);
+  assert.match(result.ok ? "" : result.reason, /does not appear/);
+});
+
+test("an edit is one shape or the other, never both", () => {
+  const mixed = applyEdit(DEW_FILE, { content: "x\n", old_string: "0.5", new_string: "x" });
+  assert.equal(mixed.ok, false);
+  assert.match(mixed.ok ? "" : mixed.reason, /not both/);
+
+  const empty = applyEdit(DEW_FILE, { old_string: "", new_string: "x" });
+  assert.equal(empty.ok, false);
+});
+
+test("a new file needs content and a file past the cap is refused", () => {
+  assert.equal(applyEdit(null, { path: "src/new.ts", content: "" }).ok, false);
+  const big = applyEdit(null, { path: "src/big.ts", content: "x".repeat(MAX_EDIT_BYTES + 1) });
+  assert.equal(big.ok, false);
+  assert.match(big.ok ? "" : big.reason, /at most/);
+});
+
+later("a whole-file change is staged with a server-computed diff", async () => {
+  const staged = await stageEdits(
+    [{ path: "src/lib/dew.ts", content: DEW_FILE.replace("0.5", "0.25") }],
+    editContext()
+  );
+  assert.equal(staged.rejected.length, 0);
+  const change = staged.changes[0]!;
+  assert.equal(change.kind, "modified");
+  assert.equal(change.added, 1);
+  assert.equal(change.removed, 1);
+  assert.match(change.diff, /^--- a\/src\/lib\/dew\.ts$/m);
+  assert.match(change.after, /DEW = 0\.25/);
+});
+
+later("a path that does not exist is proposed as a new file", async () => {
+  const staged = await stageEdits(
+    [{ path: "src/lib/price.ts", content: "export const PRICE = 1;\n" }],
+    editContext()
+  );
+  assert.equal(staged.changes[0]?.kind, "created");
+  assert.match(staged.changes[0]!.diff, /^--- \/dev\/null$/m);
+});
+
+later("ignored and escaping paths are refused before anything is read", async () => {
+  const staged = await stageEdits(
+    [
+      { path: "package-lock.json", content: "{}" },
+      { path: "../etc/passwd", content: "x" },
+      { path: "/etc/passwd", content: "x" },
+    ],
+    editContext()
+  );
+  assert.equal(staged.changes.length, 0);
+  assert.equal(staged.rejected.length, 3);
+});
+
+later("two edits to one file become one change against the base commit", async () => {
+  const staged = await stageEdits(
+    [
+      { path: "src/lib/dew.ts", old_string: "0.5", new_string: "0.25" },
+      { path: "src/lib/dew.ts", old_string: '"code"', new_string: '"code", "fast"' },
+    ],
+    editContext()
+  );
+  assert.equal(staged.changes.length, 1);
+  const change = staged.changes[0]!;
+  assert.equal(change.added, 2);
+  assert.equal(change.removed, 2);
+  assert.match(change.after, /0\.25/);
+  assert.match(change.after, /"fast"/);
+});
+
+later("a diff supplied by the model is ignored in favour of the computed one", async () => {
+  const staged = await stageEdits(
+    [
+      {
+        path: "src/lib/dew.ts",
+        old_string: "0.5",
+        new_string: "0.25",
+        diff: "--- a/fake\n+++ b/fake\n",
+      },
+    ],
+    editContext()
+  );
+  const change = staged.changes[0]!;
+  assert.doesNotMatch(change.diff, /fake/);
+  assert.match(change.diff, /\+export const DEW = 0\.25;/);
+});
+
+later("a file past the read cap is not diffed, because the diff would lie", async () => {
+  const staged = await stageEdits(
+    [{ path: "src/lib/dew.ts", content: "x\n" }],
+    editContext({ "src/lib/dew.ts": DEW_FILE }, { readBase: async () => ({ text: DEW_FILE, truncated: true }) })
+  );
+  assert.equal(staged.changes.length, 0);
+  assert.match(staged.rejected[0]!.reason, /read cap/);
+});
+
+later("an edit that changes nothing stages nothing", async () => {
+  const staged = await stageEdits([{ path: "src/lib/dew.ts", content: DEW_FILE }], editContext());
+  assert.equal(staged.changes.length, 0);
+  assert.match(staged.rejected[0]!.reason, /nothing to change/i);
+});
+
+later("one call proposes at most the cap and says what was left out", async () => {
+  const edits = Array.from({ length: MAX_EDITS_PER_CALL + 2 }, (_, index) => ({
+    path: `src/new-${index}.ts`,
+    content: `export const N${index} = ${index};\n`,
+  }));
+  const staged = await stageEdits(edits, editContext({}));
+  assert.equal(staged.changes.length, MAX_EDITS_PER_CALL);
+  assert.ok(staged.rejected.some((entry) => /Only the first/.test(entry.reason)));
+});
+
+later("propose_edits stages through the tool and reports the derived diff", async () => {
+  const result = await runTool(
+    {
+      id: "1",
+      name: "propose_edits",
+      argumentJson: JSON.stringify({
+        edits: [{ path: "src/lib/dew.ts", old_string: "0.5", new_string: "0.25" }],
+      }),
+    },
+    context({ propose: (raw) => stageEdits(raw, editContext()) })
+  );
+  assert.equal(result.ok, true);
+  assert.match(result.summary, /Proposed 1 file · \+1 −1/);
+  assert.match(result.content, /\+export const DEW = 0\.25;/);
+  assert.match(result.content, /Nothing has been committed/);
+});
+
+later("propose_edits explains an edit it could not apply", async () => {
+  const result = await runTool(
+    {
+      id: "1",
+      name: "propose_edits",
+      argumentJson: JSON.stringify({
+        edits: [{ path: "src/lib/dew.ts", old_string: "not there", new_string: "x" }],
+      }),
+    },
+    context({ propose: (raw) => stageEdits(raw, editContext()) })
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.content, /does not appear/);
+});
+
+later("propose_edits refuses rather than pretending when staging is not wired", async () => {
+  const result = await runTool({ id: "1", name: "propose_edits", argumentJson: '{"edits":[]}' }, context());
+  assert.equal(result.ok, false);
+  assert.match(result.content, /cannot stage/i);
+});
+
+later("a step runs the proposal the model asked for and returns it for review", async () => {
+  // End to end through runAgentStep with a stubbed model and GitHub: this is
+  // the wiring the unit tests above cannot see. Nothing in it can write.
+  const previousKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "test-key";
+  clearRepoCache();
+
+  const realFetch = globalThis.fetch;
+  const modelBodies: Array<{ tools?: Array<{ function?: { name?: string } }> }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/git/trees/")) {
+      return new Response(
+        JSON.stringify({
+          tree: [{ path: "src/lib/dew.ts", type: "blob", sha: "blob1", size: DEW_FILE.length }],
+          truncated: false,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    if (url.includes("/git/blobs/")) {
+      return new Response(
+        JSON.stringify({ content: Buffer.from(DEW_FILE, "utf8").toString("base64"), encoding: "base64" }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    modelBodies.push(JSON.parse(String(init?.body ?? "{}")) as (typeof modelBodies)[number]);
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: {
+                    name: "propose_edits",
+                    arguments: JSON.stringify({
+                      edits: [{ path: "src/lib/dew.ts", old_string: "0.5", new_string: "0.25" }],
+                    }),
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+        usage: { prompt_tokens: 120, completion_tokens: 30 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await runAgentStep({
+      authorization: null,
+      uid: "user-1",
+      project: {
+        id: "abc123abc123",
+        repoFullName: "owner/repo",
+        defaultBranch: "main",
+        baseSha: "f".repeat(40),
+      },
+      token: "gho_test",
+      history: [{ role: "user", content: "lower the dew price" }],
+    });
+
+    assert.equal(result.steps.length, 1);
+    assert.equal(result.steps[0]?.tool, "propose_edits");
+    assert.match(result.steps[0]!.label, /Proposed 1 file/);
+    assert.equal(result.proposals.length, 1);
+    assert.equal(result.proposals[0]?.path, "src/lib/dew.ts");
+    assert.equal(result.proposals[0]?.kind, "modified");
+    assert.match(result.proposals[0]!.diff, /^\+export const DEW = 0\.25;$/m);
+    assert.equal(result.done, false, "a tool call means the client steps again");
+    assert.equal(result.transcript.at(-1)?.role, "tool");
+    assert.equal(result.transcript.at(-1)?.name, "propose_edits");
+    assert.deepEqual(
+      modelBodies[0]?.tools?.map((tool) => tool.function?.name),
+      ["list_files", "read_file", "search_code", "propose_edits"]
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+    clearRepoCache();
+    if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = previousKey;
+  }
+});
+
 // ── turn state ──────────────────────────────────────────────────────────────
 console.log("\nturn state");
 
@@ -396,7 +736,7 @@ test("a new turn is charged once and starts at one step", () => {
   const { state } = createTurn({ ...project, usage: { prompt: 1000, completion: 200 } });
   assert.equal(state.steps, 1);
   assert.equal(state.charged, true);
-  assert.equal(state.tools, "read-only");
+  assert.equal(state.tools, "propose");
   assert.equal(state.prompt, 1000);
   assert.equal(state.completion, 200);
 });
@@ -465,6 +805,18 @@ test("a re-signed state still verifies", () => {
   assert.equal(reread?.prompt, 6);
 });
 
+test("a turn issued before proposals existed still verifies", () => {
+  const { state } = createTurn({ ...project, usage: { prompt: 1, completion: 1 } });
+  const legacy = { ...state, tools: "read-only" as const };
+  assert.ok(readTurn(signTurn(legacy), { uid: project.uid, projectId: project.projectId }));
+});
+
+test("a turn token claiming a write capability is refused", () => {
+  const { state } = createTurn({ ...project, usage: { prompt: 1, completion: 1 } });
+  const forged = { ...state, tools: "write" as never };
+  assert.equal(readTurn(signTurn(forged), { uid: project.uid, projectId: project.projectId }), null);
+});
+
 // ── same-origin guard ───────────────────────────────────────────────────────
 console.log("\nsame origin");
 
@@ -528,6 +880,18 @@ test("no route hands a GitHub token back to the browser", () => {
   }
 });
 
+test("the proposal module cannot reach GitHub", () => {
+  const edits = read("lib/agent/edits.ts");
+  assert.doesNotMatch(edits, /fetch\(|api\.github\.com|Authorization|githubFetch/, "staging must not talk to GitHub");
+  assert.doesNotMatch(read("lib/agent/tools.ts"), /from "@\/lib\/github\/client"/, "a tool must not hold the client");
+});
+
+test("the step route returns proposals and contains no GitHub write", () => {
+  const source = read("app/api/agent/step/route.ts");
+  assert.match(source, /proposals: result\.proposals/);
+  assert.doesNotMatch(source, /git\/blobs|git\/trees|git\/commits|git\/refs|\/pulls/);
+});
+
 test("the connection and the project are owner-scoped in the rules", () => {
   const rules = JSON.parse(read("database.rules.json")) as {
     rules: Record<string, unknown>;
@@ -549,5 +913,8 @@ test("the deployment is told which keys GitHub needs", () => {
   assert.match(env, /^AGENT_TURN_SECRET=/m);
 });
 
-console.log(`\n${passes} passed, ${failures} failed`);
-if (failures > 0) process.exit(1);
+(async () => {
+  for (const [name, fn] of deferred) await atest(name, fn);
+  console.log(`\n${passes} passed, ${failures} failed`);
+  if (failures > 0) process.exit(1);
+})();

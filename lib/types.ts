@@ -45,7 +45,8 @@ export interface DocumentAttachment {
  * and the whole file the tool returned belong in the transcript, not on screen.
  */
 export interface AgentStep {
-  tool: "list_files" | "read_file" | "search_code";
+  /** `propose_edits` is a proposal, not a write: the label says what was staged. */
+  tool: "list_files" | "read_file" | "search_code" | "propose_edits";
   label: string;
   ok: boolean;
 }

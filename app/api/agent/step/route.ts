@@ -29,7 +29,9 @@ import { resolveDew } from "@/lib/serverRedeem";
 // starts a new charge, and the charge is flat for the model, not per step.
 //
 // The price is `requestPrice("code")` because repository work runs on the Code
-// model. An administrator is exempt, as everywhere else.
+// model. An administrator is exempt, as everywhere else. A proposal is part of
+// the turn that produced it: staging does not cost extra and does not write to
+// GitHub, so the flat charge is unchanged.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -260,6 +262,10 @@ export async function POST(req: NextRequest): Promise<Response> {
         model: result.label,
         usage: { prompt: result.usage.prompt, completion: result.usage.completion },
         charged: result.chargedNow,
+        // Staged changes, with diffs the server computed. They are returned for
+        // review only: this route has no path to a GitHub write, and a change
+        // set is committed by the approval endpoint once it exists.
+        proposals: result.proposals,
       },
       { headers: { "Cache-Control": "no-store" } }
     );

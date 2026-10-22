@@ -3,11 +3,13 @@
 An agent that reads a GitHub repository and proposes changes. **It commits only
 when you say so**, on a branch of its own.
 
-> **Status: Phase 1 complete — read-only.** Connect GitHub from the sidebar,
-> pick a repository, then ask about the code: the agent calls `list_files`,
-> `read_file` and `search_code` and cites real paths and lines. It has no write
-> tool at all, so there is nothing to approve yet. Proposal, diff review and
-> commit are Phase 2 — see [docs/OVERHAUL_SPEC.md](docs/OVERHAUL_SPEC.md).
+> **Status: Phase 2 in progress.** Connect GitHub from the sidebar, pick a
+> repository, then ask about the code: the agent calls `list_files`,
+> `read_file` and `search_code` and cites real paths and lines. It can also call
+> `propose_edits`, which stages a change and returns a unified diff the server
+> computed from the base commit — nothing is written to GitHub. The review
+> screen, the approval record and the commit endpoint are still to come; see
+> [docs/OVERHAUL_SPEC.md](docs/OVERHAUL_SPEC.md).
 
 ## What works today
 
@@ -27,15 +29,23 @@ when you say so**, on a branch of its own.
 - **A repository workspace.** Repo picker over every repository the connection
   can read, a filtered file tree, and a read-only file viewer, all pinned to one
   commit (the project records `baseSha` when it is attached).
-- **The read-only agent.** Native function calling, up to eight steps and 60k
+- **The repository agent.** Native function calling, up to eight steps and 60k
   tokens per turn, one flat Code charge per turn. Each step's reads are shown in
   the message as they happen. Turn state is HMAC-signed, so a client cannot
   raise its own step budget or claim a turn was already paid.
+- **Proposals with derived diffs.** `propose_edits` stages a whole-file rewrite
+  or a unique `old_string`/`new_string` replacement, up to six files per call.
+  The diff is computed on the server from the file at the base commit — the
+  model never supplies one — and the tool has no token, no client and no fetch,
+  so a proposal cannot reach GitHub. A replacement that matches zero or several
+  places is refused rather than guessed at.
 
 ## What is not here yet
 
-- Diff review, approvals, commits. The model has no write tool; the only route
-  that touches GitHub's write API will live behind the approval record.
+- The review screen and the commit path. A proposal is staged in memory for the
+  step that produced it and returned to the browser; it is not persisted, there
+  is no approval record, and no route writes to GitHub. That is the rest of
+  Phase 2.
 - Any code execution, test run or preview. The agent cannot run what it writes,
   and the prompt tells it to say so rather than imply otherwise.
 
@@ -98,8 +108,9 @@ lib/                 dew.ts (pricing), providers.ts (server-only chains),
 lib/github/          client.ts (REST, read-only), tree.ts (filtering),
                      search.ts (lexical), cache.ts, crypto.ts (seal/sign),
                      store.ts (the sealed connection)
-lib/agent/           tools.ts (the three read tools), model.ts (one decision),
-                     turns.ts (signed turn budget), run.ts (one step)
+lib/agent/           tools.ts (the four tools), edits.ts (staging and unified
+                     diffs), model.ts (one decision), turns.ts (signed turn
+                     budget), run.ts (one step)
 docs/OVERHAUL_SPEC.md  the contract for the repo agent
 docs/legacy/         the previous Openmi product docs, kept for reference
 ```

@@ -1,7 +1,9 @@
 # Openmi Repo Agent — overhaul specification
 
-Status: **Phase 1 complete — read-only** (this document is the contract for
-Phases 1–3; §7.4 records where the implementation deliberately differs).
+Status: **Phase 2 in progress** — Phase 1 complete, and the `propose_edits`
+tool plus server-computed unified diffs have shipped (this document is the
+contract for Phases 1–3; §7.4 records where the implementation deliberately
+differs).
 Working name: **Openmi**. The name lives in `lib/brand.ts`; renaming is a one-line
 change plus a storage-key migration.
 
@@ -139,7 +141,7 @@ prompt-driven action blocks with OpenAI-compatible `tools` / `tool_calls`.
 | `list_files` | `path?`, `depth?` | Filtered tree slice, capped at 200 paths. |
 | `read_file` | `path` | Whole file up to 200 KB, then a truncation note. Binary is refused, not decoded. |
 | `search_code` | `query`, `path?` | Lexical scan over cached blobs; returns path + line + snippet. |
-| `propose_edits` | `edits[]` | The only write-ish tool. Validates and stages; never commits. |
+| `propose_edits` | `edits[]` | The only write-ish tool. Validates and stages; never commits. **Shipped in Phase 2**: `lib/agent/edits.ts` applies the edit in memory and derives the diff; the tool has no token and no client. |
 
 `propose_edits` accepts two shapes:
 
@@ -337,6 +339,14 @@ Acceptance:
 ### Phase 2 — propose, review, commit (shippable MVP)
 Deliverables: `propose_edits`, diff computation, review UI, approval record,
 commit + PR, commit history, audit rows.
+
+Shipped so far: `propose_edits` (`lib/agent/edits.ts`), server-computed unified
+diffs, per-step staging returned by `/api/agent/step`, and tests covering the
+refusals (ambiguous match, ignored path, size caps, a model-supplied diff being
+ignored). Still open: persisting a change set, the review UI, the approval
+record, and the commit endpoint. Staging is in memory for one step, so the
+review screen must be built on a persisted change set rather than on the step
+response alone.
 
 Acceptance:
 - The agent proposes a change; the user sees a correct unified diff.
