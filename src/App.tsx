@@ -28,10 +28,10 @@ export default function App() {
     let cancelled = false;
     const timeout = setTimeout(() => {
       if (!cancelled) {
-        setInitError('Startup timed out — the API may be unreachable. Check the Vercel deployment URL and env vars.');
+        setInitError('Startup timed out — the API may be unreachable or still cold-starting. Refresh in a moment, or check the Vercel deployment URL and env vars.');
         setReady(true);
       }
-    }, 12000);
+    }, 25000);
     initFirebase()
       .then(() => {
         if (cancelled) return;

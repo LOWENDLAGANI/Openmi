@@ -8,7 +8,7 @@ let config: PublicConfig | undefined;
 export async function getConfig(): Promise<PublicConfig> {
   if (config) return config;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), 20000);
   let res: Response;
   try {
     res = await fetch('/api/config', { signal: controller.signal });
