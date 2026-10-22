@@ -16,7 +16,7 @@ import {
 } from "@/lib/dew";
 
 function DewPanel() {
-  const { ready, balance, low, refresh } = useDew();
+  const { ready, balance, refresh } = useDew();
   useEffect(() => {
     void (async () => {
       try {

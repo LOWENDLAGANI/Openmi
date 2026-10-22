@@ -1,15 +1,12 @@
 "use client";
 
 import { OPENMI_MODES, type ModeId } from "@/lib/models";
-import { useEffect, useRef, useState } from "react";
-
-interface ModeSelectorProps {
+import { useEffect, useRef, useState } from "react";interface ModeSelectorProps {
   selected: ModeId;
   onChange: (mode: ModeId) => void;
   available: ModeId[];
 }
-
-export default function ModeSelector({ selected, onChange, available }: ModeSelectorProps) {
+export default function ModeSelector({ selected, onChange }: ModeSelectorProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const activeMode = OPENMI_MODES.find((mode) => mode.id === selected) ?? OPENMI_MODES[0];
