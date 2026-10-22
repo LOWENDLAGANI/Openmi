@@ -135,6 +135,35 @@ test("a stored provider id from an old backup is not shown", () => {
 
 const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
 
+// The Opus and Fable personas are shown to the user under these names on
+// purpose — the tilde marks them as a product name, and lib/models.ts says so
+// where it defines them. They are not a leaked provider id, so the guard below
+// ignores them. Every other spelling of a vendor word still fails, and the
+// guard is deliberately narrow about which occurrences it forgives.
+const SANCTIONED_DISPLAY_NAMES = ["~Claude Opus 5.5", "~Claude Fable 5.1"];
+
+/**
+ * The source with the sanctioned display names removed.
+ *
+ * Each name appears twice in lib/models.ts: once as the label shown in the UI
+ * and once inside the MINO_NAME regex, where its dots are backslash-escaped.
+ * Both spellings are removed so the scan below sees the rest of the file.
+ */
+function withoutSanctionedNames(source: string): string {
+  return SANCTIONED_DISPLAY_NAMES.reduce((text, name) => {
+    const pattern = name
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/\\\./g, "(?:\\\\?\\.)");
+    return text.replace(new RegExp(pattern, "gi"), "");
+  }, source);
+}
+
+/** The vendor words this source would leak to the client. */
+function vendorLeaks(source: string): string[] {
+  const scanned = withoutSanctionedNames(source).toLowerCase();
+  return VENDOR_WORDS.filter((word) => scanned.includes(word));
+}
+
 test("no provider name reaches a client module", () => {
   // The reason the catalog, the system prompt, and the wire ids are split into
   // server-only modules. Any of these files is compiled into the page bundle, so
@@ -142,14 +171,36 @@ test("no provider name reaches a client module", () => {
   // source — and, for anything stored on a message, in the backup they download.
   const clientModules = ["lib/models.ts", "lib/db.ts", "lib/types.ts", "components/ModelHealth.tsx"];
   for (const file of clientModules) {
-    const source = readFileSync(join(process.cwd(), file), "utf8").toLowerCase();
-    for (const word of VENDOR_WORDS) {
-      assert.ok(
-        !source.includes(word),
-        `${file} mentions "${word}", which would reach the client`
-      );
-    }
+    const leaks = vendorLeaks(readFileSync(join(process.cwd(), file), "utf8"));
+    assert.deepEqual(
+      leaks,
+      [],
+      `${file} mentions ${leaks.map((w) => `"${w}"`).join(", ")}, which would reach the client`
+    );
   }
+});
+
+test("the sanctioned display names are still the ones lib/models.ts uses", () => {
+  // A renamed persona must not quietly turn the exemption above into a hole:
+  // the guard forgives these exact strings, so a new one has to be listed.
+  const source = readFileSync(join(process.cwd(), "lib/models.ts"), "utf8");
+  for (const name of SANCTIONED_DISPLAY_NAMES) {
+    assert.ok(
+      source.includes(name),
+      `lib/models.ts no longer uses "${name}"; update SANCTIONED_DISPLAY_NAMES to match`
+    );
+  }
+});
+
+test("the guard still catches a provider id that reaches a client module", () => {
+  // Proves the exemption is narrow. A wire model id pasted into a client
+  // module is still found, so widening the exemption until it stopped
+  // checking anything would not pass unnoticed.
+  const leaks = vendorLeaks('const wire = "claude-3-5-sonnet";');
+  assert.ok(
+    leaks.includes("claude"),
+    "the guard would no longer catch a planted provider id"
+  );
 });
 
 console.log(
