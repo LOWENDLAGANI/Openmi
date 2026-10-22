@@ -25,7 +25,7 @@ export type GithubLinkOutcome =
   | { status: "error"; message: string };
 
 const SETUP_MESSAGE =
-  "GitHub is not enabled for this deployment's Firebase project. In Firebase console → Authentication → Sign-in method, enable GitHub, then try again.";
+  "GitHub sign-in is not available on this deployment. Either set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET (a GitHub OAuth App — no Firebase console change) or enable GitHub under Firebase console → Authentication → Sign-in method, then try again.";
 
 function messageForCode(code: string): string {
   switch (code) {
@@ -43,7 +43,7 @@ function messageForCode(code: string): string {
     case "auth/requires-recent-login":
       return "For security, sign in again before connecting GitHub.";
     default:
-      return "GitHub could not be connected. Try again, or check the Firebase GitHub provider settings.";
+      return "GitHub could not be connected. Try again, or check the GitHub OAuth App and Firebase GitHub provider settings.";
   }
 }
 

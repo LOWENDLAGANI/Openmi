@@ -18,6 +18,7 @@
 import { deleteAsCaller, readAsCaller } from "../rtdb";
 import { writeAsCaller } from "../serverControl";
 import { seal, tokenKey, unseal } from "./crypto";
+import { looksLikeGithubToken } from "./oauth";
 
 export interface GithubLink {
   /** The access token. Server-only; never serialised into a response. */
@@ -44,9 +45,114 @@ export interface GithubLinkSummary {
 
 const pathFor = (uid: string) => `users/${uid}/github`;
 
+/**
+ * Where a connection made through GitHub's own OAuth App lives.
+ *
+ * The Firebase-hosted flow can write to the database under the caller's uid,
+ * because the browser still holds a Firebase token when it posts the result.
+ * The OAuth callback is a top-level navigation back from github.com and has no
+ * Firebase token at all, so it cannot write there. The token is sealed into an
+ * httpOnly cookie instead: still encrypted with the deployment key, still never
+ * read by the browser, and bound to one uid inside the sealed payload so a
+ * cookie from another account is ignored rather than used.
+ */
+export const GITHUB_CONNECTION_COOKIE = "openmi_github";
+
+/** Thirty days, matching how long a GitHub connection is worth keeping. */
+export const GITHUB_CONNECTION_MAX_AGE_S = 30 * 24 * 60 * 60;
+
 /** True when this deployment can store a connection at all. */
 export function githubStoreConfigured(): boolean {
   return tokenKey() !== null;
+}
+
+// ── The sealed connection cookie ─────────────────────────────────────────────
+
+interface StoredCookie {
+  v: 1;
+  uid: string;
+  token: string;
+  login: string;
+  scopes: string;
+  linkedAt: number;
+}
+
+/** Seals a connection for one uid. Null when the deployment has no key. */
+export function sealGithubConnection(
+  link: GithubLink,
+  uid: string
+): string | null {
+  const key = tokenKey();
+  if (!key || !uid) return null;
+  const payload: StoredCookie = {
+    v: 1,
+    uid,
+    token: link.token,
+    login: link.login.slice(0, 100),
+    scopes: link.scopes.slice(0, 200),
+    linkedAt: link.linkedAt || Date.now(),
+  };
+  return seal(JSON.stringify(payload), key);
+}
+
+/**
+ * Opens a connection cookie for the uid that is asking.
+ *
+ * Null covers every way this can be wrong — not a value this deployment sealed,
+ * a rotated key, a tampered payload — and one that matters more than the rest:
+ * a cookie sealed for a different uid. Reading that as "connected" would hand
+ * one account's GitHub access to another account's session.
+ */
+export function openGithubConnection(
+  value: string | null | undefined,
+  uid: string
+): GithubLink | null {
+  const key = tokenKey();
+  if (!key || !value || !uid) return null;
+  const opened = unseal(value, key);
+  if (!opened) return null;
+  let payload: StoredCookie;
+  try {
+    payload = JSON.parse(opened) as StoredCookie;
+  } catch {
+    return null;
+  }
+  if (!payload || payload.v !== 1) return null;
+  if (payload.uid !== uid) return null;
+  if (!looksLikeGithubToken(payload.token)) return null;
+  return {
+    token: payload.token,
+    login: typeof payload.login === "string" ? payload.login.slice(0, 100) : "",
+    scopes: typeof payload.scopes === "string" ? payload.scopes.slice(0, 200) : "",
+    linkedAt: typeof payload.linkedAt === "number" ? payload.linkedAt : 0,
+  };
+}
+
+/** The minimum a route needs to read its own connection cookie. */
+export interface RequestWithCookies {
+  cookies: { get(name: string): { value: string } | undefined };
+}
+
+/**
+ * The connection a request may use, from either store.
+ *
+ * The cookie is checked first because that is the flow the app now offers by
+ * default; a database value is the Firebase-hosted link, kept so an existing
+ * connection does not break when the deployment adds the OAuth App. Both are
+ * scoped to the verified uid, and a cookie for someone else falls through
+ * rather than being used.
+ */
+export async function resolveGithubLink(
+  req: RequestWithCookies,
+  authorization: string | null,
+  uid: string
+): Promise<GithubLink | null> {
+  const fromCookie = openGithubConnection(
+    req.cookies.get(GITHUB_CONNECTION_COOKIE)?.value,
+    uid
+  );
+  if (fromCookie) return fromCookie;
+  return readGithubLink(authorization, uid);
 }
 
 /**

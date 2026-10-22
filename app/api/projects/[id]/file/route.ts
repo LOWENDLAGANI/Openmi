@@ -3,7 +3,7 @@ import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
 import { GithubError } from "@/lib/github/client";
 import { loadBlob, loadTree } from "@/lib/github/cache";
 import { MAX_FILE_BYTES, filterTree, isSafeRelativePath } from "@/lib/github/tree";
-import { readGithubLink } from "@/lib/github/store";
+import { resolveGithubLink } from "@/lib/github/store";
 import { isProjectId, readProject } from "@/lib/projects";
 
 // ── One file ────────────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ export async function GET(
     return Response.json({ error: "That project is not attached to this account." }, { status: 404 });
   }
 
-  const link = await readGithubLink(authorization, identity.uid);
+  const link = await resolveGithubLink(req, authorization, identity.uid);
   if (!link) {
     return Response.json({ error: "Connect GitHub first.", detail: "not-connected" }, { status: 401 });
   }

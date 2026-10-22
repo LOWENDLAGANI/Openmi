@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
 import { GithubError, getBranchHead, getRepo } from "@/lib/github/client";
-import { readGithubLink } from "@/lib/github/store";
+import { resolveGithubLink } from "@/lib/github/store";
 import { readProject } from "@/lib/projects";
 import { commitChanges } from "@/lib/github/commit";
 import {
@@ -90,7 +90,7 @@ export async function POST(
     return Response.json({ error: "That repository is no longer attached to this account." }, { status: 404 });
   }
 
-  const link = await readGithubLink(authorization, identity.uid);
+  const link = await resolveGithubLink(req, authorization, identity.uid);
   if (!link) {
     return Response.json({ error: "Connect GitHub first.", detail: "not-connected" }, { status: 401 });
   }

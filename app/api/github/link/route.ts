@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { isSameOriginRequest, checkRateLimit, verifyCaller } from "@/lib/serverControl";
 import { getViewer } from "@/lib/github/client";
 import { saveGithubLink, githubStoreConfigured } from "@/lib/github/store";
+import { looksLikeGithubToken } from "@/lib/github/oauth";
 
 // ── Connecting GitHub ────────────────────────────────────────────────────────
 //
@@ -62,10 +63,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const accessToken = typeof body.accessToken === "string" ? body.accessToken.trim() : "";
-  // GitHub tokens are long, opaque, and start with a known prefix for the
-  // modern formats. A shape check keeps an obvious mistake from becoming a
-  // stored value and a failed request later.
-  if (!/^(gho_|ghu_|ghs_|ghp_|github_pat_)[A-Za-z0-9_]{20,}$/.test(accessToken)) {
+  // GitHub tokens are long and opaque. The shared check accepts both the
+  // prefixed formats and the classic 40-character form, because a Firebase
+  // GitHub credential in an older project may still be the latter.
+  if (!looksLikeGithubToken(accessToken)) {
     return Response.json({ error: "That does not look like a GitHub access token." }, { status: 400 });
   }
 

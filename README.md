@@ -90,18 +90,50 @@ The important ones:
 | `OPENMI_ADMIN_EMAIL` | The one address allowed into the console. |
 | `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews and the sitemap. |
 | `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens. Unset means GitHub cannot be connected. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | A GitHub OAuth App, so visitors can connect GitHub without a Firebase console change. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
 
 ### Connecting GitHub
 
+There are two doors, and the panel picks whichever this deployment has. The
+GitHub OAuth App is preferred because it needs nothing done in the Firebase
+console.
+
+**A. GitHub OAuth App (recommended)**
+
+1. GitHub → Settings → Developer settings → **OAuth Apps** → New OAuth App.
+   Set the homepage to your site, and the **Authorization callback URL** to
+   `https://<your-domain>/api/github/oauth/callback` for every origin you use
+   (add a second app, or edit the callback, for local development).
+2. Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_TOKEN_KEY`
+   (`openssl rand -hex 32`), `AGENT_TURN_SECRET`, and `NEXT_PUBLIC_SITE_URL` to
+   the exact public origin — the callback URL is derived from it and must match
+   the OAuth App character for character.
+3. In the app, open the repository panel from the sidebar, press **Connect
+   GitHub**, approve the app, and you are returned to the panel. The access
+   token is sealed and kept in an httpOnly cookie bound to your account; no
+   response contains it.
+
+**B. Firebase-hosted GitHub credential (existing deployments)**
+
 1. In the Firebase console → Authentication → Sign-in method, **enable GitHub**.
    Firebase hosts the OAuth app, so this repository needs no client id or secret.
-2. Set `GITHUB_TOKEN_KEY` (`openssl rand -hex 32`) and `AGENT_TURN_SECRET`.
-3. Deploy the updated `database.rules.json`: the connection lives at
-   `users/{uid}/github` and projects at `projects/{uid}/{id}`, both read and
-   written only by their owner.
-4. In the app, open the repository panel from the sidebar and connect. Then pick
-   a repository — the panel pins the branch head as the project's base commit.
+2. Set `GITHUB_TOKEN_KEY` and `AGENT_TURN_SECRET`.
+3. The connection is sealed and written to `users/{uid}/github` using your own
+   Firebase token.
+
+**Then, either way:**
+
+4. Deploy the updated `database.rules.json`: projects live at
+   `projects/{uid}/{id}`, readable and writable only by their owner. A
+   connection stored in the database is owner-only for the same reason.
+5. Pick a repository in the panel — it pins the branch head as the project's
+   base commit.
+
+If neither door is configured, the panel says which values are missing instead
+of leaving a button that cannot work; if the status check fails or times out, it
+shows the failure with a retry rather than staying on "Checking the
+connection…".
 
 ## Layout
 
@@ -112,9 +144,9 @@ components/          chat shell, sidebar, settings, admin console, RepoPanel
 lib/                 dew.ts (pricing), providers.ts (server-only chains),
                      models.ts (client-visible catalog), db.ts (Dexie),
                      serverControl.ts (identity, bans, rate limits)
-lib/github/          client.ts (REST, read-only), tree.ts (filtering),
-                     search.ts (lexical), cache.ts, crypto.ts (seal/sign),
-                     store.ts (the sealed connection)
+lib/github/          client.ts (REST, read-only), oauth.ts (GitHub OAuth App
+                     flow), tree.ts (filtering), search.ts (lexical), cache.ts,
+                     crypto.ts (seal/sign), store.ts (the sealed connection)
 lib/agent/           tools.ts (the four tools), edits.ts (staging and unified
                      diffs), model.ts (one decision), turns.ts (signed turn
                      budget), run.ts (one step)

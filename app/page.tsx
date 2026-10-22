@@ -170,6 +170,15 @@ export default function HomePage() {
 
   const chats = useLiveQuery(() => db.chats.orderBy("updatedAt").reverse().toArray(), [], []);
 
+  // A GitHub connection made through GitHub's own OAuth App returns as a
+  // full-page navigation to this app with `?github=…`. Open the repository
+  // panel so the result — connected, cancelled, or failed — is visible instead
+  // of landing silently on the chat. The panel consumes and removes the query.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("github")) setRepoOpen(true);
+  }, []);
+
   // Restore the most recently attached project. A failure here is not worth a
   // banner — not being signed in, or having no database, simply means the
   // workspace starts without a repository.

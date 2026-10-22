@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { authHeader } from "@/lib/firebaseHistory";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { bindGoogleAccount } from "@/lib/account";
+import { describeLinkError } from "@/lib/accountState";
+import { authHeader, firebaseConfigured } from "@/lib/firebaseHistory";
 import { linkGithubAccount } from "@/lib/githubLink";
 import type { ProjectSummary } from "@/lib/projects";
 
@@ -16,6 +18,24 @@ import type { ProjectSummary } from "@/lib/projects";
 // The tree and the viewer are not a filesystem browser for its own sake: they
 // show exactly the files the agent may read. When a file is not here, the agent
 // cannot see it either, which makes the pane an honest picture of its knowledge.
+//
+// ── Why the panel no longer says "Checking the connection…" forever ─────────
+// The check used to be a bare `fetch` with no deadline, whose failure left the
+// status as `null`. A request that never answered therefore rendered the same
+// sentence forever, with no button to press and nothing to read. Every request
+// here now has a deadline, and a failure becomes one of three named states —
+// signed out, unreachable, or a deployment that cannot store a connection —
+// each with the action that resolves it. A button that cannot work is never the
+// only thing on screen.
+//
+// ── Two ways to connect GitHub ──────────────────────────────────────────────
+// A deployment with `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` uses GitHub's
+// own OAuth App: the server mints a signed state, the browser round-trips to
+// github.com, and the sealed token comes back in an httpOnly cookie. Without
+// those values the Firebase-hosted GitHub credential is still tried, which is
+// what existing deployments already have. When neither is available the panel
+// says which two environment values are missing instead of offering a button
+// that fails after the click.
 
 interface RepoPanelProps {
   open: boolean;
@@ -28,7 +48,17 @@ interface GithubStatus {
   configured: boolean;
   connected: boolean;
   login: string | null;
+  /** True when this deployment has a GitHub OAuth App configured. */
+  oauth?: boolean;
 }
+
+type StatusState =
+  | { phase: "checking" }
+  | { phase: "ready"; status: GithubStatus }
+  /** The server answered 401: it has no verified account for this browser. */
+  | { phase: "signed-out"; message: string }
+  /** The check itself failed — network, timeout, or a broken deployment. */
+  | { phase: "error"; message: string };
 
 interface RepoItem {
   fullName: string;
@@ -43,20 +73,66 @@ interface TreeFile {
   size: number;
 }
 
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(await authHeader()),
-      ...(init?.headers ?? {}),
-    },
-  });
-  const payload = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
-  if (!response.ok) {
-    throw new Error(payload?.error ?? `Request failed (HTTP ${response.status})`);
+/** A failed request, with the status the interface needs to branch on. */
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly detail?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
   }
-  return payload as T;
+}
+
+/**
+ * One JSON request with a deadline.
+ *
+ * The deadline is the whole point: without it a held-open connection to the
+ * app's own API looks exactly like a slow one, and the panel keeps saying it is
+ * checking something it will never finish checking. Fifteen seconds is long
+ * enough for a cold start and a Firebase token check, short enough that nobody
+ * waits on a dead request without knowing it.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function api<T>(url: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: init?.signal ?? controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeader()),
+        ...(init?.headers ?? {}),
+      },
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | (T & { error?: string; detail?: string })
+      | null;
+    if (!response.ok) {
+      throw new ApiError(
+        payload?.error ?? `Request failed (HTTP ${response.status})`,
+        response.status,
+        payload?.detail
+      );
+    }
+    return payload as T;
+  } catch (cause) {
+    if (cause instanceof ApiError) throw cause;
+    if ((cause as { name?: string })?.name === "AbortError") {
+      throw new ApiError("The server took too long to answer. Check the connection and try again.", 0, "timeout");
+    }
+    throw new ApiError(
+      cause instanceof Error ? cause.message : "The request could not be completed.",
+      0,
+      "network"
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function formatSize(bytes: number): string {
@@ -65,8 +141,24 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** The sentence behind a `?github=error&reason=…` return from the callback. */
+function reasonMessage(reason: string | null): string {
+  switch (reason) {
+    case "state":
+      return "The GitHub connection expired or was started in another browser. Press Connect GitHub again.";
+    case "config":
+      return "This deployment cannot finish a GitHub connection. Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `GITHUB_TOKEN_KEY`, then redeploy.";
+    case "viewer":
+      return "GitHub authorised the app but would not say which account it belongs to. Try connecting again.";
+    case "origin":
+      return "This deployment does not know its own public address. Set `NEXT_PUBLIC_SITE_URL`, then redeploy.";
+    default:
+      return "GitHub could not be connected. Try again, or check the GitHub OAuth App settings.";
+  }
+}
+
 export default function RepoPanel({ open, onClose, project, onSelectProject }: RepoPanelProps) {
-  const [status, setStatus] = useState<GithubStatus | null>(null);
+  const [statusState, setStatusState] = useState<StatusState>({ phase: "checking" });
   const [repos, setRepos] = useState<RepoItem[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -79,14 +171,37 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [fileText, setFileText] = useState<string | null>(null);
 
-  const loadStatus = useCallback(async () => {
+  const status = statusState.phase === "ready" ? statusState.status : null;
+
+  // Read inside `refresh` without making it a dependency: the panel-opened
+  // effect must not re-run every time a repository is selected, or the notice
+  // it just set would be cleared by its own refresh.
+  const projectRef = useRef(project);
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
+  const loadStatus = useCallback(async (): Promise<GithubStatus | null> => {
+    setStatusState({ phase: "checking" });
     try {
       const next = await api<GithubStatus>("/api/github/status");
-      setStatus(next);
+      setStatusState({ phase: "ready", status: next });
       return next;
     } catch (cause) {
-      setStatus(null);
-      setError(cause instanceof Error ? cause.message : "Could not check the GitHub connection.");
+      const failure = cause instanceof ApiError ? cause : null;
+      if (failure?.status === 401) {
+        setStatusState({
+          phase: "signed-out",
+          message: failure.message || "This browser has no account the server can verify.",
+        });
+        return null;
+      }
+      setStatusState({
+        phase: "error",
+        message:
+          failure?.message ??
+          (cause instanceof Error ? cause.message : "Could not check the GitHub connection."),
+      });
       return null;
     }
   }, []);
@@ -106,6 +221,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     try {
       const data = await api<{ repos: RepoItem[] }>("/api/github/repos");
       setRepos(data.repos ?? []);
+      setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not list repositories.");
     }
@@ -124,23 +240,47 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    setError(null);
+    const next = await loadStatus();
+    const attached = await loadProjects();
+    if (next?.connected) await loadRepos();
+    if (!projectRef.current && attached.length > 0) onSelectProject(attached[0]);
+  }, [loadStatus, loadProjects, loadRepos, onSelectProject]);
+
   useEffect(() => {
     if (!open) return;
     setError(null);
     setNotice(null);
-    void (async () => {
-      const next = await loadStatus();
-      const attached = await loadProjects();
-      if (next?.connected) void loadRepos();
-      // Select the most recent project if nothing is selected, so the panel
-      // opens on the workspace rather than on a list of one item.
-      if (!project && attached.length > 0) onSelectProject(attached[0]);
-    })();
-    // `project` is deliberately not a dependency: this effect is the "panel
-    // opened" moment, and re-running it on every selection would refetch the
-    // world each time a repo is chosen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, loadStatus, loadProjects, loadRepos, onSelectProject]);
+
+    // A round trip to github.com comes back here with `?github=connected`,
+    // `?github=cancelled` or `?github=error&reason=…`. The query is consumed
+    // once and removed from the address bar, so a reload does not repeat the
+    // message and a shared URL cannot carry it.
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const returned = params.get("github");
+      if (returned) {
+        const reason = params.get("reason");
+        if (returned === "connected") setNotice("GitHub connected. Choose a repository.");
+        else if (returned === "cancelled") setNotice("GitHub was not connected. Nothing changed.");
+        else setError(reasonMessage(reason));
+        params.delete("github");
+        params.delete("reason");
+        const query = params.toString();
+        window.history.replaceState(
+          {},
+          "",
+          `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+        );
+      }
+    }
+
+    // This is the "panel opened" moment. `refresh` is stable: it reads the
+    // selected project through a ref, so choosing a repository does not re-run
+    // this effect and wipe the notice it just set.
+    void refresh();
+  }, [open, refresh]);
 
   useEffect(() => {
     if (!open || !project) return;
@@ -160,20 +300,64 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     return list.slice(0, 400);
   }, [tree, fileFilter]);
 
+  /**
+   * Starts a connection.
+   *
+   * The native OAuth App is preferred because it needs no Firebase console
+   * change; the Firebase-hosted credential remains the fallback for a
+   * deployment that has not added the client id and secret.
+   */
   const connect = async () => {
     if (busy) return;
     setBusy("connect");
     setError(null);
-    const outcome = await linkGithubAccount();
-    setBusy(null);
-    if (outcome.status === "dismissed") return;
-    if (outcome.status === "error") {
-      setError(outcome.message);
-      return;
+    setNotice(null);
+    try {
+      if (status?.oauth) {
+        const data = await api<{ url: string }>("/api/github/oauth/start", {
+          method: "POST",
+          body: JSON.stringify({ next: "/" }),
+        });
+        // A full-page navigation, not a popup: popups are blocked often enough
+        // that a connect button which depends on one reads as broken.
+        window.location.assign(data.url);
+        return;
+      }
+
+      const outcome = await linkGithubAccount();
+      if (outcome.status === "dismissed") return;
+      if (outcome.status === "error") {
+        setError(outcome.message);
+        return;
+      }
+      setNotice(`Connected as @${outcome.login || "GitHub"}. Choose a repository.`);
+      const next = await loadStatus();
+      if (next?.connected) await loadRepos();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not start the GitHub connection.");
+    } finally {
+      setBusy(null);
     }
-    setNotice(`Connected as @${outcome.login || "GitHub"}. Choose a repository.`);
-    await loadStatus();
-    await loadRepos();
+  };
+
+  /** The Google door, offered where it is needed rather than only in Settings. */
+  const signIn = async () => {
+    if (busy) return;
+    setBusy("google");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await bindGoogleAccount();
+      if (result.outcome === "dismissed") return;
+      setNotice("Signed in. Checking the GitHub connection…");
+      const next = await loadStatus();
+      if (next?.connected) await loadRepos();
+      else if (next && !next.connected) setNotice("Signed in. Connect GitHub to give the agent a repository.");
+    } catch (cause) {
+      setError(describeLinkError(cause));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const disconnect = async () => {
@@ -182,7 +366,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     setError(null);
     try {
       await api("/api/github/unlink", { method: "POST" });
-      setStatus((current) => (current ? { ...current, connected: false, login: null } : current));
+      setStatusState({ phase: "ready", status: { configured: true, connected: false, login: null } });
       setRepos([]);
       setNotice("GitHub disconnected. Your projects stay in the list.");
     } catch (cause) {
@@ -267,6 +451,15 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
           {error && (
             <div role="alert" className="mb-3 rounded-xl border border-red-400/20 bg-red-500/[0.07] px-3 py-2 text-[12px] leading-relaxed text-red-200/85">
               {error}
+              {statusState.phase === "error" && (
+                <button
+                  type="button"
+                  onClick={() => void refresh()}
+                  className="mt-2 block rounded-lg border border-red-200/25 px-2 py-1 text-[11px] font-medium text-red-100/90 transition-colors hover:bg-red-200/10"
+                >
+                  Try again
+                </button>
+              )}
             </div>
           )}
           {notice && (
@@ -275,15 +468,66 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
             </div>
           )}
 
-          {!status ? (
+          {statusState.phase === "checking" ? (
             <p className="text-[12px] text-white/40">Checking the connection…</p>
-          ) : !status.configured ? (
+          ) : statusState.phase === "signed-out" ? (
+            <div className="space-y-3">
+              <p className="text-[13px] leading-relaxed text-white/60">
+                Openmi could not identify this browser, so GitHub cannot be attached to an account yet.
+              </p>
+              <p className="text-[11px] leading-relaxed text-white/35">{statusState.message}</p>
+              {firebaseConfigured ? (
+                <button
+                  type="button"
+                  onClick={() => void signIn()}
+                  disabled={busy === "google"}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.08] px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12] disabled:opacity-50"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="#EA4335"
+                      d="M12 10.2v3.9h5.5c-.24 1.4-1.7 4.1-5.5 4.1a6.2 6.2 0 0 1 0-12.4c1.76 0 2.94.75 3.62 1.4l2.57-2.47A9.9 9.9 0 0 0 12 2.5a9.5 9.5 0 1 0 0 19c5.5 0 9.13-3.86 9.13-9.3 0-.62-.07-1.1-.15-1.6z"
+                    />
+                  </svg>
+                  {busy === "google" ? "Opening Google…" : "Continue with Google"}
+                </button>
+              ) : (
+                <div className="rounded-xl border border-amber-300/20 bg-amber-400/[0.05] p-3 text-[12px] leading-relaxed text-amber-100/85">
+                  This deployment has no Firebase project configured, so there is no account to attach GitHub to. Set the
+                  <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11px]">NEXT_PUBLIC_FIREBASE_*</code>
+                  values and redeploy.
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="w-full rounded-xl border border-white/[0.09] px-4 py-2 text-[12px] font-medium text-white/70 transition hover:bg-white/[0.06]"
+              >
+                Check again
+              </button>
+            </div>
+          ) : statusState.phase === "error" ? (
+            <div className="space-y-3">
+              <p className="text-[13px] leading-relaxed text-white/60">
+                The connection could not be checked.
+              </p>
+              <p className="text-[11px] leading-relaxed text-white/35">{statusState.message}</p>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="w-full rounded-xl px-4 py-2.5 text-[13px] font-semibold text-[#0a100d] transition-opacity"
+                style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
+              >
+                Try again
+              </button>
+            </div>
+          ) : !statusState.status.configured ? (
             <div className="rounded-xl border border-amber-300/20 bg-amber-400/[0.05] p-3 text-[12px] leading-relaxed text-amber-100/85">
               This deployment cannot store a GitHub connection yet. The owner needs to set
               <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11px]">GITHUB_TOKEN_KEY</code>
               to a 32-byte hex value and redeploy.
             </div>
-          ) : !status.connected ? (
+          ) : !statusState.status.connected ? (
             <div className="space-y-3">
               <p className="text-[13px] leading-relaxed text-white/60">
                 Connect GitHub to let the agent read a repository. Google stays your account — GitHub is added to it, so
@@ -298,16 +542,32 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
               >
                 {busy === "connect" ? "Waiting for GitHub…" : "Connect GitHub"}
               </button>
-              <p className="text-[11px] leading-relaxed text-white/35">
-                The agent gets read access to the repositories you choose. It cannot change anything; there is no commit
-                path in this version.
-              </p>
+              {statusState.status.oauth ? (
+                <p className="text-[11px] leading-relaxed text-white/35">
+                  You will be sent to GitHub to approve read access, then brought straight back here.
+                </p>
+              ) : (
+                <p className="text-[11px] leading-relaxed text-white/35">
+                  The agent gets read access to the repositories you choose. It cannot change anything without your
+                  approval.
+                </p>
+              )}
+              {firebaseConfigured && (
+                <button
+                  type="button"
+                  onClick={() => void signIn()}
+                  disabled={busy === "google"}
+                  className="w-full rounded-xl border border-white/[0.09] px-4 py-2 text-[12px] font-medium text-white/60 transition hover:bg-white/[0.06] disabled:opacity-50"
+                >
+                  {busy === "google" ? "Opening Google…" : "Sign in with Google first"}
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2">
                 <span className="truncate text-[12px] text-white/70">
-                  Connected as <span className="font-semibold text-white">@{status.login ?? "GitHub"}</span>
+                  Connected as <span className="font-semibold text-white">@{statusState.status.login ?? "GitHub"}</span>
                 </span>
                 <button
                   type="button"

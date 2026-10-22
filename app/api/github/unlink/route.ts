@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { isSameOriginRequest, checkRateLimit, verifyCaller } from "@/lib/serverControl";
-import { clearGithubLink } from "@/lib/github/store";
+import { GITHUB_CONNECTION_COOKIE, clearGithubLink } from "@/lib/github/store";
 
 // ── Disconnecting GitHub ─────────────────────────────────────────────────────
 //
@@ -30,8 +30,16 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const cleared = await clearGithubLink(authorization, identity.uid);
-  return Response.json(
+  const response = Response.json(
     { connected: false, cleared },
     { headers: { "Cache-Control": "no-store" } }
   );
+  // A connection made through GitHub's own OAuth App lives in a sealed cookie
+  // rather than the database, so disconnecting has to remove both. Leaving the
+  // cookie behind would make "Disconnect" a button that visibly does nothing.
+  response.headers.append(
+    "Set-Cookie",
+    `${GITHUB_CONNECTION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+  );
+  return response;
 }

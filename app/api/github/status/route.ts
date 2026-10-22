@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { verifyCaller } from "@/lib/serverControl";
-import { githubStoreConfigured, readGithubSummary } from "@/lib/github/store";
+import { githubStoreConfigured, resolveGithubLink } from "@/lib/github/store";
+import { githubOAuthConfigured } from "@/lib/github/oauth";
 
 // ── Is GitHub connected? ─────────────────────────────────────────────────────
 //
@@ -20,14 +21,19 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   const configured = githubStoreConfigured();
-  const summary = configured ? await readGithubSummary(authorization, identity.uid) : null;
+  const link = configured ? await resolveGithubLink(req, authorization, identity.uid) : null;
 
   return Response.json(
     {
       configured,
-      connected: Boolean(summary),
-      login: summary?.login ?? null,
-      linkedAt: summary?.linkedAt ?? null,
+      connected: Boolean(link),
+      login: link?.login || null,
+      linkedAt: link?.linkedAt ?? null,
+      // Whether the GitHub OAuth App path is available. The panel uses this to
+      // decide between the native round trip and the Firebase-hosted link, and
+      // a deployment with neither gets a setup message instead of a button
+      // that cannot work.
+      oauth: githubOAuthConfigured(),
     },
     { headers: { "Cache-Control": "no-store" } }
   );

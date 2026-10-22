@@ -57,6 +57,24 @@ import {
   signApproval,
   type ChangeSet,
 } from "../lib/changesets";
+import {
+  GITHUB_CONNECTION_COOKIE,
+  openGithubConnection,
+  resolveGithubLink,
+  sealGithubConnection,
+} from "../lib/github/store";
+import {
+  authorizeUrl,
+  createOAuthState,
+  exchangeCode,
+  githubOAuthConfig,
+  githubOAuthConfigured,
+  looksLikeGithubToken,
+  oauthCallbackUrl,
+  safeReturnPath,
+  signOAuthState,
+  verifyOAuthState,
+} from "../lib/github/oauth";
 
 let failures = 0;
 let passes = 0;
@@ -1202,6 +1220,220 @@ later("a path that escapes the repository is refused before anything is written"
   }
 });
 
+// ── GitHub OAuth, the door that needs no Firebase console change ────────────
+console.log("\ngithub oauth");
+
+const OAUTH_KEY = "9f".repeat(32);
+
+/** Sets an environment value and hands back the undo. */
+function withEnv(values: Record<string, string | undefined>): () => void {
+  const before = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(values)) {
+    before.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return () => {
+    for (const [key, value] of before) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
+test("the OAuth App needs both values, and a key to seal the result", () => {
+  const restore = withEnv({
+    GITHUB_CLIENT_ID: undefined,
+    GITHUB_CLIENT_SECRET: undefined,
+    GITHUB_TOKEN_KEY: undefined,
+  });
+  try {
+    assert.equal(githubOAuthConfig(), null);
+    assert.equal(githubOAuthConfigured(), false);
+
+    process.env.GITHUB_CLIENT_ID = "client-id";
+    assert.equal(githubOAuthConfig(), null, "a client id alone cannot exchange a code");
+
+    process.env.GITHUB_CLIENT_SECRET = "client-secret";
+    assert.deepEqual(githubOAuthConfig(), { clientId: "client-id", clientSecret: "client-secret" });
+    assert.equal(
+      githubOAuthConfigured(),
+      false,
+      "without GITHUB_TOKEN_KEY the callback could not seal the token"
+    );
+
+    process.env.GITHUB_TOKEN_KEY = OAUTH_KEY;
+    assert.equal(githubOAuthConfigured(), true);
+  } finally {
+    restore();
+  }
+});
+
+test("a return path is app-relative or it is the root", () => {
+  assert.equal(safeReturnPath("/"), "/");
+  assert.equal(safeReturnPath("/?chat=1"), "/?chat=1");
+  for (const value of [
+    "https://evil.test",
+    "//evil.test",
+    "/\\evil.test",
+    "javascript:alert(1)",
+    "",
+    null,
+    undefined,
+    42,
+    "a".repeat(500),
+  ]) {
+    assert.equal(safeReturnPath(value), "/", `expected the root for ${String(value)}`);
+  }
+});
+
+test("a state is signed for one account and expires", () => {
+  const restore = withEnv({ GITHUB_TOKEN_KEY: OAUTH_KEY });
+  try {
+    const state = createOAuthState("uid-1", { now: 1_000 });
+    const signed = signOAuthState(state);
+    assert.ok(signed);
+
+    const read = verifyOAuthState(signed, 2_000);
+    assert.equal(read?.uid, "uid-1");
+    assert.equal(read?.next, "/");
+    assert.equal(verifyOAuthState(signed, state.exp), null, "an expired state is refused");
+    assert.equal(verifyOAuthState(`${signed}x`, 2_000), null, "a tampered signature is refused");
+    assert.equal(verifyOAuthState(null, 2_000), null);
+
+    const forgedBody = Buffer.from(
+      JSON.stringify({ ...state, uid: "uid-2" }),
+      "utf8"
+    ).toString("base64url");
+    assert.equal(
+      verifyOAuthState(`${forgedBody}.${signed!.split(".").pop()}`, 2_000),
+      null,
+      "the uid cannot be swapped after signing"
+    );
+  } finally {
+    restore();
+  }
+});
+
+test("the consent URL names the callback the OAuth App registered", () => {
+  const url = new URL(
+    authorizeUrl({ clientId: "abc123", clientSecret: "shh" }, "https://openmi.test", "signed-state")
+  );
+  assert.equal(url.origin, "https://github.com");
+  assert.equal(url.pathname, "/login/oauth/authorize");
+  assert.equal(url.searchParams.get("client_id"), "abc123");
+  assert.equal(url.searchParams.get("state"), "signed-state");
+  assert.equal(url.searchParams.get("scope"), "repo");
+  assert.equal(url.searchParams.get("redirect_uri"), "https://openmi.test/api/github/oauth/callback");
+  assert.equal(oauthCallbackUrl("https://openmi.test/"), "https://openmi.test/api/github/oauth/callback");
+  assert.ok(!url.toString().includes("shh"), "the client secret never travels in a URL");
+});
+
+test("GitHub tokens are accepted in both the modern and classic shapes", () => {
+  assert.equal(looksLikeGithubToken(`gho_${'a'.repeat(36)}`), true);
+  assert.equal(looksLikeGithubToken("a".repeat(40)), true);
+  assert.equal(looksLikeGithubToken(`github_pat_${'a'.repeat(22)}`), true);
+  for (const value of ["", "short", "has spaces in it and is long enough", null, undefined, 42]) {
+    assert.equal(looksLikeGithubToken(value as string), false, `expected a refusal for ${String(value)}`);
+  }
+});
+
+test("a connection cookie opens only for the account it was sealed for", () => {
+  const restore = withEnv({ GITHUB_TOKEN_KEY: OAUTH_KEY });
+  try {
+    const link = {
+      token: `gho_${'b'.repeat(36)}`,
+      login: "octocat",
+      scopes: "repo",
+      linkedAt: 123,
+    };
+    const sealed = sealGithubConnection(link, "uid-1");
+    assert.ok(sealed, "a keyed deployment can seal a connection");
+    assert.ok(!sealed!.includes(link.token), "the token must not appear in the cookie");
+    assert.deepEqual(openGithubConnection(sealed, "uid-1"), link);
+    assert.equal(openGithubConnection(sealed, "uid-2"), null, "another account must not inherit it");
+    assert.equal(openGithubConnection(sealed!.slice(0, -2), "uid-1"), null, "a truncated cookie is refused");
+    assert.equal(openGithubConnection(null, "uid-1"), null);
+    assert.equal(GITHUB_CONNECTION_COOKIE, "openmi_github");
+  } finally {
+    restore();
+  }
+});
+
+later("a request resolves the sealed cookie for its own uid and falls through otherwise", async () => {
+  const restore = withEnv({ GITHUB_TOKEN_KEY: OAUTH_KEY });
+  try {
+    const link = {
+      token: `gho_${'c'.repeat(36)}`,
+      login: "openmi",
+      scopes: "repo",
+      linkedAt: 456,
+    };
+    const sealed = sealGithubConnection(link, "uid-1")!;
+    const req = {
+      cookies: {
+        get: (name: string) => (name === GITHUB_CONNECTION_COOKIE ? { value: sealed } : undefined),
+      },
+    };
+    assert.deepEqual(await resolveGithubLink(req, null, "uid-1"), link);
+    assert.equal(await resolveGithubLink(req, null, "uid-2"), null);
+    assert.equal(await resolveGithubLink({ cookies: { get: () => undefined } }, null, "uid-1"), null);
+  } finally {
+    restore();
+  }
+});
+
+later("a code exchange with no token in the body is a failure, not an empty success", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ error: "bad_verification_code", error_description: "The code passed is incorrect or expired." }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  try {
+    const result = await exchangeCode(
+      { clientId: "abc", clientSecret: "shh" },
+      "stale-code",
+      "https://openmi.test/api/github/oauth/callback"
+    );
+    assert.equal(result.ok, false);
+    assert.match(result.ok ? "" : result.reason, /incorrect or expired/i);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+later("a successful code exchange returns the token and its scopes", async () => {
+  const realFetch = globalThis.fetch;
+  let sent: Record<string, unknown> = {};
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    assert.equal(String(input), "https://github.com/login/oauth/access_token");
+    assert.equal(init?.method, "POST");
+    sent = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({ access_token: `gho_${'d'.repeat(36)}`, scope: "repo", token_type: "bearer" }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+  try {
+    const token = `gho_${'d'.repeat(36)}`;
+    const result = await exchangeCode(
+      { clientId: "abc", clientSecret: "shh" },
+      "one-time-code",
+      "https://openmi.test/api/github/oauth/callback"
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.ok ? result.token : "", token);
+    assert.equal(result.ok ? result.scopes : "", "repo");
+    assert.equal(sent.client_id, "abc");
+    assert.equal(sent.client_secret, "shh");
+    assert.equal(sent.code, "one-time-code");
+    assert.equal(sent.redirect_uri, "https://openmi.test/api/github/oauth/callback");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // ── source contracts ────────────────────────────────────────────────────────
 console.log("\nsource contracts");
 
@@ -1229,6 +1461,59 @@ test("no route hands a GitHub token back to the browser", () => {
   ]) {
     assert.doesNotMatch(read(path), /token:\s*link\.token|token:\s*viewer/, `${path} must not serialise a token`);
   }
+});
+
+test("every route that needs a GitHub token accepts the OAuth cookie", () => {
+  // A connection made through GitHub's OAuth App lives in a cookie, not in the
+  // database, so a route that still reads only the database would report "not
+  // connected" for a connection the panel says is there.
+  for (const path of [
+    "app/api/github/status/route.ts",
+    "app/api/github/repos/route.ts",
+    "app/api/projects/route.ts",
+    "app/api/projects/[id]/tree/route.ts",
+    "app/api/projects/[id]/file/route.ts",
+    "app/api/agent/step/route.ts",
+    "app/api/changesets/[id]/approve/route.ts",
+    "app/api/changesets/[id]/commit/route.ts",
+  ]) {
+    const source = read(path);
+    assert.match(source, /resolveGithubLink\(/, `${path} must resolve the cookie connection`);
+    assert.doesNotMatch(source, /\breadGithubLink\(/, `${path} must not read only the database`);
+  }
+});
+
+test("the OAuth callback verifies its state before it trusts the account", () => {
+  const source = read("app/api/github/oauth/callback/route.ts");
+  assert.match(source, /verifyOAuthState\(/);
+  assert.match(source, /exchangeCode\(/);
+  assert.match(source, /httpOnly: true/);
+  assert.match(source, /sameSite: "lax"/);
+  assert.match(source, /GITHUB_CONNECTION_MAX_AGE_S/);
+  // The return path comes from the signed state, never straight from the query.
+  assert.doesNotMatch(source, /params\.get\("next"\)/);
+});
+
+test("the repository panel cannot stay on a bare \"checking\" forever", () => {
+  const source = read("components/RepoPanel.tsx");
+  // A bounded request, and a named state for every way it can fail.
+  assert.match(source, /const REQUEST_TIMEOUT_MS/);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /phase: "signed-out"/);
+  assert.match(source, /phase: "error"/);
+  // Both doors out of a dead end, plus the native OAuth start call.
+  assert.match(source, /Continue with Google/);
+  assert.match(source, /github\/oauth\/start/);
+  // The old rendering keyed on a null status rendered the spinner forever.
+  assert.doesNotMatch(source, /!status \?/);
+});
+
+test("the OAuth start route requires a verified account", () => {
+  const source = read("app/api/github/oauth/start/route.ts");
+  assert.match(source, /isSameOriginRequest/);
+  assert.match(source, /verifyCaller/);
+  assert.match(source, /createOAuthState\(identity\.uid/);
+  assert.doesNotMatch(source, /clientSecret\s*:/, "the secret must not be echoed to the browser");
 });
 
 test("the proposal module cannot reach GitHub", () => {

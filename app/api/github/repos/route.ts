@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
 import { GithubError, listRepos } from "@/lib/github/client";
-import { readGithubLink } from "@/lib/github/store";
+import { resolveGithubLink } from "@/lib/github/store";
 
 // ── The repositories this connection can see ─────────────────────────────────
 //
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return Response.json({ error: `Too many requests. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
   }
 
-  const link = await readGithubLink(authorization, identity.uid);
+  const link = await resolveGithubLink(req, authorization, identity.uid);
   if (!link) {
     return Response.json(
       { error: "Connect GitHub first.", detail: "not-connected" },

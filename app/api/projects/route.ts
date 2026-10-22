@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { isSameOriginRequest, checkRateLimit, verifyCaller } from "@/lib/serverControl";
 import { GithubError, getBranchHead, getRepo, normalizeRepoFullName } from "@/lib/github/client";
-import { readGithubLink } from "@/lib/github/store";
+import { resolveGithubLink } from "@/lib/github/store";
 import {
   listProjects,
   projectIdFor,
@@ -50,6 +50,10 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  if (!isSameOriginRequest(req.headers)) {
+    return Response.json({ error: "This request did not come from Openmi.", detail: "cross-origin" }, { status: 403 });
+  }
+
   const authorization = req.headers.get("authorization");
   const identity = await verifyCaller(authorization);
   if (!identity) {
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Give a repository as `owner/name`." }, { status: 400 });
   }
 
-  const link = await readGithubLink(authorization, identity.uid);
+  const link = await resolveGithubLink(req, authorization, identity.uid);
   if (!link) {
     return Response.json({ error: "Connect GitHub first.", detail: "not-connected" }, { status: 401 });
   }
