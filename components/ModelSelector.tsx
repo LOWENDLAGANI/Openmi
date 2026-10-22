@@ -1,6 +1,6 @@
 "use client";
 
-import { MINO_MODES, type ModeId } from "@/lib/models";
+import { OPENMI_MODES, type ModeId } from "@/lib/models";
 import { useEffect, useRef, useState } from "react";
 
 interface ModeSelectorProps {
@@ -12,14 +12,14 @@ interface ModeSelectorProps {
 export default function ModeSelector({ selected, onChange, available }: ModeSelectorProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const activeMode = MINO_MODES.find((mode) => mode.id === selected) ?? MINO_MODES[0];
+  const activeMode = OPENMI_MODES.find((mode) => mode.id === selected) ?? OPENMI_MODES[0];
 
   useEffect(() => {
     fetch("/api/chat")
       .then((response) => (response.ok ? response.json() : null))
       .then((data: { available?: ModeId[]; searchAvailable?: boolean } | null) => {
         if (data?.available) {
-          window.dispatchEvent(new CustomEvent("mino:availability", {
+          window.dispatchEvent(new CustomEvent("openmi:availability", {
             detail: {
               available: data.available,
               searchAvailable: Boolean(data.searchAvailable),
@@ -67,10 +67,10 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
       {open && (
         <div
           role="radiogroup"
-          aria-label="Mino model"
+          aria-label="Openmi model"
           className="animate-pop absolute right-0 top-full z-50 mt-1.5 w-56 origin-top-right overflow-hidden rounded-xl border border-white/[0.08] bg-[#121c18]/98 p-1 shadow-2xl shadow-black/60 backdrop-blur-xl"
         >
-          {MINO_MODES.map((mode) => {
+          {OPENMI_MODES.map((mode) => {
             const active = selected === mode.id;
             return (
               <button

@@ -1,4 +1,4 @@
-// ── Mino — tests for the ban system ──────────────────────────────────────────
+// ── Openmi — tests for the ban system ──────────────────────────────────────────
 //
 // The ban list is the one control that has to hold against a caller who edits
 // the client bundle, so these tests are about what the gate refuses and what it
@@ -32,7 +32,7 @@ function test(name: string, fn: () => void): void {
 async function main(): Promise<void> {
   // `serverControl` reads the administrator's address once, at import time, so
   // the environment has to be in place before the module loads.
-  process.env.MINO_ADMIN_EMAIL = "admin@example.com";
+  process.env.OPENMI_ADMIN_EMAIL = "admin@example.com";
   const { activeBans, banMessage, identityControlsActive, identityGate, isAdmin } = await import(
     "../lib/serverControl"
   );
@@ -138,14 +138,14 @@ async function main(): Promise<void> {
   test("a permanent ban without a reason keeps the plain sentence", () => {
     const gate = identityGate({ uid: "uid-a", email: "", googleLinked: false }, configWith([ban({ uid: "uid-a" })]), 0);
     assert.equal(gate.allowed, false);
-    assert.equal(gate.error, "This device is not allowed to use Mino.");
+    assert.equal(gate.error, "This device is not allowed to use Openmi.");
   });
 
   test("the appeal sentence appears once, after a reason", () => {
     const message = banMessage(ban({ uid: "u", reason: "Spamming." }));
     assert.equal(
       message,
-      "This device is not allowed to use Mino. Reason: Spamming. If you believe this is a mistake, contact the administrator."
+      "This device is not allowed to use Openmi. Reason: Spamming. If you believe this is a mistake, contact the administrator."
     );
   });
 

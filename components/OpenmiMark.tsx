@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-interface MinoMarkProps {
+interface OpenmiMarkProps {
   className?: string;
   title?: string;
   /** Path to the logo inside /public. Falls back to the built-in mark if missing. */
@@ -13,12 +13,12 @@ function SparkleMark({ title }: { title: string }) {
   return (
     <svg viewBox="0 0 48 48" className="h-full w-full overflow-visible" role="img" aria-label={title}>
       <defs>
-        <linearGradient id="mino-mark" x1="8" y1="6" x2="40" y2="43" gradientUnits="userSpaceOnUse">
+        <linearGradient id="openmi-mark" x1="8" y1="6" x2="40" y2="43" gradientUnits="userSpaceOnUse">
           <stop stopColor="#bfe6cd" />
           <stop offset="0.45" stopColor="#3f7d5c" />
           <stop offset="1" stopColor="#1f4a33" />
         </linearGradient>
-        <filter id="mino-mark-glow" x="-80%" y="-80%" width="260%" height="260%">
+        <filter id="openmi-mark-glow" x="-80%" y="-80%" width="260%" height="260%">
           <feGaussianBlur stdDeviation="3.2" result="blur" />
           <feFlood floodColor="#2f6b48" floodOpacity="0.45" />
           <feComposite in2="blur" operator="in" />
@@ -30,8 +30,8 @@ function SparkleMark({ title }: { title: string }) {
       </defs>
       <path
         d="M24 3.5c2.3 9.3 4.7 11.7 14 14-9.3 2.3-11.7 4.7-14 14-2.3-9.3-4.7-11.7-14-14 9.3-2.3 11.7-4.7 14-14Z"
-        fill="url(#mino-mark)"
-        filter="url(#mino-mark-glow)"
+        fill="url(#openmi-mark)"
+        filter="url(#openmi-mark-glow)"
       />
       <path
         d="M15.5 29.5V18l8.5 7 8.5-7v11.5"
@@ -45,7 +45,7 @@ function SparkleMark({ title }: { title: string }) {
   );
 }
 
-export default function MinoMark({ className = "h-7 w-7", title = "Mino", src = "/mino-logo.png" }: MinoMarkProps) {
+export default function OpenmiMark({ className = "h-7 w-7", title = "Openmi", src = "/openmi-logo.png" }: OpenmiMarkProps) {
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(src) && !failed;
 

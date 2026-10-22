@@ -478,7 +478,7 @@ export default function ChatInput({
                   type="button"
                   onClick={() => {
                     setShowTools(false);
-                    document.getElementById("mino-document-picker")?.click();
+                    document.getElementById("openmi-document-picker")?.click();
                   }}
                   className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
                 >
@@ -500,7 +500,7 @@ export default function ChatInput({
                     </svg>
                   </span>
                   <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">
-                    Support Mino
+                    Support Openmi
                     <span className="rounded-full bg-rose-400/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-200">
                       Donate
                     </span>
@@ -579,7 +579,7 @@ export default function ChatInput({
               }}
             />
             <input
-              id="mino-document-picker"
+              id="openmi-document-picker"
               type="file"
               accept=".txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.sql"
               multiple
@@ -604,7 +604,7 @@ export default function ChatInput({
                 ? "Describe the image to create…"
                 : compressing
                   ? "Compressing…"
-                  : "Ask Mino anything…"
+                  : "Ask Openmi anything…"
             }
             className="max-h-[180px] flex-1 resize-none bg-transparent py-3.5 text-[16px] leading-snug text-white/90 placeholder-white/32 outline-none md:text-[17px]"
           />
@@ -708,7 +708,7 @@ export default function ChatInput({
 
         {/* Creator credit — kept deliberately; the keyboard hint was the
             redundant part, not the attribution. The heart is the one place
-            a donation is offered without a menu: people who like Mino are
+            a donation is offered without a menu: people who like Openmi are
             looking right here. Desktop only, so it never crowds the phone
             composer; phones get it from the tools menu and the sidebar. */}
         <p className="hidden pt-2.5 text-center text-[10px] text-white/25 md:block">
@@ -721,7 +721,7 @@ export default function ChatInput({
             <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
             </svg>
-            Support Mino
+            Support Openmi
           </Link>
         </p>
         <div className="safe-bottom md:hidden" />
@@ -746,10 +746,10 @@ export default function ChatInput({
             className="animate-pop w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#121c18]/[0.98] p-4 pb-3 shadow-2xl shadow-black/80 backdrop-blur-2xl"
           >
             <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-white">
-              What should Mino remember?
+              What should Openmi remember?
             </h3>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/45">
-              One short sentence about you. Mino uses it in every conversation
+              One short sentence about you. Openmi uses it in every conversation
               until you remove it.
             </p>
 

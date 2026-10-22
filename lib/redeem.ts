@@ -38,7 +38,7 @@ export interface ClaimResult {
 }
 
 function notConfigured(): Error & { code?: string } {
-  const error = new Error("Mino is not configured") as Error & { code?: string };
+  const error = new Error("Openmi is not configured") as Error & { code?: string };
   error.code = "app/not-configured";
   return error;
 }
@@ -119,7 +119,7 @@ export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
     return {
       ok: false,
       code,
-      error: "Mino could not check that code. Please try again shortly.",
+      error: "Openmi could not check that code. Please try again shortly.",
     };
   }
 }

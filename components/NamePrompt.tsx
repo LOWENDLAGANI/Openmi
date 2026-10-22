@@ -23,13 +23,13 @@ interface NamePromptProps {
 }
 
 /**
- * Entry gate: Mino cannot be used until a name is given.
+ * Entry gate: Openmi cannot be used until a name is given.
  *
  * There is deliberately no skip, no backdrop dismissal and no Escape handler —
  * the name is what the admin console lists visitors by, so it is required.
  *
  * Typing a name is the primary way in and always has been, so someone who has
- * been using Mino under a name is never asked to make an account. Google is a
+ * been using Openmi under a name is never asked to make an account. Google is a
  * second door rather than a replacement: it fills the same field, and someone who
  * arrives without a name can still type one afterwards.
  */
@@ -64,10 +64,10 @@ export default function NamePrompt({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Welcome to Mino"
+        aria-label="Welcome to Openmi"
         className="relative w-full max-w-sm rounded-[26px] border border-white/[0.09] bg-[#141f1a] p-6 shadow-2xl shadow-black/80 animate-rise"
       >
-        <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-white">Welcome to Mino</h2>
+        <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-white">Welcome to Openmi</h2>
 
         <form
           className="mt-4"
@@ -90,7 +90,7 @@ export default function NamePrompt({
             disabled={name.trim() === ""}
             className="mt-4 w-full rounded-[12px] bg-white px-3 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            Enter Mino
+            Enter Openmi
           </button>
         </form>
 
@@ -118,7 +118,7 @@ export default function NamePrompt({
             </button>
 
             <p className="mt-3 text-center text-[10px] leading-relaxed text-white/30">
-              An account carries your chats to another browser. You can use Mino without one, and
+              An account carries your chats to another browser. You can use Openmi without one, and
               link one later in Settings.
             </p>
           </>

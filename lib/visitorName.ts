@@ -2,11 +2,11 @@
 // Asked once, then remembered in this browser. Nothing is tied to an account:
 // clearing site data simply asks again.
 
-const NAME_KEY = "mino:display-name";
-const FIRST_SEEN_KEY = "mino:first-seen";
+const NAME_KEY = "openmi:display-name";
+const FIRST_SEEN_KEY = "openmi:first-seen";
 
 /**
- * When this browser first used Mino.
+ * When this browser first used Openmi.
  *
  * Kept here rather than read back from the database because a visitor has no
  * read access to their own `admin/registry` node — only a write — so a read

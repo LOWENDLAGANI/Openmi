@@ -2,7 +2,7 @@
 
 // ── Settings → Google tools ──────────────────────────────────────────────────
 // Connect, check, and disconnect the Google account whose Calendar, Tasks,
-// Sheets, Docs, and Maps Mino can act on in chat. The consent happens on
+// Sheets, Docs, and Maps Openmi can act on in chat. The consent happens on
 // Google's own screen; this panel only ever sees connected/not.
 //
 // A signed-up Google account is required: an anonymous guest sees "Sign in
@@ -40,7 +40,7 @@ export default function GoogleToolsSection() {
   useEffect(() => {
     const hash = window.location.hash;
     if (!hash) return;
-    if (hash.startsWith("#google-connected")) setNotice("Google connected. Mino can now use Calendar, Tasks, Sheets, Docs, and Maps when you ask.");
+    if (hash.startsWith("#google-connected")) setNotice("Google connected. Openmi can now use Calendar, Tasks, Sheets, Docs, and Maps when you ask.");
     else if (hash.startsWith("#google-needs-signin")) setNotice("Sign in with Google first, then connect the tools.");
     else if (hash.startsWith("#google-error=")) {
       const message = decodeURIComponent(hash.slice("#google-error=".length));
@@ -57,7 +57,7 @@ export default function GoogleToolsSection() {
     const ok = await signInWithGoogleAccount();
     setBusy(false);
     if (ok) {
-      setNotice("Signed in. Now press Connect Google to give Mino access.");
+      setNotice("Signed in. Now press Connect Google to give Openmi access.");
       void refresh();
     } else {
       setNotice("Sign-in was cancelled.");
@@ -68,7 +68,7 @@ export default function GoogleToolsSection() {
     setBusy(true);
     const ok = await disconnectGoogle();
     setBusy(false);
-    setNotice(ok ? "Disconnected. Mino can no longer reach your Google account." : "Disconnect failed. Try again.");
+    setNotice(ok ? "Disconnected. Openmi can no longer reach your Google account." : "Disconnect failed. Try again.");
     void refresh();
   };
 
@@ -86,7 +86,7 @@ export default function GoogleToolsSection() {
         )}
       </h3>
       <p className="mb-3 text-[11px] leading-relaxed text-white/40">
-        Connect a Google account and ask Mino in chat — &ldquo;what&rsquo;s on my calendar tomorrow&rdquo;, &ldquo;add a task&rdquo;, &ldquo;make a sheet of these&rdquo;. Mino acts only when you ask, and says what it did.
+        Connect a Google account and ask Openmi in chat — &ldquo;what&rsquo;s on my calendar tomorrow&rdquo;, &ldquo;add a task&rdquo;, &ldquo;make a sheet of these&rdquo;. Openmi acts only when you ask, and says what it did.
       </p>
       {loaded && status.connected && (
         <p className="mb-3 text-[11px] text-white/50">

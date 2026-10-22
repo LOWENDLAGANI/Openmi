@@ -2,7 +2,7 @@ import { db, uid } from "./db";
 import { mentionsProvider } from "./identity";
 import type { Memory } from "./types";
 
-// ── Mino memory — what it remembers between conversations ───────────────────
+// ── Openmi memory — what it remembers between conversations ───────────────────
 // A short, editable list of facts the user chose to keep. Not a summary of
 // past chats, and not a retrieval index: everything here is sent with every
 // request, which is only affordable — and only debuggable — while it stays
@@ -183,12 +183,12 @@ export async function addMemory(raw: string): Promise<AddMemoryResult> {
   // Case-insensitive, because "I use TypeScript" and "i use typescript" are the
   // same memory and a list holding both is a list nobody can read.
   if (existing.some((memory) => read(memory.text).toLowerCase() === text.toLowerCase())) {
-    return { error: "Mino already remembers that." };
+    return { error: "Openmi already remembers that." };
   }
 
   if (existing.length >= MAX_MEMORIES) {
     return {
-      error: `Mino keeps ${MAX_MEMORIES} memories at most. Delete one in Settings first.`,
+      error: `Openmi keeps ${MAX_MEMORIES} memories at most. Delete one in Settings first.`,
     };
   }
 

@@ -1,5 +1,5 @@
 // ── Web Push, browser side ───────────────────────────────────────────────────
-// Opt-in notifications for an installed Mino. Everything here is best-effort
+// Opt-in notifications for an installed Openmi. Everything here is best-effort
 // by design: a browser that refuses, a deployment with no keys, and a device
 // with no service worker all resolve to a clear reason rather than a spinner
 // that never ends, because a notification setting that lies about its state
@@ -35,7 +35,7 @@ export function pushSupported(): boolean {
  * localStorage with no account attached.
  */
 export function pushDeviceId(): string {
-  const KEY = "mino:push-device-id";
+  const KEY = "openmi:push-device-id";
   try {
     let id = window.localStorage.getItem(KEY);
     if (!id) {

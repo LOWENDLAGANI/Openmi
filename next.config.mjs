@@ -5,7 +5,7 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 // route cannot forget them.
 //
 // The CSP is deliberately the permissive-but-bounded kind rather than a
-// nonce-based one. Mino's own markup ships from 'self'; the restrictions that
+// nonce-based one. Openmi's own markup ships from 'self'; the restrictions that
 // buy real safety here are the *boundaries*: nothing may be framed by a third
 // party, no form may post anywhere unexpected, and the app may only talk to
 // the two services it actually uses (its own origin, Firebase auth, and

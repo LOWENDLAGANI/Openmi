@@ -1,12 +1,12 @@
 export type ResponseLength = "short" | "balanced" | "detailed";
 export type Appearance = "dark" | "light";
-/** How hard the model thinks before answering. Mino defaults to the cheapest. */
+/** How hard the model thinks before answering. Openmi defaults to the cheapest. */
 export type ReasoningEffort = "low" | "medium" | "high";
 
-const RESPONSE_LENGTH_KEY = "mino:response-length";
-const REASONING_EFFORT_KEY = "mino:reasoning-effort";
-const LEGACY_CUSTOM_INSTRUCTIONS_KEY = "mino:custom-instructions";
-const APPEARANCE_KEY = "mino:appearance";
+const RESPONSE_LENGTH_KEY = "openmi:response-length";
+const REASONING_EFFORT_KEY = "openmi:reasoning-effort";
+const LEGACY_CUSTOM_INSTRUCTIONS_KEY = "openmi:custom-instructions";
+const APPEARANCE_KEY = "openmi:appearance";
 
 export function loadResponseLength(): ResponseLength {
   if (typeof window === "undefined") return "balanced";

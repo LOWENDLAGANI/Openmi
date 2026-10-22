@@ -122,7 +122,7 @@ export default function SettingsPanel({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Mino settings"
+        aria-label="Openmi settings"
         className="relative flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] shadow-2xl shadow-black/80 animate-view-in sm:rounded-[28px]"
       >
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-4">

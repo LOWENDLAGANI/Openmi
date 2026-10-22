@@ -13,7 +13,7 @@ import { authHeader } from "@/lib/firebaseHistory";
 // administrator is looking for.
 //
 // The panel never sees a provider name, a wire model id, or a key: the server
-// sends a Mino name and an opaque id, and nothing more.
+// sends a Openmi name and an opaque id, and nothing more.
 
 interface ModelTarget {
   id: string;

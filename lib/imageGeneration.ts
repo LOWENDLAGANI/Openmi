@@ -5,7 +5,7 @@ import { authHeader } from "./firebaseHistory";
 // The Cloudflare token stays on the server; the browser only ever talks to
 // /api/image, exactly as it does for /api/chat.
 
-export const DEFAULT_IMAGE_MODEL = "Mino Canvas";
+export const DEFAULT_IMAGE_MODEL = "Openmi Canvas";
 
 /** Whether the deployment has image generation configured. */
 export async function imageGenerationConfigured(): Promise<boolean> {
@@ -55,13 +55,13 @@ export async function generateImage({ prompt, signal, seed }: GenerateImageOptio
 
   const mime = response.headers.get("content-type")?.split(";")[0] ?? "image/png";
   const blob = await response.blob();
-  if (!blob.size) throw new Error("Mino returned an empty image. Try again.");
+  if (!blob.size) throw new Error("Openmi returned an empty image. Try again.");
 
   return {
     url: await blobToDataUrl(blob),
     prompt,
     mime,
-    model: response.headers.get("X-Mino-Image-Model") ?? DEFAULT_IMAGE_MODEL,
+    model: response.headers.get("X-Openmi-Image-Model") ?? DEFAULT_IMAGE_MODEL,
     createdAt: Date.now(),
   };
 }
@@ -70,5 +70,5 @@ export async function generateImage({ prompt, signal, seed }: GenerateImageOptio
 export function imageDownloadName(image: GeneratedImage): string {
   const stamp = new Date(image.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const extension = image.mime.includes("webp") ? "webp" : image.mime.includes("jpeg") ? "jpg" : "png";
-  return `mino-image-${stamp}.${extension}`;
+  return `openmi-image-${stamp}.${extension}`;
 }

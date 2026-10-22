@@ -1,6 +1,6 @@
 "use client";
 
-// ── Asking the visitor to install Mino ──────────────────────────────────────
+// ── Asking the visitor to install Openmi ──────────────────────────────────────
 // A phone browser is a trap: no address bar, no back button, and a tab swiped
 // away mid-answer. Installing turns that into an app with its own icon on the
 // home screen, which is where the return trip starts from.
@@ -20,7 +20,7 @@
 // a reload or a fresh visit starts over, while surviving the client-side
 // navigations in between so it cannot reappear mid-conversation.
 //
-// It never appears twice for the same reason that matters most: if Mino is
+// It never appears twice for the same reason that matters most: if Openmi is
 // already installed, there is nothing to offer.
 //
 // ── Two browsers, no shared API ─────────────────────────────────────────────
@@ -37,13 +37,13 @@
 // button, because it teaches people that the whole interface fails silently.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import MinoMark from "@/components/MinoMark";
+import OpenmiMark from "@/components/OpenmiMark";
 
 /**
  * Marks this tab as already asked. Per-visit by design — see the note above.
  * sessionStorage rather than localStorage is the entire mechanism.
  */
-const ASKED_KEY = "mino:install-asked";
+const ASKED_KEY = "openmi:install-asked";
 
 /**
  * `?installPrompt=1` shows the dialog regardless of width, install state, or
@@ -77,7 +77,7 @@ function isIos(): boolean {
 }
 
 /**
- * Whether Mino is already running as an installed app.
+ * Whether Openmi is already running as an installed app.
  *
  * `display-mode: standalone` alone is not enough. A browser tab can match it,
  * and some Android browsers report it for a normal tab, so `installed` is
@@ -151,12 +151,12 @@ export default function InstallPrompt() {
 
     if (alreadyAsked()) return;
 
-    // Held until the visitor has actually used Mino.
+    // Held until the visitor has actually used Openmi.
     let timer: ReturnType<typeof setTimeout> | null = null;
     let asked = false;
 
     const ask = () => {
-      // `mino:engage` fires on every message sent. Arming this more than once
+      // `openmi:engage` fires on every message sent. Arming this more than once
       // would leave a second copy pending, so the dialog could reappear after
       // being dismissed.
       if (asked || alreadyAsked()) return;
@@ -196,7 +196,7 @@ export default function InstallPrompt() {
     window.addEventListener("beforeinstallprompt", onBeforeInstall);
     window.addEventListener("appinstalled", onInstalled);
 
-    window.addEventListener("mino:engage", ask);
+    window.addEventListener("openmi:engage", ask);
 
     // Fired by `ServiceWorker.tsx` once a worker takes control of this page.
     // Chromium may have dispatched `beforeinstallprompt` before this listener
@@ -206,13 +206,13 @@ export default function InstallPrompt() {
     const onSwReady = () => {
       if (deferred.current) setCanPrompt(true);
     };
-    window.addEventListener("mino:sw-ready", onSwReady);
+    window.addEventListener("openmi:sw-ready", onSwReady);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
       window.removeEventListener("appinstalled", onInstalled);
-      window.removeEventListener("mino:engage", ask);
-      window.removeEventListener("mino:sw-ready", onSwReady);
+      window.removeEventListener("openmi:engage", ask);
+      window.removeEventListener("openmi:sw-ready", onSwReady);
       if (timer) clearTimeout(timer);
     };
   }, []);
@@ -231,7 +231,7 @@ export default function InstallPrompt() {
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="mino-install-title"
+      aria-labelledby="openmi-install-title"
       className="fixed inset-0 z-[150] flex items-end justify-center px-3 pb-3"
     >
       <button
@@ -254,18 +254,18 @@ export default function InstallPrompt() {
                 rather than describing it. */}
             <div className="relative shrink-0">
               <div className="absolute inset-[-18%] animate-breathe rounded-[20px] bg-[#2f6b48]/25 blur-xl" />
-              <MinoMark className="relative h-16 w-16 rounded-[16px]" />
+              <OpenmiMark className="relative h-16 w-16 rounded-[16px]" />
             </div>
 
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#a9d8bb]/80">
-                Keep Mino
+                Keep Openmi
               </p>
               <h2
-                id="mino-install-title"
+                id="openmi-install-title"
                 className="mt-1 text-[19px] font-semibold leading-tight tracking-[-0.02em] text-white"
               >
-                {ios ? "Add Mino to your Home Screen" : "Install Mino on this phone"}
+                {ios ? "Add Openmi to your Home Screen" : "Install Openmi on this phone"}
               </h2>
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/50">
                 {ios
@@ -277,7 +277,7 @@ export default function InstallPrompt() {
 
           <p className="mt-4 text-[13.5px] leading-relaxed text-white/70">
             A browser tab can be swiped away in one motion, and the conversation
-            goes with it. Installed, Mino opens from an icon like any other app
+            goes with it. Installed, Openmi opens from an icon like any other app
             and your chats stay where you left them.
           </p>
 
@@ -326,7 +326,7 @@ export default function InstallPrompt() {
                 className="lift flex-1 rounded-full px-4 py-3 text-[14px] font-semibold text-[#0a100d] transition-opacity hover:opacity-90 active:opacity-70"
                 style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
               >
-                Install Mino
+                Install Openmi
               </button>
             )}
             <button

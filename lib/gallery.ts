@@ -1,6 +1,6 @@
 // ── Image gallery ────────────────────────────────────────────────────────────
 // Every picture this device has produced or attached, newest first. It is a
-// view over the message store rather than a table of its own: an image in Mino
+// view over the message store rather than a table of its own: an image in Openmi
 // is always part of a conversation, and a gallery that kept its own copy would
 // be a second place for the truth to drift out of step with the first.
 

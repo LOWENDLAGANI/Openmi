@@ -1,4 +1,4 @@
-# Mino — Vercel environment variables
+# Openmi — Vercel environment variables
 
 The complete list of environment variables this app reads, and nothing it does not.
 Every entry below was verified against the source (`grep process.env` across
@@ -24,7 +24,7 @@ and can be added later.
 ## Tier 1 — set these before the first deploy
 
 Without these the site builds and loads, but nothing works: no accounts, no
-cloud history, and every model returns "Mino isn't connected to a model yet."
+cloud history, and every model returns "Openmi isn't connected to a model yet."
 
 ### Firebase (7) — accounts, cloud history, admin console
 
@@ -45,7 +45,7 @@ Get these from the Firebase console → **Project settings → General → Your 
 > the Firebase console → **Realtime Database → Rules**. The app holds no service
 > account, so the rules are the *only* thing enforcing access. Until they are
 > published, chat sync and the paywall both silently fall back to local-only /
-> free. Keep the address inside the rules matching `MINO_ADMIN_EMAIL` below.
+> free. Keep the address inside the rules matching `OPENMI_ADMIN_EMAIL` below.
 
 ### Model keys (3) — at least one is mandatory
 
@@ -62,13 +62,13 @@ assistant; set all three and Auto gets genuinely resilient.
 
 | Variable | Notes |
 | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Your production origin, **no trailing slash**, e.g. `https://mino-ai.vercel.app`. Drives share previews, `sitemap.xml` and `robots.txt`. Without it Open Graph URLs resolve against `localhost` and every shared link renders with no image. |
+| `NEXT_PUBLIC_SITE_URL` | Your production origin, **no trailing slash**, e.g. `https://openmi-ai.vercel.app`. Drives share previews, `sitemap.xml` and `robots.txt`. Without it Open Graph URLs resolve against `localhost` and every shared link renders with no image. |
 
 ### Administrator (1)
 
 | Variable | Notes |
 | --- | --- |
-| `MINO_ADMIN_EMAIL` | The one address allowed into the admin console and exempt from the paywall. **Must exactly match** the address hard-coded in `database.rules.json` (`myrealmetvreal@gmail.com` in the committed copy) or every admin write is refused by the rules. |
+| `OPENMI_ADMIN_EMAIL` | The one address allowed into the admin console and exempt from the paywall. **Must exactly match** the address hard-coded in `database.rules.json` (`myrealmetvreal@gmail.com` in the committed copy) or every admin write is refused by the rules. |
 
 ---
 
@@ -113,18 +113,18 @@ off and the bell does not appear. There is no partial state to debug.
 | `WEB_PUSH_PRIVATE_KEY` | The private half of the same pair |
 | `WEB_PUSH_SUBJECT` | A contact for the push service: `mailto:you@example.com` or an `https:` URL |
 
-### Mino Azure — the Gradio Space (4)
+### Openmi Azure — the Gradio Space (4)
 
-Serves Azure mode from Mino's own model instead of a vendor. Leave all four
+Serves Azure mode from Openmi's own model instead of a vendor. Leave all four
 empty and Azure mode shows "not available on this deployment" — which is the
 correct state for most deployments.
 
 | Variable | Notes |
 | --- | --- |
-| `MINO_HF_SPACE` | The Space id, e.g. `user/space-name` |
-| `MINO_HF_TOKEN` | Hugging Face access token with read scope |
-| `MINO_HF_TIMEOUT_MS` | Optional. Defaults to `120000` (2 min). Raise it if the Space cold-starts slowly. |
-| `MINO_HF_PROMPT_BUDGET` | Optional. Defaults to `12000` chars of prompt. |
+| `OPENMI_HF_SPACE` | The Space id, e.g. `user/space-name` |
+| `OPENMI_HF_TOKEN` | Hugging Face access token with read scope |
+| `OPENMI_HF_TIMEOUT_MS` | Optional. Defaults to `120000` (2 min). Raise it if the Space cold-starts slowly. |
+| `OPENMI_HF_PROMPT_BUDGET` | Optional. Defaults to `12000` chars of prompt. |
 
 ---
 
@@ -180,12 +180,12 @@ OPENROUTER_API_KEY=
 GEMINI_API_KEY=
 GROQ_API_KEY=
 NEXT_PUBLIC_SITE_URL=
-MINO_ADMIN_EMAIL=
+OPENMI_ADMIN_EMAIL=
 ```
 
 In Vercel: **Project → Settings → Environment Variables**. Paste each as its own
 row. Mark the four non-`NEXT_PUBLIC_` values in that block (`OPENROUTER_API_KEY`,
-`GEMINI_API_KEY`, `GROQ_API_KEY`, `MINO_ADMIN_EMAIL`) — and everything from
+`GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENMI_ADMIN_EMAIL`) — and everything from
 Tier 2 and 3 — as **Sensitive**, so they never appear in logs or the
 deployment UI. The eight `NEXT_PUBLIC_` ones cannot be hidden: they ship in
 the browser bundle by design, which is why none of them may be a secret.

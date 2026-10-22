@@ -185,7 +185,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       await webpush.sendNotification(
         stored,
         JSON.stringify({
-          title: "Mino",
+          title: "Openmi",
           body: "Notifications are working. This is how a renewal reminder will reach you.",
           url: "/",
         }),
@@ -216,7 +216,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (!vapid) {
       return Response.json({ ok: false, error: "missing-keys" }, { status: 503 });
     }
-    const title = (body.title ?? "Mino").slice(0, 80);
+    const title = (body.title ?? "Openmi").slice(0, 80);
     const text = (body.body ?? "").slice(0, 300);
     const url = typeof body.url === "string" && body.url.startsWith("/") ? body.url : "/";
 

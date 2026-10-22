@@ -45,7 +45,7 @@ function DewPanel() {
   );
 }
 
-export default function MinoPlusPage() {
+export default function OpenmiPlusPage() {
   const [dewTopUp, setDewTopUp] = useState<DewPack | null>(null);
   const [account, setAccount] = useState<AccountView | null>(null);
   useEffect(() => watchAccount((view) => setAccount(view)), []);
@@ -59,7 +59,7 @@ export default function MinoPlusPage() {
         <div className="mx-auto w-full max-w-2xl lg:max-w-3xl">
           <Link
             href="/"
-            aria-label="Back to Mino"
+            aria-label="Back to Openmi"
             className="lift mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12] hover:text-white"
           >
             <svg
@@ -77,7 +77,7 @@ export default function MinoPlusPage() {
           </Link>
 
           <h1 className="text-[clamp(2.1rem,8vw,3.2rem)] font-semibold leading-[1.05] tracking-tight">
-            Mino <span className="bg-gradient-to-r from-[#2f6b48] via-[#a9d8bb] to-[#2f6b48] bg-clip-text text-transparent">Dew</span>
+            Openmi <span className="bg-gradient-to-r from-[#2f6b48] via-[#a9d8bb] to-[#2f6b48] bg-clip-text text-transparent">Dew</span>
           </h1>
 
 
@@ -85,7 +85,7 @@ export default function MinoPlusPage() {
 
           {!canShowWallet && (
             <p className="mt-6 rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-4 py-4 text-[13.5px] leading-relaxed text-white/55">
-              Sign in to see your balance and top up. A balance belongs to an account, so Mino needs
+              Sign in to see your balance and top up. A balance belongs to an account, so Openmi needs
               to know who it is before it can show one.
             </p>
           )}

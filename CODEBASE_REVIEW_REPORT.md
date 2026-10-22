@@ -1,11 +1,11 @@
-# Mino Codebase Comprehensive Review Report
+# Openmi Codebase Comprehensive Review Report
 ## All Changes, Issues Found, and Optimizations
 
 ---
 
 ## 📊 Executive Summary
 
-This review examined the entire Mino codebase (`A:\Mino-main`) for broken patterns, optimization opportunities, and consistency issues. The primary driver was the "pay as you go" (Dew) implementation, but the review covered all code paths, UI components, API routes, and test infrastructure.
+This review examined the entire Openmi codebase (`A:\Openmi-main`) for broken patterns, optimization opportunities, and consistency issues. The primary driver was the "pay as you go" (Dew) implementation, but the review covered all code paths, UI components, API routes, and test infrastructure.
 
 **Overall assessment**: The codebase is well-structured and mostly consistent. The most significant "broken" feeling reported by users stemmed from the Dew system having a wallet and enforcement but no purchasable product — the `/plus` page sold legacy subscriptions while the chat/image routes refused with "out of Dew" messages. This has been addressed.
 

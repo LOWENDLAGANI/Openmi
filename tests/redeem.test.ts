@@ -1,4 +1,4 @@
-// ── Mino — tests for redeem codes ────────────────────────────────────────────
+// ── Openmi — tests for redeem codes ────────────────────────────────────────────
 //
 // A code is a word the owner chooses that carries an amount of Dew. The
 // dangerous failure is not that a code stops working — that is a support
@@ -41,7 +41,7 @@ function code(path: string): string {
 
 function makeCode(over: Partial<RedeemCode> = {}): RedeemCode {
   return {
-    code: "MINO-TOPUP",
+    code: "OPENMI-TOPUP",
     dew: 100,
     active: true,
     createdAt: NOW - 1000,
@@ -55,9 +55,9 @@ function makeCode(over: Partial<RedeemCode> = {}): RedeemCode {
 // The owner picks it; this only decides how it is written down. Two words that
 // differ only in case or spacing must not become two codes a buyer can be given
 // by mistake.
-assert.equal(normalizeCode("mino-topup"), "MINO-TOPUP");
-assert.equal(normalizeCode("MINO TOPUP"), "MINOTOPUP");
-assert.equal(normalizeCode("  mino_topup  "), "MINOTOPUP");
+assert.equal(normalizeCode("openmi-topup"), "OPENMI-TOPUP");
+assert.equal(normalizeCode("OPENMI TOPUP"), "OPENMITOPUP");
+assert.equal(normalizeCode("  openmi_topup  "), "OPENMITOPUP");
 assert.equal(normalizeCode("m1n0-2026"), "M1N0-2026");
 assert.equal(normalizeCode("🚀"), "", "punctuation cannot survive into a code");
 assert.ok(normalizeCode("A".repeat(200)).length <= CODE_MAX, "a code is bounded, not unbounded");
@@ -65,14 +65,14 @@ assert.ok(normalizeCode("A".repeat(200)).length <= CODE_MAX, "a code is bounded,
 // A very short code is one guess away from everybody's, so it is refused before
 // it is ever written rather than afterwards.
 assert.equal(isValidCode("AB"), false, "two characters is not a code");
-assert.equal(isValidCode("MINO"), true);
+assert.equal(isValidCode("OPENMI"), true);
 assert.equal(isValidCode(""), false);
 assert.equal(isValidCode("   "), false);
 
 // ── Reading what is stored ───────────────────────────────────────────────────
 
 const parsed = parseRedeemCode({
-  code: "mino-topup",
+  code: "openmi-topup",
   dew: 250,
   active: true,
   createdAt: NOW,
@@ -80,45 +80,45 @@ const parsed = parseRedeemCode({
 });
 assert.ok(parsed, "a well-formed code parses");
 assert.equal(parsed.dew, 250);
-assert.equal(parsed.code, "MINO-TOPUP", "the stored word is normalized");
+assert.equal(parsed.code, "OPENMI-TOPUP", "the stored word is normalized");
 assert.equal(parsed.note, "paid by Ana", "a note is trimmed");
 
 // Anything malformed is no code at all, never a half-filled one. An amount that
 // cannot be read must not turn into somebody's balance by defaulting to the
 // nearest thing that still fits.
 assert.equal(parseRedeemCode(null), null);
-assert.equal(parseRedeemCode({ code: "MINO", active: true, createdAt: NOW }), null, "no amount");
+assert.equal(parseRedeemCode({ code: "OPENMI", active: true, createdAt: NOW }), null, "no amount");
 assert.equal(
-  parseRedeemCode({ code: "MINO", dew: "100", active: true, createdAt: NOW }),
+  parseRedeemCode({ code: "OPENMI", dew: "100", active: true, createdAt: NOW }),
   null,
   "a non-numeric amount is not an amount"
 );
 assert.equal(parseRedeemCode({ code: "AB", dew: 100, active: true, createdAt: NOW }), null, "too short");
-assert.equal(parseRedeemCode({ code: "MINO", dew: 100, active: true }), null, "no creation time");
+assert.equal(parseRedeemCode({ code: "OPENMI", dew: 100, active: true }), null, "no creation time");
 
 // A missing `active` means created, which is what every code written by the
 // console carries. Defaulting the other way would silently kill every code
 // whose field went missing.
-assert.equal(parseRedeemCode({ code: "MINO", dew: 100, createdAt: NOW })?.active, true);
+assert.equal(parseRedeemCode({ code: "OPENMI", dew: 100, createdAt: NOW })?.active, true);
 assert.equal(parseRedeemCode({ ...makeCode(), active: false })?.active, false, "off stays off");
 
 // The amount is bounded by the same ceiling the rules validate on the write,
 // so a typo in the console cannot mint a fortune.
-assert.equal(parseRedeemCode({ code: "MINO", dew: 0, active: true, createdAt: NOW }), null, "zero is not a grant");
-assert.equal(parseRedeemCode({ code: "MINO", dew: -5, active: true, createdAt: NOW }), null, "negative is refused");
+assert.equal(parseRedeemCode({ code: "OPENMI", dew: 0, active: true, createdAt: NOW }), null, "zero is not a grant");
+assert.equal(parseRedeemCode({ code: "OPENMI", dew: -5, active: true, createdAt: NOW }), null, "negative is refused");
 assert.equal(
-  parseRedeemCode({ code: "MINO", dew: 999_999, active: true, createdAt: NOW }),
+  parseRedeemCode({ code: "OPENMI", dew: 999_999, active: true, createdAt: NOW }),
   null,
   "over the ceiling is refused"
 );
 assert.equal(
-  parseRedeemCode({ code: "MINO", dew: 100_000, active: true, createdAt: NOW })?.dew,
+  parseRedeemCode({ code: "OPENMI", dew: 100_000, active: true, createdAt: NOW })?.dew,
   100_000,
   "the ceiling itself passes"
 );
 
 // Money keeps three decimals, exactly like a balance.
-assert.equal(parseRedeemCode({ code: "MINO", dew: 12.3456, active: true, createdAt: NOW })?.dew, 12.346);
+assert.equal(parseRedeemCode({ code: "OPENMI", dew: 12.3456, active: true, createdAt: NOW })?.dew, 12.346);
 
 // ── The subscription shape is gone ───────────────────────────────────────────
 //
@@ -184,7 +184,7 @@ for (const candidate of [null, makeCode({ active: false })]) {
 
 const worth = dewRedemptionValue(makeCode({ dew: 12.5 }));
 assert.equal(worth.dew, 12.5, "the amount comes from the code record");
-assert.equal(worth.code, "MINO-TOPUP");
+assert.equal(worth.code, "OPENMI-TOPUP");
 // The whole point of resolving here rather than in the claim: a caller can name
 // a word, and nothing else.
 assert.deepEqual(
@@ -236,7 +236,7 @@ assert.equal(
 );
 // The owner must still be able to LIST them — the console reads the whole tree.
 // Refusing the parent read while granting the per-code one broke the console's
-// own code list, and the refusal surfaced as "This account is not the Mino
+// own code list, and the refusal surfaced as "This account is not the Openmi
 // administrator", which sent the owner looking at their account rather than at
 // the rule that was wrong.
 assert.equal(

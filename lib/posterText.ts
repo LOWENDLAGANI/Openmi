@@ -1,4 +1,4 @@
-// ── Mino poster typography ──────────────────────────────────────────────────
+// ── Openmi poster typography ──────────────────────────────────────────────────
 // Diffusion models cannot spell. FLUX learns what text *looks like*, not what
 // letters are, so a requested headline comes back as "KESEELAMATAN" and any
 // fine print is shapes that resemble tiny text. No amount of prompt wording

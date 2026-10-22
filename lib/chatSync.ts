@@ -3,7 +3,7 @@
 // that decide what a sync keeps, drops, and overwrites can be tested without a
 // browser or a network.
 //
-// The whole point of this file is that a sync is a **union**. Mino writes chat
+// The whole point of this file is that a sync is a **union**. Openmi writes chat
 // history to the account so it follows the person to another browser, and it
 // was failing at exactly that: the data was written correctly and then never
 // read back. Fixing that by replacing local history with remote history would

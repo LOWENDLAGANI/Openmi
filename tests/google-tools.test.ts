@@ -1,4 +1,4 @@
-// ── Mino — tests for the Google tools layer ──────────────────────────────────
+// ── Openmi — tests for the Google tools layer ──────────────────────────────────
 //
 // Pins what must never drift:
 //  - action block extraction from a streamed answer (split, partial, multiple)
@@ -200,7 +200,7 @@ test("the state cookie is signed and uid-bound", () => {
     // Tampered value: flipping the uid must fail the HMAC.
     const raw = cookie.split(";")[0].split("=")[1];
     const tampered = raw.replace("uid-abc", "uid-evil");
-    assert.equal(readStateCookie(new Headers({ cookie: `mino_google_state=${tampered}` })), null);
+    assert.equal(readStateCookie(new Headers({ cookie: `openmi_google_state=${tampered}` })), null);
   }
 });
 

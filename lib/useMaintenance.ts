@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_CONFIG, subscribeAppConfig, type AppConfig } from "./appConfig";
 import { authHeader } from "./firebaseHistory";
 
-// ── Is Mino closed, and am I the one who can open it? ───────────────────────
+// ── Is Openmi closed, and am I the one who can open it? ───────────────────────
 // Both answers come from the server. The page cannot be trusted to declare
 // itself the administrator, and the switch is enforced by the route handlers
 // regardless; this only decides what is drawn.

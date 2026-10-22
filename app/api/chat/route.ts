@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
-import { MINO_SYSTEM_PROMPT } from "@/lib/systemPrompt";
+import { OPENMI_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { AZURE_SYSTEM_PROMPT, FABLE_SYSTEM_PROMPT, OPUS_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { formatMemories, sanitizeMemoryPayload } from "@/lib/memory";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getModelDisplayName, type ModeId } from "@/lib/models";
-import { toMinoName } from "@/lib/modelEngines";
+import { toOpenmiName } from "@/lib/modelEngines";
 import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
 import { callSpace, isSpaceConfigured, SpaceError } from "@/lib/gradioSpace";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
@@ -31,12 +31,12 @@ import {
 } from "@/lib/googleTools";
 import { ensureFreshSession, googleConfigured, readGoogleSession as readSession } from "@/lib/googleAuth";
 
-// ── Mino — resilient SSE proxy for Auto and Code ─────────────────────────────
+// ── Openmi — resilient SSE proxy for Auto and Code ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
 //   GEMINI_API_KEY     → Google Gemini 3.8 / 3.7 / 3.6 Flash
 //   GROQ_API_KEY       → Groq-hosted models, the last-resort fallback
 //
-// Auto mode is resilient: if the requested provider is unavailable, Mino
+// Auto mode is resilient: if the requested provider is unavailable, Openmi
 // automatically tries the other configured key.
 //
 // Code mode is deliberately NOT cross-vendor. Every fallback stays inside the
@@ -116,7 +116,7 @@ function encodeEvent(event: Record<string, unknown>): Uint8Array {
 // "truncated", it is one that no configured model can hold in a single reply,
 // and looping would spend a user's latency to learn nothing new.
 
-/** How many other models Mino will try before settling for a cut-off answer. */
+/** How many other models Openmi will try before settling for a cut-off answer. */
 const MAX_CONTINUATION_ATTEMPTS = 2;
 
 /**
@@ -181,7 +181,7 @@ function textStream(text: string): Response {
  * a small negative.
  */
 function canStartRequest(state: DewState, mode: ModeId): boolean {
-  // Mino Azure is the pro tier, whose smallest plausible answer is roughly a
+  // Openmi Azure is the pro tier, whose smallest plausible answer is roughly a
   // tenth of a Dew; refusing a fraction above zero there still burns request
   // slots on callers who could never afford the output anyway.
   const floor = mode === "self" ? AZURE_FLOOR : mode === "opus" ? OPUS_FLOOR : DUST_THRESHOLD;
@@ -200,7 +200,7 @@ function errorStream(message: string): Response {
   return new Response(stream, { headers: sseHeaders() });
 }
 
-// The identity guard — every vendor name Mino rewrites, plus the streaming filter
+// The identity guard — every vendor name Openmi rewrites, plus the streaming filter
 // that applies them — lives in lib/identity.ts so the admin model-health probe
 // scrubs provider replies and error text with the very same rules instead of
 // keeping a second copy that could drift.
@@ -233,10 +233,10 @@ function explainProviderError(error: unknown): string {
   // free of provider detail, so it is passed through rather than re-explained
   // with the key/quota wording that only applies to a vendor API key.
   if (error instanceof SpaceError) {
-    return `Mino's own model: ${error.message}`;
+    return `Openmi's own model: ${error.message}`;
   }
   if (!(error instanceof ProviderError)) {
-    return "Mino could not reach either AI service. Check your network connection and try again.";
+    return "Openmi could not reach either AI service. Check your network connection and try again.";
   }
 
   const { provider, status } = error;
@@ -275,7 +275,7 @@ async function callProvider(
   googleContext: string
 ): Promise<Response> {
   // Fable runs its own Claude-Fable persona; the Space runs Azure or Opus;
-  // everything else runs the base Mino identity.
+  // everything else runs the base Openmi identity.
   const basePrompt =
     provider.id === "fable"
       ? FABLE_SYSTEM_PROMPT
@@ -283,7 +283,7 @@ async function callProvider(
         ? provider.id === "opus"
           ? OPUS_SYSTEM_PROMPT
           : AZURE_SYSTEM_PROMPT
-        : MINO_SYSTEM_PROMPT;
+        : OPENMI_SYSTEM_PROMPT;
   const system = [
     basePrompt,
     // The Code grammar only applies in Code mode. Auto mode answers ordinary
@@ -297,7 +297,7 @@ async function callProvider(
     .filter(Boolean)
     .join("\n\n");
 
-  // Mino's own model. It is not an OpenAI-compatible endpoint, so it is called
+  // Openmi's own model. It is not an OpenAI-compatible endpoint, so it is called
   // through the Space adapter rather than fetched — the adapter returns the
   // same SSE shape, which is why nothing below this branch changes.
   if (provider.family === "space") {
@@ -372,7 +372,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // count, so they sit ahead of the rate limit and never spend allowance.
   if (body.messages.length > MAX_MESSAGES_IN_REQUEST) {
     return Response.json(
-      { error: `Too much conversation at once. Mino keeps at most ${MAX_MESSAGES_IN_REQUEST} messages in a request.` },
+      { error: `Too much conversation at once. Openmi keeps at most ${MAX_MESSAGES_IN_REQUEST} messages in a request.` },
       { status: 413 }
     );
   }
@@ -393,7 +393,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           : "";
     if (text.length > MAX_MESSAGE_CHARS) {
       return Response.json(
-        { error: "One message in this conversation is too long for Mino to read. Shorten it and try again." },
+        { error: "One message in this conversation is too long for Openmi to read. Shorten it and try again." },
         { status: 413 }
       );
     }
@@ -401,7 +401,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   if (totalChars > MAX_TOTAL_CHARS) {
     return Response.json(
-      { error: "This conversation is too long for Mino to send at once. Start a new chat, or edit the oldest messages to be shorter." },
+      { error: "This conversation is too long for Openmi to send at once. Start a new chat, or edit the oldest messages to be shorter." },
       { status: 413 }
     );
   }
@@ -418,7 +418,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return errorStream(config.maintenanceMessage);
   }
   if (!config.chatEnabled) {
-    return errorStream("Mino is paused right now. Please try again shortly.");
+    return errorStream("Openmi is paused right now. Please try again shortly.");
   }
   // A backstop that does not depend on anything the caller sends, so the
   // deployment's provider quota cannot be drained by one client.
@@ -430,7 +430,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // controls cannot be sidestepped by leaving the Authorization header off.
   const gate = identityGate(identity, config, config.dailyChatCap);
   if (!gate.allowed) {
-    return errorStream(gate.error ?? "Mino is not available to this device.");
+    return errorStream(gate.error ?? "Openmi is not available to this device.");
   }
   const requested: ModeId =
     body.mode === "code" ? "code" : body.mode === "self" ? "self" : body.mode === "opus" ? "opus" : body.mode === "fable" ? "fable" : "auto";
@@ -499,18 +499,18 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   if (providers.length === 0) {
     // No vendor and no environment variable name here. Both are things only the
-    // person deploying Mino needs, and this text is rendered in the chat as an
+    // person deploying Openmi needs, and this text is rendered in the chat as an
     // assistant message — a visitor has no business reading a provider's name.
     return textStream(
       requested === "code"
-        ? "**Mino Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Mino V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
+        ? "**Openmi Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Openmi V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
         : requested === "opus"
-          ? "**~Claude Opus 5.5 isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Opus can answer. Your conversations are already saved safely on this device."
+          ? "**~Claude Opus 5.5 isn't available on this deployment.** The person who runs this deployment needs to enable Openmi's own model before Opus can answer. Your conversations are already saved safely on this device."
         : requested === "fable"
           ? "**~Claude Fable 5.1 isn't available on this deployment.** The person who runs this deployment needs to add an OpenRouter key before Fable can answer. Your conversations are already saved safely on this device."
           : requested === "self"
-            ? "**Mino Azure isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Azure mode can answer. Your conversations are already saved safely on this device."
-            : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
+            ? "**Openmi Azure isn't available on this deployment.** The person who runs this deployment needs to enable Openmi's own model before Azure mode can answer. Your conversations are already saved safely on this device."
+            : "**Openmi isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
     );
   }
 
@@ -586,7 +586,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const isCodeMode = requested === "code";
   // Opus and Fable modes identify under their own product names (~Claude ...),
   // so the identity rewrite filter — which would turn "I'm Claude" into "I'm
-  // Mino" — is bypassed for them.
+  // Openmi" — is bypassed for them.
   const bypassIdentity = requested === "opus" || requested === "fable";
 
   // Reasoning effort is a preference, not a promise. Not every model on every
@@ -657,7 +657,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!upstream || !activeProvider) {
     return errorStream(
       failures.map((failure, index) =>
-        `${index > 0 ? "Mino also tried " : ""}${explainProviderError(failure)}`
+        `${index > 0 ? "Openmi also tried " : ""}${explainProviderError(failure)}`
       ).join(" ")
     );
   }
@@ -687,11 +687,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         encodeEvent({
           mode: activeProvider!.id,
           provider: activeProvider!.label,
-          // The Mino name, never the wire id. This value is written into the
+          // The Openmi name, never the wire id. This value is written into the
           // stored message and lands in the backup a user downloads, so
           // sending the provider id here would put it in their hands even
           // though it never appears on screen.
-          model: getModelDisplayName(toMinoName(activeProvider!.model)),
+          model: getModelDisplayName(toOpenmiName(activeProvider!.model)),
         })
       );
       // Streams one model attempt into the client's single response, and
@@ -881,7 +881,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         controller.enqueue(
           encodeEvent({
             provider: next.label,
-            model: getModelDisplayName(toMinoName(next.model)),
+            model: getModelDisplayName(toOpenmiName(next.model)),
           })
         );
       }
@@ -907,7 +907,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           if (!deduct.ok) {
             // A missed charge is logged, not hidden: it is a real
             // shortfall in the ledger and the only way it gets noticed.
-            console.warn(`[mino dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`);
+            console.warn(`[openmi dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`);
           } else {
             // The write-once log entry, best effort — rules refuse junk, so
             // a failure here costs only the history, never the balance.
@@ -922,7 +922,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
       // Only now, after every model has had its turn, is the answer known to be
       // incomplete. Emitting this earlier would tell the user the answer is cut
-      // off while Mino is still completing it.
+      // off while Openmi is still completing it.
       if (truncated) controller.enqueue(encodeEvent({ truncated: true }));
 
       // ── Google actions ─────────────────────────────────────────────────────
@@ -930,7 +930,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // finished text and executed against the caller's connected account. The
       // model never holds a token; it only names the action. Results stream as
       // appended markdown, and the models are given the results in a short
-      // second round so the answer ends in Mino's voice, not a JSON dump.
+      // second round so the answer ends in Openmi's voice, not a JSON dump.
       if (googleSession && answer.includes("```")) {
         const actions = extractActionBlocks(answer);
         if (actions.length > 0) {
@@ -1039,7 +1039,7 @@ export async function GET(): Promise<Response> {
   if (process.env.GROQ_API_KEY?.trim() && !available.includes("auto")) {
     available.push("auto");
   }
-  // Mino's own model needs no key, so it is available whenever it is not
+  // Openmi's own model needs no key, so it is available whenever it is not
   // explicitly switched off. Both Azure (7B) and Opus (72B) run on it.
   if (isSpaceConfigured()) {
     available.push("self");

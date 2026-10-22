@@ -46,7 +46,7 @@ function note(overrides: Partial<DevNote> = {}): DevNote {
     body: "The body.",
     badge: "Important",
     badgeTone: "important",
-    author: "mino_dev",
+    author: "openmi_dev",
     dateLabel: "",
     published: true,
     publishedAt: 1000,

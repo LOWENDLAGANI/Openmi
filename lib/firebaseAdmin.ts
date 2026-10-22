@@ -102,7 +102,7 @@ function notConfigured(): Error & { code?: string } {
 }
 
 function unauthorized(): Error & { code?: string } {
-  const error = new Error("This account is not the Mino administrator.") as Error & { code?: string };
+  const error = new Error("This account is not the Openmi administrator.") as Error & { code?: string };
   error.code = "app/permission-denied";
   return error;
 }

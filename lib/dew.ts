@@ -1,4 +1,4 @@
-// ── Dew — Mino's pay-as-you-go currency ─────────────────────────────────────
+// ── Dew — Openmi's pay-as-you-go currency ─────────────────────────────────────
 // Pure logic only: no Firebase, no fetch. Everything about what a token costs,
 // what a balance means, and what a balance looks like on screen is decided
 // here, so the chat route, the image route, the client and the tests cannot
@@ -13,7 +13,7 @@ export const DEW_PER_UNIT = 100; // 100 Dew = $1.00 of value
 export const TRIAL_DEW = 25; // granted once at account creation
 /** Below this balance a request is refused before it reaches a model. */
 export const DUST_THRESHOLD = 0.05;
-/** Mino Azure's smallest plausible answer; refuse below this rather than burning a slot. */
+/** Openmi Azure's smallest plausible answer; refuse below this rather than burning a slot. */
 export const AZURE_FLOOR = 0.25;
 /** ~Claude Opus 5.5 runs the 72B model, so its floor is double Azure's. */
 export const OPUS_FLOOR = 0.5;
@@ -32,7 +32,7 @@ export const DEW_PACKS: readonly DewPack[] = [
   { id: "1000", dew: 1000, ringgit: 35 },
 ] as const;
 /** Same DuitNow QR the rest of the product already uses. */
-export const DEW_QR = "/mino-donate-qr.png";
+export const DEW_QR = "/openmi-donate-qr.png";
 export const DEW_QR_CAPTION = "Scan with your banking app · DuitNow";
 /** Rounding: three decimals is the finest a Dew figure is ever kept. */
 export const DEW_PRECISION = 3;
@@ -46,7 +46,7 @@ export type DewTier = "fast" | "pro";
 /**
  * Cost in Dew per 1,000 tokens.
  *
- * Fast covers the flash models Auto and Code run on. Pro covers Mino Azure and
+ * Fast covers the flash models Auto and Code run on. Pro covers Openmi Azure and
  * any request that explicitly asked for medium or high reasoning. Input and
  * output are priced separately because they cost the deployment separately.
  */

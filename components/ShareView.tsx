@@ -3,7 +3,7 @@
 // ── The receiving end of a shared link ───────────────────────────────────────
 // Read-only by construction: this page touches no database, no account and no
 // chat store — everything it renders arrived inside the URL fragment, which the
-// server never sees. That is why it can open for somebody with no Mino and no
+// server never sees. That is why it can open for somebody with no Openmi and no
 // sign-in, and why the only honest thing to say on it is where the link ends.
 //
 // It deliberately does *not* reuse ChatThread. That component's whole job is
@@ -12,7 +12,7 @@
 // safer than a shared component whose props this page would have to fake.
 
 import { useEffect, useState } from "react";
-import MinoMark from "./MinoMark";
+import OpenmiMark from "./OpenmiMark";
 import Markdown from "./Markdown";
 import { parseShareLink, type SharedChat } from "@/lib/shareLink";
 import Link from "next/link";
@@ -26,14 +26,14 @@ type ViewState =
 function Notice({ title, body }: { title: string; body: string }) {
   return (
     <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#060a08] px-6 text-center">
-      <MinoMark className="mb-5 h-10 w-10" />
+      <OpenmiMark className="mb-5 h-10 w-10" />
       <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-white">{title}</h1>
       <p className="mt-2 max-w-sm text-[12.5px] leading-relaxed text-white/45">{body}</p>
       <Link
         href="/"
         className="mt-5 rounded-full bg-[#2f6b48] px-4 py-2 text-[12px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
       >
-        Open Mino
+        Open Openmi
       </Link>
     </div>
   );
@@ -75,7 +75,7 @@ export default function ShareView() {
     return (
       <Notice
         title="Nothing is attached to this link"
-        body="A shared Mino link carries the conversation inside it. This one arrived without one — copy the full link and try again."
+        body="A shared Openmi link carries the conversation inside it. This one arrived without one — copy the full link and try again."
       />
     );
   }
@@ -94,10 +94,10 @@ export default function ShareView() {
     <div className="min-h-[100dvh] bg-[#060a08] text-white">
       <header className="hairline-b sticky top-0 z-10 bg-[#060a08]/92 backdrop-blur-md">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3.5 md:px-7">
-          <MinoMark className="h-7 w-7" />
+          <OpenmiMark className="h-7 w-7" />
           <div className="min-w-0 flex-1">
             <p className="text-[9.5px] font-semibold uppercase tracking-[0.16em] text-[#a9d8bb]/60">
-              Shared from Mino
+              Shared from Openmi
             </p>
             <h1 className="truncate text-[13.5px] font-semibold tracking-[-0.01em] text-white">
               {chat.t || "A conversation"}
@@ -107,7 +107,7 @@ export default function ShareView() {
             href="/"
             className="shrink-0 rounded-full bg-[#2f6b48] px-3.5 py-1.5 text-[11px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
           >
-            Open Mino
+            Open Openmi
           </Link>
         </div>
       </header>
@@ -122,8 +122,8 @@ export default function ShareView() {
           ) : (
             <div key={index} className="animate-enter">
               <div className="mb-1.5 flex items-center gap-2">
-                <MinoMark className="h-4 w-4" />
-                <span className="text-[11px] font-medium text-white/50">Mino</span>
+                <OpenmiMark className="h-4 w-4" />
+                <span className="text-[11px] font-medium text-white/50">Openmi</span>
               </div>
               <Markdown content={message.c} />
             </div>
@@ -144,8 +144,8 @@ export default function ShareView() {
       <footer className="border-t border-white/[0.05] px-4 py-5 md:px-7">
         <p className="mx-auto max-w-3xl text-[11px] leading-relaxed text-white/30">
           This conversation travelled inside the link itself — the fragment of a URL is never
-          sent to a server, so Mino holds no copy of it and nobody needs an account to read it.
-          Start your own at <Link href="/" className="text-[#a9d8bb] hover:underline">mino</Link>.
+          sent to a server, so Openmi holds no copy of it and nobody needs an account to read it.
+          Start your own at <Link href="/" className="text-[#a9d8bb] hover:underline">openmi</Link>.
         </p>
       </footer>
     </div>

@@ -28,8 +28,8 @@ function assert(condition: boolean, message: string): void {
 console.log("space prompt");
 
 test("the system prompt leads, labelled, so the model still gets the persona", () => {
-  const prompt = toSpacePrompt("You are Mino.", [{ role: "user", content: "hi" }]);
-  assert(prompt.startsWith("System: You are Mino."), `got: ${prompt.slice(0, 40)}`);
+  const prompt = toSpacePrompt("You are Openmi.", [{ role: "user", content: "hi" }]);
+  assert(prompt.startsWith("System: You are Openmi."), `got: ${prompt.slice(0, 40)}`);
 });
 
 test("turns are labelled by speaker and kept in order", () => {
@@ -105,8 +105,8 @@ test("a long conversation drops its oldest turns, not its newest question", () =
 });
 
 test("the persona survives the budget even when every turn is dropped", () => {
-  const prompt = toSpacePrompt("you are mino", [{ role: "user", content: "y".repeat(500) }], 200);
-  assert(prompt.startsWith("System: you are mino"), "the system prompt leads and is never trimmed");
+  const prompt = toSpacePrompt("you are openmi", [{ role: "user", content: "y".repeat(500) }], 200);
+  assert(prompt.startsWith("System: you are openmi"), "the system prompt leads and is never trimmed");
   assert(prompt.includes("User:"), "the question is still asked, shortened if need be");
 });
 
@@ -127,7 +127,7 @@ test("a finished answer is not mislabelled as broken", () => {
   assert(!looksTruncated(""), "an empty answer is not a truncated one");
 });
 
-console.log("\nwhere Mino's own model sits in the fallback chain");
+console.log("\nwhere Openmi's own model sits in the fallback chain");
 
 test("Self mode is the Space and nothing else", () => {
   const providers = getProviders("self");
@@ -135,7 +135,7 @@ test("Self mode is the Space and nothing else", () => {
   assert(providers[0].family === "space", "and it is the Space");
 });
 
-test("Code mode never silently answers with Mino's own model", () => {
+test("Code mode never silently answers with Openmi's own model", () => {
   assert(!getProviders("code").some((p) => p.family === "space"), "Code stays single-family");
 });
 

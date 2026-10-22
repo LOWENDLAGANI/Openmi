@@ -1,4 +1,4 @@
-// ── Mino model health checks (server only) ───────────────────────────────────
+// ── Openmi model health checks (server only) ───────────────────────────────────
 // Asks one configured model to return a fixed test message, so an administrator
 // can see, per model, whether it is reachable and actually answering — rather
 // than inferring it from a chat that fell over.
@@ -7,7 +7,7 @@
 //
 //   1. No provider name, wire model id, endpoint, or key may leave this module.
 //      The admin panel is browser code, so what it receives is an opaque id and
-//      a Mino name. The id is a hash of the wire model, which is stable across
+//      a Openmi name. The id is a hash of the wire model, which is stable across
 //      restarts (so a stored id still resolves after a deploy) and carries
 //      nothing readable.
 //   2. A probe is a real request, so it is a real cost. The prompt is tiny, the
@@ -17,7 +17,7 @@
 
 import { createHash } from "node:crypto";
 import { getModelDisplayName } from "./models";
-import { toMinoName } from "./modelEngines";
+import { toOpenmiName } from "./modelEngines";
 import { getProviders, type ProviderConfig } from "./providers";
 import { probeSpace } from "./gradioSpace";
 import { mentionsProvider, sanitizeIdentity } from "./identity";
@@ -27,7 +27,7 @@ export type ModelRole = "auto" | "version" | "backup";
 export interface ModelTarget {
   /** Opaque, stable handle the panel sends back to run a check. */
   id: string;
-  /** The Mino name. Never a provider name, never a wire model id. */
+  /** The Openmi name. Never a provider name, never a wire model id. */
   name: string;
   role: ModelRole;
 }
@@ -38,12 +38,12 @@ export interface ProbeResult extends ModelTarget {
   ms: number;
   /** The model's own words, scrubbed, so a human can confirm it really replied. */
   reply: string;
-  /** Why the check failed, in Mino's language. Empty when it succeeded. */
+  /** Why the check failed, in Openmi's language. Empty when it succeeded. */
   error: string;
 }
 
 /** The exact words a model is asked to return, so replies are comparable. */
-export const PROBE_PROMPT = "Reply with exactly this and nothing else: Mino online";
+export const PROBE_PROMPT = "Reply with exactly this and nothing else: Openmi online";
 
 /** How long a single model may take before it is treated as unreachable. */
 const PROBE_TIMEOUT_MS = 20_000;
@@ -138,20 +138,20 @@ export function listModelTargets(): ModelTarget[] {
   let backups = 0;
   for (const provider of getProviders("auto")) {
     if (provider.family === "groq") {
-      // The last-resort models all present to users as plain "Mino", so a list
+      // The last-resort models all present to users as plain "Openmi", so a list
       // of identical names would be unreadable and untestable one by one. They
       // are numbered in the order the chat route would fall back through them.
       backups += 1;
-      targets.push({ id: modelTargetId(provider.model), name: `Mino Backup ${backups}`, role: "backup" });
+      targets.push({ id: modelTargetId(provider.model), name: `Openmi Backup ${backups}`, role: "backup" });
       continue;
     }
     if (provider.family === "space") {
-      targets.push({ id: modelTargetId(provider.model), name: "Mino Azure", role: "backup" });
+      targets.push({ id: modelTargetId(provider.model), name: "Openmi Azure", role: "backup" });
       continue;
     }
     targets.push({
       id: modelTargetId(provider.model),
-      name: getModelDisplayName(toMinoName(provider.model)),
+      name: getModelDisplayName(toOpenmiName(provider.model)),
       role: provider.family === "openrouter" ? "auto" : "version",
     });
   }
@@ -175,14 +175,14 @@ function nameFor(provider: ProviderConfig, backups: Map<string, number>): ModelT
   if (provider.family === "groq") {
     const index = (backups.get(provider.family) ?? 0) + 1;
     backups.set(provider.family, index);
-    return { id: modelTargetId(provider.model), name: `Mino Backup ${index}`, role: "backup" };
+    return { id: modelTargetId(provider.model), name: `Openmi Backup ${index}`, role: "backup" };
   }
   if (provider.family === "space") {
-    return { id: modelTargetId(provider.model), name: "Mino Azure", role: "backup" };
+    return { id: modelTargetId(provider.model), name: "Openmi Azure", role: "backup" };
   }
   return {
     id: modelTargetId(provider.model),
-    name: getModelDisplayName(toMinoName(provider.model)),
+    name: getModelDisplayName(toOpenmiName(provider.model)),
     role: provider.family === "openrouter" ? "auto" : "version",
   };
 }
@@ -198,7 +198,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
   if (!provider) {
     return {
       id,
-      name: "Mino",
+      name: "Openmi",
       role: "version",
       ok: false,
       ms: 0,
@@ -220,14 +220,14 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
   const { stream_options: _streamOptions, ...extraBody } = provider.extraBody ?? {};
 
   try {
-    // Mino's own model is not an OpenAI-compatible endpoint, so it is probed
+    // Openmi's own model is not an OpenAI-compatible endpoint, so it is probed
     // through the Space adapter instead of being fetched. The adapter returns
     // the same SSE shape, so the parsing below is unchanged.
     if (provider.family === "space") {
       const reply = sanitizeIdentity((await probeSpace(abort)).trim());
       return reply
         ? { ...target, ok: true, ms: Date.now() - startedAt, reply: reply.slice(0, 120), error: "" }
-        : { ...target, ok: false, ms: Date.now() - startedAt, reply: "", error: "Mino Azure returned an empty answer." };
+        : { ...target, ok: false, ms: Date.now() - startedAt, reply: "", error: "Openmi Azure returned an empty answer." };
     }
 
     const response = await fetch(provider.url, {
@@ -241,7 +241,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
         model: provider.model,
         messages: [
           // A minimal system prompt keeps the reply to the test message. The
-          // full Mino persona is not used: this checks the plumbing, not the
+          // full Openmi persona is not used: this checks the plumbing, not the
           // product, and a persona that insists on a preamble would make every
           // model look like it failed.
           { role: "system", content: "You are running a connectivity check. Follow the instruction exactly." },

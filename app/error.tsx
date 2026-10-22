@@ -4,7 +4,7 @@ import Link from "next/link";
 // ── Render failures ──────────────────────────────────────────────────────────
 // A client-side exception used to reach the visitor as Next's development
 // overlay, or as nothing at all in production. This exists so a crash still
-// reads as Mino, says what happened in one sentence, and offers the two things
+// reads as Openmi, says what happened in one sentence, and offers the two things
 // that actually help: try again, and go back to the chat.
 //
 // The stack is deliberately not printed. This runs on the visitor's machine and
@@ -43,7 +43,7 @@ export default function ErrorBoundary({
         Something broke on the way in.
       </h1>
       <p className="mt-2 max-w-sm text-[13.5px] leading-relaxed text-white/50">
-        {error.message || "Mino hit an unexpected error while drawing this screen."}
+        {error.message || "Openmi hit an unexpected error while drawing this screen."}
       </p>
 
       <div className="mt-6 flex items-center gap-2.5">

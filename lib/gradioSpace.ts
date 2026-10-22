@@ -1,5 +1,5 @@
 // ── The Gradio Space (server only) ──────────────────────────────────────────
-// Mino's own model, hosted on Hugging Face Spaces behind Gradio. This adapter
+// Openmi's own model, hosted on Hugging Face Spaces behind Gradio. This adapter
 // is the only file that knows that.
 //
 // Two things make it more than a `fetch`. The Space exposes one endpoint that
@@ -14,7 +14,7 @@
 // Space host and the name of the Hugging Face token.
 
 /** Space id. Overridable so a fork or a second deployment can be pointed at. */
-const SPACE_ID = process.env.MINO_HF_SPACE?.trim() || "Minetallest/Mino";
+const SPACE_ID = process.env.OPENMI_HF_SPACE?.trim() || "Minetallest/Mino";
 
 /**
  * The Space's only named endpoint, confirmed against its live API schema at
@@ -27,14 +27,14 @@ const ENDPOINT = "/generate_response";
 
 const HOST = `https://${SPACE_ID.toLowerCase().replace("/", "-")}.hf.space`;
 
-/** Set to `off` to remove Mino's own model from the deployment entirely. */
+/** Set to `off` to remove Openmi's own model from the deployment entirely. */
 function spaceEnabled(): boolean {
-  return process.env.MINO_HF_SPACE?.trim().toLowerCase() !== "off";
+  return process.env.OPENMI_HF_SPACE?.trim().toLowerCase() !== "off";
 }
 
 /** Optional. A public Space needs no token; a private or ZeroGPU one does. */
 function spaceToken(): string {
-  return process.env.MINO_HF_TOKEN?.trim() || "";
+  return process.env.OPENMI_HF_TOKEN?.trim() || "";
 }
 
 /**
@@ -49,7 +49,7 @@ function spaceToken(): string {
  * message. Overridable so a colder hardware tier can be given more room.
  */
 function readTimeoutMs(): number {
-  const configured = Number(process.env.MINO_HF_TIMEOUT_MS);
+  const configured = Number(process.env.OPENMI_HF_TIMEOUT_MS);
   return Number.isFinite(configured) && configured > 0 ? configured : 600_000;
 }
 
@@ -63,14 +63,14 @@ function readTimeoutMs(): number {
  * oldest turns instead of its newest question.
  */
 function promptBudget(): number {
-  const configured = Number(process.env.MINO_HF_PROMPT_BUDGET);
+  const configured = Number(process.env.OPENMI_HF_PROMPT_BUDGET);
   return Number.isFinite(configured) && configured > 0 ? configured : 12_000;
 }
 
 /** The wire id used for this model in provider lists and stored messages. */
-export const SPACE_MODEL = "mino-self";
+export const SPACE_MODEL = "openmi-self";
 /** Wire id for the ~Claude Opus 5.5 persona — same Space, 72B weights. */
-export const SPACE_MODEL_OPUS = "mino-opus";
+export const SPACE_MODEL_OPUS = "openmi-opus";
 /**
  * Exact Radio strings the Space's `app.py` branches on. These are matched
  * literally — a typo silently falls into the else branch (72B weights) — so
@@ -157,7 +157,7 @@ export function toSpacePrompt(
   const dropped = turns.length - kept.length;
   const note =
     dropped > 0
-      ? [`[${dropped} earlier message${dropped === 1 ? "" : "s"} omitted to fit Mino's context window]`, ""]
+      ? [`[${dropped} earlier message${dropped === 1 ? "" : "s"} omitted to fit Openmi's context window]`, ""]
       : [];
   return [...header, ...note, ...kept].join("\n");
 }
@@ -205,13 +205,13 @@ function spaceErrorMessage(data: unknown): string {
 
   const detail = typeof error === "string" ? error.trim() : "";
   if (/zero ?gpu|quota/i.test(detail)) {
-    return "Mino Azure is out of GPU time. A Hugging Face token gives it more — the person who runs this deployment needs to add one.";
+    return "Openmi Azure is out of GPU time. A Hugging Face token gives it more — the person who runs this deployment needs to add one.";
   }
   if (detail) {
     const first = detail.split(/(?<=[.!?])\s/)[0] ?? detail;
-    return first.length > 160 ? "Mino Azure could not generate a reply." : first;
+    return first.length > 160 ? "Openmi Azure could not generate a reply." : first;
   }
-  return "Mino Azure reported an error while generating.";
+  return "Openmi Azure reported an error while generating.";
 }
 
 /** Reads the call's SSE feed until it completes, and returns the text. */
@@ -230,7 +230,7 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
   } catch (error) {
     if (signal.aborted) throw error;
     throw new SpaceError(
-      "Mino Azure did not answer in time. It may be starting up or out of GPU time — try again.",
+      "Openmi Azure did not answer in time. It may be starting up or out of GPU time — try again.",
       504
     );
   }
@@ -249,7 +249,7 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
       buffer += decoder.decode(value, { stream: true });
       if (deadline.aborted) {
         throw new SpaceError(
-          "Mino Azure stopped answering partway through. It may be starting up or out of GPU time — try again.",
+          "Openmi Azure stopped answering partway through. It may be starting up or out of GPU time — try again.",
           504
         );
       }
@@ -300,7 +300,7 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
     if (signal.aborted) throw error;
     if (deadline.aborted) {
       throw new SpaceError(
-        "Mino Azure stopped answering partway through. It may be starting up or out of GPU time — try again.",
+        "Openmi Azure stopped answering partway through. It may be starting up or out of GPU time — try again.",
         504
       );
     }
@@ -322,7 +322,7 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
  * chat route's stream pump, identity filter and usage accounting all work
  * unchanged, and the fallback to the next provider behaves as it already does.
  *
- * The answer arrives in one piece rather than token by token. Mino's client
+ * The answer arrives in one piece rather than token by token. Openmi's client
  * reveals text smoothly as it arrives, so this still reads as a streamed
  * reply without pretending to be a token stream.
  */
@@ -353,7 +353,7 @@ async function askSpace(
     });
   } catch (error) {
     if (signal.aborted) throw error;
-    throw new SpaceError("Mino Azure could not be reached in time.", 504);
+    throw new SpaceError("Openmi Azure could not be reached in time.", 504);
   }
 
   if (opened.status === 429) {

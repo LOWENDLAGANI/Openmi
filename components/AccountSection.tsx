@@ -30,7 +30,7 @@ interface AccountSectionProps {
  * it grants one named address and no others.
  *
  * Binding is offered, never required. Someone who never links an account still
- * has a name, a working Mino, and a chat history in their browser.
+ * has a name, a working Openmi, and a chat history in their browser.
  */
 export default function AccountSection({ displayName }: AccountSectionProps) {
   const [view, setView] = useState<AccountView | null>(null);
@@ -66,7 +66,7 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
         );
       }
     } catch (cause: unknown) {
-      console.error("[Mino] Could not sync this device's chats with the account", cause);
+      console.error("[Openmi] Could not sync this device's chats with the account", cause);
     }
   }, []);
 
@@ -85,7 +85,7 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
       }
     } catch (cause: unknown) {
       if (isDismissed(cause)) return;
-      console.error("[Mino] Could not link the account", cause);
+      console.error("[Openmi] Could not link the account", cause);
       setError(describeLinkError(cause));
     } finally {
       setBusy(false);
@@ -100,7 +100,7 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
       await detachGoogleAccount();
       setNotice("This device is back to a name on its own. Your account is untouched.");
     } catch (cause: unknown) {
-      console.error("[Mino] Could not detach the account", cause);
+      console.error("[Openmi] Could not detach the account", cause);
       setError(describeLinkError(cause));
     } finally {
       setBusy(false);

@@ -7,7 +7,7 @@
 //     to publish. This project deliberately holds no service account and lets
 //     nobody read another visitor's chats; a link that uploads would break
 //     both of those in the one place it touched.
-//   * The reader needs no Mino and no sign-in, because there is nothing to
+//   * The reader needs no Openmi and no sign-in, because there is nothing to
 //     fetch: the page decodes what the URL already carries.
 //
 // The costs of that choice are handled rather than ignored:

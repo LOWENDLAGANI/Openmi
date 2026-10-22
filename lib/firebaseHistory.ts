@@ -257,7 +257,7 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
 // A pull must never resurrect something this device deleted, so deletions are
 // recorded here and honoured on the way in. Kept in localStorage rather than
 // Dexie because it must survive the very database it is guarding.
-const DELETED_KEY = "mino:deleted-chats";
+const DELETED_KEY = "openmi:deleted-chats";
 
 function deletedChatIds(): Set<string> {
   try {
@@ -473,7 +473,7 @@ export async function loadMemoriesFromAccount(): Promise<Memory[] | null> {
 /**
  * Reads the admin PIN verifier from Realtime Database.
  *
- * This is the one read Mino performs. Chat history itself is never read back —
+ * This is the one read Openmi performs. Chat history itself is never read back —
  * see syncFirebaseHistory above. Only a signed-in anonymous visitor can call it,
  * and it returns a SHA-256 digest rather than the PIN, so the database never
  * holds or discloses the secret itself.
@@ -512,9 +512,9 @@ export async function syncVisitorProfile(name: string): Promise<void> {
 }
 
 /**
- * Lists every visitor that has given Mino a name.
+ * Lists every visitor that has given Openmi a name.
  *
- * This is names and timestamps only. It is the one place Mino reads back from
+ * This is names and timestamps only. It is the one place Openmi reads back from
  * the database, and it deliberately excludes the logged chat text.
  */
 export async function fetchVisitorRegistry(): Promise<Array<VisitorProfile & { uid: string }>> {

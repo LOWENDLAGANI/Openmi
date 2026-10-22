@@ -1,4 +1,4 @@
-// ── Mino — tests for the chat that is never written down ────────────────────
+// ── Openmi — tests for the chat that is never written down ────────────────────
 //
 // A temporary chat promises two things: it behaves like a real conversation
 // while it is open, and nothing about it survives. The second is the one worth

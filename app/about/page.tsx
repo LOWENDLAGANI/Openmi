@@ -3,7 +3,7 @@ import AboutLogo from "@/components/AboutLogo";
 import MaintenanceGate from "@/components/MaintenanceGate";
 
 // ── Fill these in ────────────────────────────────────────────────────────────
-/** When the first Mino build was created. */
+/** When the first Openmi build was created. */
 const DATE_CREATED = "24/9/2026";
 
 /** Milestones reached, oldest first. Titles only — the point is the trail.
@@ -57,8 +57,8 @@ const STATE_STYLES = {
 } as const;
 
 export const metadata = {
-  title: "About — Mino",
-  description: "Mino is a private AI assistant created and developed by Minetallest.",
+  title: "About — Openmi",
+  description: "Openmi is a private AI assistant created and developed by Minetallest.",
 };
 
 export default function AboutPage() {
@@ -90,10 +90,10 @@ function AboutContent() {
             <AboutLogo className="relative h-full w-full" />
           </div>
           <h1 className="mt-8 text-balance text-[38px] font-normal leading-[1.05] tracking-[-0.03em] text-white sm:text-[52px]">
-            Mino
+            Openmi
           </h1>
           <p className="mt-3 max-w-sm text-balance text-[13px] leading-relaxed text-white/40 sm:text-[14px]">
-            Mino is still in beta testing. Stay tuned, and thank you for your patience.
+            Openmi is still in beta testing. Stay tuned, and thank you for your patience.
           </p>
         </header>
 
@@ -102,19 +102,19 @@ function AboutContent() {
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">Created by</div>
             <p className="mt-1.5 text-[18px] font-semibold tracking-[-0.01em] text-white">Minetallest</p>
             <p className="mt-1 text-[12px] leading-relaxed text-white/40">
-              Sole creator, designer, and developer of Mino.
+              Sole creator, designer, and developer of Openmi.
             </p>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-5">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">Date created</div>
             <p className="mt-1.5 text-[18px] font-semibold tracking-[-0.01em] text-white">{DATE_CREATED}</p>
             <p className="mt-1 text-[12px] leading-relaxed text-white/40">
-              When the first build of Mino went live.
+              When the first build of Openmi went live.
             </p>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-5 sm:col-span-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">AI name</div>
-            <p className="mt-1.5 text-[18px] font-semibold tracking-[-0.01em] text-white">Mino</p>
+            <p className="mt-1.5 text-[18px] font-semibold tracking-[-0.01em] text-white">Openmi</p>
           </div>
         </section>
 
@@ -165,13 +165,13 @@ function AboutContent() {
 
         <footer className="mt-14 border-t border-white/[0.06] pt-6 text-center">
           <p className="text-[12px] text-white/30">
-            Mino · created by <span className="text-white/55">Minetallest</span>
+            Openmi · created by <span className="text-white/55">Minetallest</span>
           </p>
           <Link
             href="/"
             className="mt-4 inline-flex items-center justify-center rounded-full bg-white px-5 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90"
           >
-            Open Mino
+            Open Openmi
           </Link>
         </footer>
       </div>

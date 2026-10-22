@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "mino",
+      "name": "openmi",
       "dependencies": {
         "@types/web-push": "^3.6.4",
         "dexie": "^4.0.8",

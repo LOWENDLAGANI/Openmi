@@ -1,4 +1,4 @@
-// ── Mino shared types ────────────────────────────────────────────────────────
+// ── Openmi shared types ────────────────────────────────────────────────────────
 
 export type Role = "user" | "assistant" | "system";
 export type SearchMode = "auto" | "always" | "off";
@@ -91,7 +91,7 @@ export interface ChatFolder {
 }
 
 /**
- * One thing Mino is told to remember between conversations.
+ * One thing Openmi is told to remember between conversations.
  *
  * Deliberately a flat list of short sentences rather than a document store or
  * a vector index. The whole list is injected into every request, so it is read
@@ -100,7 +100,7 @@ export interface ChatFolder {
  * cause findable. A retrieval system would hide the very thing beingdebugged.
  *
  * Capture is manual. Nothing here is written by a model on its own initiative:
- * a fact Mino decided to remember is a fact nobody reviewed, and a wrong one
+ * a fact Openmi decided to remember is a fact nobody reviewed, and a wrong one
  * is worse than none because it is confidently applied forever.
  */
 export interface Memory {

@@ -1,4 +1,4 @@
-// ── Mino identity guard (server only) ────────────────────────────────────────
+// ── Openmi identity guard (server only) ────────────────────────────────────────
 // The vendor names below must never reach a browser, so this module is
 // imported by server routes only. It lives outside app/api/chat/route.ts so the
 // admin model-health probe can scrub a provider's reply and error text with
@@ -11,8 +11,8 @@
 //
 // It is deliberately scoped to SELF-REFERENCE only. A blanket vendor-name filter
 // would corrupt legitimate answers ("Gemini changed its pricing", "compare Gemini
-// with Claude") and make Mino look wrong, so a vendor name is only rewritten when
-// the sentence is Mino claiming to be, or having been built by, that vendor.
+// with Claude") and make Openmi look wrong, so a vendor name is only rewritten when
+// the sentence is Openmi claiming to be, or having been built by, that vendor.
 
 /**
  * A vendor/model name, optionally carrying a version and tier.
@@ -35,12 +35,12 @@ function bareSubject(subject: string): string {
   return subject.replace(/\s*(?:'m|’m|'s|is|are|am|was|were|been)\s*$/i, "").trim();
 }
 
-function asMino(subject: string): string {
+function asOpenmi(subject: string): string {
   const base = bareSubject(subject);
-  if (/^mino$/i.test(base)) return "Mino";
-  if (/^i$/i.test(base)) return "I am Mino";
-  if (/^it$/i.test(base)) return "It is Mino";
-  return `${base} is Mino`;
+  if (/^openmi$/i.test(base)) return "Openmi";
+  if (/^i$/i.test(base)) return "I am Openmi";
+  if (/^it$/i.test(base)) return "It is Openmi";
+  return `${base} is Openmi`;
 }
 
 function withTense(subject: string, aux: string, verb: string, tail: string): string {
@@ -57,13 +57,13 @@ const IDENTITY_REWRITES: Rewrite[] = [
       "gi"
     ),
     // A negated claim ("I'm not Gemini") is dropped rather than flipped, so it
-    // never turns into a false "I'm not Mino".
+    // never turns into a false "I'm not Openmi".
     replace: (_m, subject, filler) => {
       const kept = filler.replace(/^(?:(?:not|never)\s+)+/i, "");
-      return `${subject} ${kept}Mino`.replace(/\s{2,}/g, " ");
+      return `${subject} ${kept}Openmi`.replace(/\s{2,}/g, " ");
     },
   },
-  // "I was created by Google", "I'm built by OpenAI" → Mino's real creator.
+  // "I was created by Google", "I'm built by OpenAI" → Openmi's real creator.
   {
     pattern: new RegExp(
       String.raw`\b(I\s*(?:'m|am|was|have\s+been))\s+(created|developed|made|built|designed|trained)\s+by\s+(?:an?\s+|the\s+)?${CREATOR_NAMES}\b`,
@@ -80,25 +80,25 @@ const IDENTITY_REWRITES: Rewrite[] = [
     ),
     replace: (_m, clause) => `${clause}, created by Minetallest`,
   },
-  // "I'm powered by OpenRouter", "I run on GPT-4", "Mino is hosted on Vertex".
+  // "I'm powered by OpenRouter", "I run on GPT-4", "Openmi is hosted on Vertex".
   {
     pattern: new RegExp(
-      String.raw`\b(I(?:\s*'(?:m|ve)?|\s+is|\s+are|\s+am|\s+was|\s+were)?|Mino|this\s+assistant|the\s+assistant)\s+(?:is\s+|are\s+)?(?:powered|run|running|hosted|operated|served|built|backed)\s+(?:by|on|with|using|through|via)\s+(?:an?\s+|the\s+)?${VENDOR}\b`,
+      String.raw`\b(I(?:\s*'(?:m|ve)?|\s+is|\s+are|\s+am|\s+was|\s+were)?|Openmi|this\s+assistant|the\s+assistant)\s+(?:is\s+|are\s+)?(?:powered|run|running|hosted|operated|served|built|backed)\s+(?:by|on|with|using|through|via)\s+(?:an?\s+|the\s+)?${VENDOR}\b`,
       "gi"
     ),
-    replace: (_m, subject) => asMino(subject),
+    replace: (_m, subject) => asOpenmi(subject),
   },
-  // "Mino was created by OpenAI", "this assistant is powered by Gemini".
+  // "Openmi was created by OpenAI", "this assistant is powered by Gemini".
   // A bare "it" is deliberately excluded: in "I think it was created by Google"
   // the pronoun refers to something else entirely.
   {
     pattern: new RegExp(
-      String.raw`\b(Mino|this\s+assistant|the\s+assistant)(\s+(?:was\s+|were\s+|is\s+|are\s+|has\s+been\s+|been\s+)?)(created|developed|made|built|designed|trained|powered|hosted|operated)\s+(?:by|on|with|using|through|via)\s+(?:an?\s+|the\s+)?${VENDOR}\b`,
+      String.raw`\b(Openmi|this\s+assistant|the\s+assistant)(\s+(?:was\s+|were\s+|is\s+|are\s+|has\s+been\s+|been\s+)?)(created|developed|made|built|designed|trained|powered|hosted|operated)\s+(?:by|on|with|using|through|via)\s+(?:an?\s+|the\s+)?${VENDOR}\b`,
       "gi"
     ),
     replace: (_m, subject, aux, verb) =>
       /powered|hosted|operated/i.test(verb)
-        ? asMino(subject)
+        ? asOpenmi(subject)
         : withTense(bareSubject(subject), aux, verb, "by Minetallest"),
   },
   // "my creator is Google", "my developer is OpenAI".
@@ -115,11 +115,11 @@ const IDENTITY_REWRITES: Rewrite[] = [
       String.raw`\b(my\s+(?:name|model|identity|system)\s+is)\s+(?:an?\s+|the\s+)?${VENDOR}'?s?(?=\W|$)`,
       "gi"
     ),
-    replace: (_m, role) => `${role} Mino`,
+    replace: (_m, role) => `${role} Openmi`,
   },
-  // "I'm not Gemini, I'm Mino" — after the negation is dropped both halves
-  // read "Mino", so collapse the duplicate.
-  { pattern: /\bMino\b[,.]\s*(?:but\s+|and\s+)?(?:I\s*'?m|I\s+am)\s+Mino\b/gi, replace: () => "Mino" },
+  // "I'm not Gemini, I'm Openmi" — after the negation is dropped both halves
+  // read "Openmi", so collapse the duplicate.
+  { pattern: /\bOpenmi\b[,.]\s*(?:but\s+|and\s+)?(?:I\s*'?m|I\s+am)\s+Openmi\b/gi, replace: () => "Openmi" },
 ];
 
 export function sanitizeIdentity(text: string): string {
@@ -142,15 +142,15 @@ export function mentionsProvider(text: string): boolean {
 
 export function sanitizeProviderDetail(detail: string): string {
   return detail
-    .replace(new RegExp(String.raw`\b${VENDOR}\b`, "gi"), "Mino model service")
+    .replace(new RegExp(String.raw`\b${VENDOR}\b`, "gi"), "Openmi model service")
     // A model id often has a tail the vendor pattern cannot consume — "gpt-oss-120b"
     // matches only "gpt", "claude-3-5-sonnet" only "claude-3" — which would leave a
-    // half-redacted name reading "Mino model service-oss-120b".
+    // half-redacted name reading "Openmi model service-oss-120b".
     //
     // The tail must be attached with NO space. Allowing a space here would eat the
     // next English word, and "is not found" quietly becoming "found" turns a clear
     // error into a false one, which is worse than a clumsy name.
-    .replace(/\bMino model service[-\/]\S+/gi, "Mino model service")
+    .replace(/\bOpenmi model service[-\/]\S+/gi, "Openmi model service")
     .replace(/\b(?:made|created|developed|built|designed|trained)\s+by\s+[\w\s.]{2,30}/gi, "created by Minetallest");
 }
 

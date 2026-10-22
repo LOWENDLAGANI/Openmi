@@ -2,7 +2,7 @@
 
 // ── Artifact preview ─────────────────────────────────────────────────────────
 // A complete HTML document is worth showing rendered, not just highlighted —
-// Mino Code is asked for whole files precisely so the result is runnable.
+// Openmi Code is asked for whole files precisely so the result is runnable.
 //
 // The frame is sandboxed with `allow-scripts` and *without* `allow-same-origin`.
 // That combination gives the document a unique opaque origin: it can run its own

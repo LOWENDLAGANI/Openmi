@@ -180,7 +180,7 @@ export default function AdminNotes({ onError, onSave, saving }: AdminNotesProps)
                 value={draft.author}
                 maxLength={60}
                 onChange={(event) => set("author", event.target.value)}
-                placeholder="mino_dev"
+                placeholder="openmi_dev"
                 className={inputClass}
               />
             </div>

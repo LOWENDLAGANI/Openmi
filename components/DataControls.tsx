@@ -28,7 +28,7 @@ export default function DataControls() {
   const handleExport = async () => {
     try {
       const backup = await exportBackup();
-      downloadJson(`mino-backup-${new Date().toISOString().slice(0, 10)}.json`, backup);
+      downloadJson(`openmi-backup-${new Date().toISOString().slice(0, 10)}.json`, backup);
       setNotice("Backup saved to your downloads.");
     } catch {
       setNotice("Export failed. Try again in a moment.");
@@ -52,7 +52,7 @@ export default function DataControls() {
       );
       // The page listens for this and resets to a fresh chat, because the
       // thread that was just erased cannot keep standing in front of anyone.
-      window.dispatchEvent(new Event("mino:data-wiped"));
+      window.dispatchEvent(new Event("openmi:data-wiped"));
     } catch {
       setConfirmDelete(false);
       setNotice("Could not finish deleting. Please try again.");

@@ -1,4 +1,4 @@
-// ── Mino — tests for the send-later, trash, rate-limit, usage and read-aloud
+// ── Openmi — tests for the send-later, trash, rate-limit, usage and read-aloud
 //    features ─────────────────────────────────────────────────────────────────
 //
 // These are the pure parts: the parts that decide *when* something fires,
@@ -113,7 +113,7 @@ await test("the server's own refusal is read as a number of seconds", () => {
 });
 
 await test("an error with no wait in it starts no countdown", () => {
-  assert.equal(parseRetrySeconds("Mino is paused right now. Please try again shortly."), null);
+  assert.equal(parseRetrySeconds("Openmi is paused right now. Please try again shortly."), null);
   assert.equal(parseRetrySeconds(""), null);
   assert.equal(parseRetrySeconds("Please wait a moment"), null, "no number, no countdown");
 });
@@ -243,7 +243,7 @@ await test("the page consumes a due schedule through sendMessage's own options",
   const page = read("app/page.tsx");
   assert.match(page, /scheduledId: item\.id/, "a fired schedule is not consumed with the send");
   assert.match(page, /purgeTrash\(\)/, "expired trash is never dropped on start");
-  assert.match(page, /mino:data-wiped/, "the wipe event leaves the page on dead data");
+  assert.match(page, /openmi:data-wiped/, "the wipe event leaves the page on dead data");
 });
 
 await test("the database migration gives the queue and the trash their tables", () => {

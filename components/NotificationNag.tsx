@@ -91,7 +91,7 @@ export default function NotificationNag() {
       <div className="min-w-0 flex-1">
         <p className="text-[12px] font-medium text-white/85">Turn on notifications</p>
         <p className="text-[11px] leading-relaxed text-white/50">
-          Mino checks every visit — renewal reminders and news only reach a subscribed browser.
+          Openmi checks every visit — renewal reminders and news only reach a subscribed browser.
         </p>
         {problem && (
           <p className="mt-1 text-[10.5px] leading-relaxed text-amber-200/80">{problem}</p>

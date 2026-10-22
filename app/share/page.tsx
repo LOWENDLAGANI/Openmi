@@ -8,8 +8,8 @@ import ShareView from "@/components/ShareView";
 // being in the fragment means a crawler would see an empty page anyway; the
 // robots tag says so explicitly rather than leaving it to chance.
 export const metadata = {
-  title: "A shared chat — Mino",
-  description: "A conversation shared from Mino. The text travels inside the link itself.",
+  title: "A shared chat — Openmi",
+  description: "A conversation shared from Openmi. The text travels inside the link itself.",
   robots: { index: false, follow: false },
 };
 

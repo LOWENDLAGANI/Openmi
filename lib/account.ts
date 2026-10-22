@@ -1,5 +1,5 @@
 // ── The visitor's account ────────────────────────────────────────────────────
-// Linking a Google account to Mino, unlinking it, and carrying a name across
+// Linking a Google account to Openmi, unlinking it, and carrying a name across
 // browsers. This is the user's account and not the administrator's: nothing here
 // can grant console access, and nothing here reads the console's data.
 //
@@ -36,7 +36,7 @@ export type BindOutcome =
   /** The anonymous account gained a Google credential. The UID never changed. */
   | "linked"
   /**
-   * That Google account already had a Mino history elsewhere, so Mino signed
+   * That Google account already had a Openmi history elsewhere, so Openmi signed
    * into it instead. The UID changed, and the caller must re-sync local chats
    * onto it — see migrateChatsToCurrentAccount.
    */
@@ -67,7 +67,7 @@ function googleProvider(): GoogleAuthProvider {
 }
 
 /**
- * The errors that mean "this Google account is already a Mino user".
+ * The errors that mean "this Google account is already a Openmi user".
  *
  * `linkWithPopup` refuses to attach a credential that another UID already holds.
  * That refusal is not a dead end — it is the signal that the account exists and
@@ -86,10 +86,10 @@ function codeOf(cause: unknown): string {
 }
 
 /**
- * Attaches a Google account to whoever is using Mino.
+ * Attaches a Google account to whoever is using Openmi.
  *
  * A guest is upgraded in place and keeps their UID, so nothing they have written
- * moves. A browser whose Google account is already known to Mino signs into that
+ * moves. A browser whose Google account is already known to Openmi signs into that
  * account instead, because a second copy of the same person's history would be
  * worse than none — the existing history is the real one.
  *

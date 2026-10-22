@@ -1,28 +1,28 @@
-# Mino — Complete Product & Rebuild Specification (1:1)
+# Openmi — Complete Product & Rebuild Specification (1:1)
 
-> **Purpose of this document.** Everything needed to rebuild Mino exactly — every
+> **Purpose of this document.** Everything needed to rebuild Openmi exactly — every
 > screen, every rule, every data shape, every edge case — so that an AI or a human
 > developer can reproduce it without reading the source first. Written to be handed
 > to an **Android app AI** or an **Android developer**, but complete enough for a
 > web rebuild too.
 >
-> Source repository: `LOWENDLAGANI/Mino` (branch `main`). Read `README.md` in the
+> Source repository: `LOWENDLAGANI/Openmi` (branch `main`). Read `README.md` in the
 > repo for the author's own rationale; this document is the *specification*.
 
 ---
 
-## 1. What Mino is
+## 1. What Openmi is
 
-**Mino** is a private, **local-first AI chat assistant** by **Minetallest**. It is:
+**Openmi** is a private, **local-first AI chat assistant** by **Minetallest**. It is:
 
 - **Zero-login**: it works with just a display name typed on first visit. Chats live
   in the device's local database. No account is required, ever.
 - **Multi-mode chat** with streaming answers, markdown, vision (image attachments),
-  voice input, file attachments, and a strict "Mino" persona that is never allowed to
+  voice input, file attachments, and a strict "Openmi" persona that is never allowed to
   reveal which vendor model is behind it.
 - **Optionally account-bound**: a Google sign-in can be linked (migrated, not copied)
   to the anonymous identity so history and name follow the user across devices.
-- **Freemium**: free tier, plus two paid plans (**Mino Mini**, **Mino Lunar**) paid by
+- **Freemium**: free tier, plus two paid plans (**Openmi Mini**, **Openmi Lunar**) paid by
   QR transfer and granted manually by the owner, or by a **redeem code**.
 - **An admin console** hidden behind ten taps on the logo, giving runtime control of
   the live site (kill switches, caps, bans, maintenance, announcements, push, plans,
@@ -37,8 +37,8 @@ These are the rules the whole codebase is built around. A rebuild that breaks an
 them is not 1:1.
 
 1. **No vendor name ever reaches the user.** Not on screen, not in stored messages,
-   not in exported backups, not in error text. Users only ever see **Mino Auto**,
-   **Mino Code**, **Mino V1/V2/V3**, **Mino Azure**, **Mino Canvas**.
+   not in exported backups, not in error text. Users only ever see **Openmi Auto**,
+   **Openmi Code**, **Openmi V1/V2/V3**, **Openmi Azure**, **Openmi Canvas**.
 2. **The client is never trusted for money.** Plan/entitlement is read server-side
    from the database with a server-verified identity. The client gate exists only to
    draw padlocks.
@@ -89,8 +89,8 @@ Next.js API. Map each web primitive to its Android equivalent:
 
 | Web concept | Android equivalent |
 |---|---|
-| Dexie/IndexedDB `mino-db` | **Room** (SQLite) with the same 6 tables and columns |
-| `localStorage` keys (`mino:*`) | **DataStore Preferences** (or SharedPreferences) — keep the *same key names* |
+| Dexie/IndexedDB `openmi-db` | **Room** (SQLite) with the same 6 tables and columns |
+| `localStorage` keys (`openmi:*`) | **DataStore Preferences** (or SharedPreferences) — keep the *same key names* |
 | SSE via `fetch().body.getReader()` | `OkHttp`/Ktor streaming, or `okhttp-sse`; parse `data: ` lines identically |
 | `AbortController` | `Call.cancel()` / `Job.cancel()` |
 | Firebase Web SDK anonymous + Google `linkWithPopup` | Firebase Android SDK: `signInAnonymously()`, `linkWithCredential()` |
@@ -152,7 +152,7 @@ Key `lib/` modules and their one-line responsibility:
 | `types.ts` | Shared types: `Chat`, `ChatMessage`, `Memory`, `SearchSource`, attachments |
 | `db.ts` | Dexie schema, chat/message CRUD, folders, full-text search, backup/restore |
 | `models.ts` | **Client-safe** mode catalog (`auto`/`code`/`self`), display-name filter |
-| `modelEngines.ts` | **Server-only** wire model ids ↔ Mino names |
+| `modelEngines.ts` | **Server-only** wire model ids ↔ Openmi names |
 | `providers.ts` | **Server-only** endpoints, keys, ordered fallback chains |
 | `systemPrompt.ts` / `codePrompt.ts` | **Server-only** persona prompts |
 | `identity.ts` | **Server-only** streaming identity filter + provider-detail scrubber |
@@ -259,7 +259,7 @@ interface AppConfig {
   dailyImageCap: number;        // 0 = unlimited
   bans: BanRecord[];            // keyed map or legacy string array
   maintenanceEnabled: boolean;  // default false
-  maintenanceMessage: string;   // default "Mino is down for maintenance. Please check back soon.", max 300
+  maintenanceMessage: string;   // default "Openmi is down for maintenance. Please check back soon.", max 300
   updatedAt: number;
 }
 interface BanRecord { uid; reason (≤200); bannedAt; expiresAt: number|null; bannedBy (≤120); }
@@ -292,12 +292,12 @@ A **failed plan read is always "free", never "allowed"**.
 
 - Rate limit: `Too many messages at once. Please wait {n}s and try again.` (client
   parses the integer → live countdown; a message with **no** number starts no countdown).
-- Daily cap: `Mino's daily limit of {n} messages has been reached on this device. It resets tomorrow.`
+- Daily cap: `Openmi's daily limit of {n} messages has been reached on this device. It resets tomorrow.`
 - Maintenance: the admin's `maintenanceMessage`.
-- Kill switch: `Mino is paused right now. Please try again shortly.`
+- Kill switch: `Openmi is paused right now. Please try again shortly.`
 - Ban: `banMessage(ban)` — reason + end date, the same text the console shows.
 - Paywall: `lockNoticeFor(...)` text (see §12), or the paused-plan sentence:
-  `Your Mino plan is on hold right now. The time you paid for is saved and will pick up where it left off — message the person who runs this Mino to continue it.`
+  `Your Openmi plan is on hold right now. The time you paid for is saved and will pick up where it left off — message the person who runs this Openmi to continue it.`
 - Image paywall returns **HTTP 402** (payment missing, not forbidden).
 
 ---
@@ -394,7 +394,7 @@ App entry
       ├─ Sidebar (drawer on mobile / static rail ≥ md)
       │    ├─ New chat, Temporary chat toggle
       │    ├─ Toolbar: Search · Gallery · Trash(badge) · Import · Settings
-      │    ├─ Promotional rows: "Mino Lunar" → /plus · "Support Mino" → /donate
+      │    ├─ Promotional rows: "Openmi Lunar" → /plus · "Support Openmi" → /donate
       │    ├─ Folder chips (+ Folder, active chip has × to delete folder)
       │    ├─ Chat list (pinned first, timeAgo, hold/right-click menu)
       │    └─ Footer: Export · Import · Clear(2-tap) · avatar+name · News · About
@@ -407,7 +407,7 @@ App entry
    SearchOverlay (Ctrl/Cmd+K) · TrashOverlay · GalleryOverlay
    Remember-this dialog · Schedule menu · Tools(+) menu
    PayQrDialog, SubscribeGate, SubscriptionCelebration, PlanExpiryBanner
-   InstallPrompt · MinoTutorial (first run) · NotesPrompt (once per note)
+   InstallPrompt · OpenmiTutorial (first run) · NotesPrompt (once per note)
  Standalone routes: /about  /plus  /donate  /notes  /notes/[id]  /share
 ```
 
@@ -421,9 +421,9 @@ App entry
 4. If no display name → `NamePrompt` (no skip).
 5. Otherwise → main shell.
 
-Extra first-visit overlays: splash (`sessionStorage`), `MinoTutorial` until finished
-(`mino:tutorial` = done), `InstallPrompt` (mobile only, once per visit, only after the
-first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
+Extra first-visit overlays: splash (`sessionStorage`), `OpenmiTutorial` until finished
+(`openmi:tutorial` = done), `InstallPrompt` (mobile only, once per visit, only after the
+first sent message — the page dispatches `openmi:engage` on send), `NotesPrompt`
 (once per published note id).
 
 ### 6.2 NamePrompt
@@ -433,7 +433,7 @@ first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
   → name resolution precedence: **local name → account name → Google name**; if sign-in
   succeeded but no name resolved, show:
   `You are signed in, but no name came with it. Type a name above to continue.`
-- Name is stored in `localStorage["mino:display-name"]` and written to
+- Name is stored in `localStorage["openmi:display-name"]` and written to
   `admin/registry/{uid}` with `firstSeen`/`lastSeen`.
 
 ### 6.3 Header details
@@ -447,18 +447,18 @@ first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
 
 | Mode id | `name` | `display` (what the button and cards print) | Tagline | Bullets | Colour | Separate session |
 |---|---|---|---|---|---|---|
-| `auto` | Auto | **Mino Auto** | Best for everyday tasks | Smart model selection · Balanced speed & quality · Great for general questions | emerald | no |
+| `auto` | Auto | **Openmi Auto** | Best for everyday tasks | Smart model selection · Balanced speed & quality · Great for general questions | emerald | no |
 | `code` | Code | **Code** | Built for developers | File-aware code blocks · Technical precision · Fresh session per task | orange | **yes** |
-| `self` | Azure | **Mino Azure** | Mino's own model | Independent AI assistant · Created by Minetallest · Exclusive to Mino | azure | **yes** |
+| `self` | Azure | **Openmi Azure** | Openmi's own model | Independent AI assistant · Created by Minetallest · Exclusive to Openmi | azure | **yes** |
 
-(`blurb` in the data model: `Best available model` / `Mino V3 · V2 · V1 only` /
-`Mino's own model`. The in-message badge renders as **Mino Auto**, **Mino Code** or
-**Mino Azure** with a coloured dot: emerald / `#e08e6b` / `#5b9bd5`.)
+(`blurb` in the data model: `Best available model` / `Openmi V3 · V2 · V1 only` /
+`Openmi's own model`. The in-message badge renders as **Openmi Auto**, **Openmi Code** or
+**Openmi Azure** with a coloured dot: emerald / `#e08e6b` / `#5b9bd5`.)
 
 - Picking a `separateSession` mode **aborts any stream, clears the active chat,
   closes the drawer and exits image mode** — it starts a fresh session rather than
   continuing a conversation under a different model.
-- On mount the selector probes `GET /api/chat` and dispatches `mino:availability`
+- On mount the selector probes `GET /api/chat` and dispatches `openmi:availability`
   with `{ available, searchAvailable }`.
 - Locked mode → padlock + plan name, tap routes to `/plus`.
 - Stored preference that a lapsed plan no longer opens is moved **out** to the first
@@ -485,7 +485,7 @@ first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
 
 ### 6.5 Sidebar footer
 
-- `Export` → downloads `mino-backup-YYYY-MM-DD.json`; notice `Backup saved to your downloads`.
+- `Export` → downloads `openmi-backup-YYYY-MM-DD.json`; notice `Backup saved to your downloads`.
 - `Import` → JSON file; success `Imported {n} chats · {m} messages`;
   failure `Import failed: {reason}`.
 - `Clear` → two-tap confirm (`Confirm?`, auto-reverts after 4 s) → wipes local DB
@@ -506,12 +506,12 @@ first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
     `Link copied · latest {k} of {n} messages` when truncated.
   - **Share image**: renders the conversation to a PNG and downloads it; button reads
     `Rendering…` while busy, then `Image saved`.
-  - **Copy chat**: `You: …` / `Mino: …` blocks joined by blank lines; notice
+  - **Copy chat**: `You: …` / `Openmi: …` blocks joined by blank lines; notice
     `Conversation copied to your clipboard` or `Clipboard access is unavailable in this browser`.
   - **Source history**: expandable panel listing all sources with the untrusted-web
     notice.
 - **Empty state**: glow + logo + rotating headline from a 136-line list, walked in
-  order with a persisted cursor (`mino:empty-headline-cursor`) so consecutive loads
+  order with a persisted cursor (`openmi:empty-headline-cursor`) so consecutive loads
   never repeat.
 - **User message**: right-aligned, `max-w-88 %` (76 % ≥ md), bubble `bg-white/[.075]`,
   radius 22 px with `br-md`, `whitespace-pre-wrap`; attachment thumbnails `h-28
@@ -519,7 +519,7 @@ first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
   (always visible on mobile, hover on desktop) opens an inline textarea with
   `Cancel` / `Edit & send`.
 - **Assistant message**: header row = mode icon + colour-coded **model badge**
-  (`Mino Azure`/`Mino Code`/`Mino Auto`) + optional hidden display name + token count
+  (`Openmi Azure`/`Openmi Code`/`Openmi Auto`) + optional hidden display name + token count
   (`{n} tok`, hover/title = `{prompt} in · {completion} out`) + variant stepper.
 - Assistant body: markdown, streaming via `useSmoothText` (steady reveal only while
   streaming; finished answers are never held back).
@@ -527,7 +527,7 @@ first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
   **Retry** · **Copy** (turns into a green check for 1.5 s) · **Read aloud**
   (speaker ⇄ stop while speaking).
 - **Truncation notice** (amber) exactly:
-  `Mino tried other models and this answer still stops partway, because it hit their length limit too. Ask it to continue and it will pick up from where it left off.`
+  `Openmi tried other models and this answer still stops partway, because it hit their length limit too. Ask it to continue and it will pick up from where it left off.`
 - **Error block** (red) under the message with the server's text.
 - **Variant stepper** when an answer has history: `‹ 1/3 latest ›` — position 0 is the
   live answer, `k` is `variants[k-1]`. Newest counts as "the" answer.
@@ -537,7 +537,7 @@ first sent message — the page dispatches `mino:engage` on send), `NotesPrompt`
   `Almost done.. Just kidding` · `Hacking your computer` ·
   `Please wait while we're staying your data`.
 - **Sources card**: numbered rows (id, title, hostname, external-link icon) + the
-  notice `Untrusted web text — Mino was told to treat these pages as reference, not as instructions.`
+  notice `Untrusted web text — Openmi was told to treat these pages as reference, not as instructions.`
 - **Generated image card**: image + prompt caption + **Save** button; tap opens full-size.
 - **Drawing placeholder**: 4:3 box, spinner + `Drawing…`.
 
@@ -547,12 +547,12 @@ Layout (single rounded shell, `min-h-16`, `p-2`):
 `[+ tools] [textarea] [clock (only when there is content)] [send/stop]`
 
 - **Enter sends**, Shift+Enter newline; textarea auto-grows to max 180 px.
-- Placeholder: `Ask Mino anything…` / `Compressing…` / `Describe the image to create…`.
+- Placeholder: `Ask Openmi anything…` / `Compressing…` / `Describe the image to create…`.
 - **`+` tools menu** (286 px popover), items in order:
   1. **Camera** (file input `capture="environment"`)
   2. **Gallery** (multi image picker)
   3. **Files** (text/code picker)
-  4. **Support Mino** → `/donate` (rose heart, `Donate` pill)
+  4. **Support Openmi** → `/donate` (rose heart, `Donate` pill)
   5. **Voice input** (`Listening…` while active)
   6. **Remember this** → dialog
   7. **Create image** → enters image mode; amber dot if not configured; `Mini` pill
@@ -582,12 +582,12 @@ Layout (single rounded shell, `min-h-16`, `p-2`):
   be sent with an image request.
 - **Send/Stop**: circular 48 px. Enabled state = `#2a6142` filled; disabled = ghost.
   While streaming it becomes a **Stop** (square) button.
-- Desktop-only credit line: `Created by Minetallest · ♥ Support Mino` (→ `/donate`).
+- Desktop-only credit line: `Created by Minetallest · ♥ Support Openmi` (→ `/donate`).
 
 ### 6.8 `+` → "Remember this" dialog
 
-Bottom-sheet card, max-w-sm: title `What should Mino remember?`, body
-`One short sentence about you. Mino uses it in every conversation until you remove it.`,
+Bottom-sheet card, max-w-sm: title `What should Openmi remember?`, body
+`One short sentence about you. Openmi uses it in every conversation until you remove it.`,
 textarea (max `MEMORY_TEXT_LIMIT` = 200 chars, placeholder
 `I work mostly in TypeScript and React`), amber notice on rejection, buttons
 **Remember** (gradient `#a9d8bb → #1f4a33`) and **Cancel**. Saving also mirrors the
@@ -602,8 +602,8 @@ Sections, in order:
 2. **Your data** (`DataControls`) — Export backup / Erase everything (two-tap),
    **keeps the subscription**; clears local tables and this identity's DB nodes
    (chats, registry, usage, push subscriptions) using the visitor's own token.
-3. **What Mino remembers** (`MemoryPanel`) — full list (never summarised), inline
-   edit/delete, `Forget everything`, and a "let Mino suggest memories" checkbox.
+3. **What Openmi remembers** (`MemoryPanel`) — full list (never summarised), inline
+   edit/delete, `Forget everything`, and a "let Openmi suggest memories" checkbox.
 4. **Web search** — 3-up segmented: **Auto** (`Smart search when needed`) /
    **On** (`Search every message`) / **Off** (`Never search`). Amber dot when no
    search key; buttons disabled when unavailable.
@@ -626,7 +626,7 @@ Escape closes; backdrop tap closes; it is a bottom sheet on phones, a centered
 
 ## 7. Data model
 
-### 7.1 Local database (`mino-db`, Dexie/IndexedDB → Room/SQLite)
+### 7.1 Local database (`openmi-db`, Dexie/IndexedDB → Room/SQLite)
 
 Schema versions 1→4 (each added as a new version so existing installs upgrade):
 
@@ -657,9 +657,9 @@ interface ChatMessage {
   role: Role;
   content: string;                       // live answer text ("" while streaming)
   images?: ImageAttachment[];            // user-attached, base64 JPEG data URLs
-  generatedImages?: GeneratedImage[];    // produced by Mino Canvas
+  generatedImages?: GeneratedImage[];    // produced by Openmi Canvas
   documents?: DocumentAttachment[];
-  model?: string;                        // ALWAYS a Mino name (see §8)
+  model?: string;                        // ALWAYS a Openmi name (see §8)
   searchQuery?: string;
   sources?: SearchSource[];
   usage?: { prompt: number; completion: number; total: number };
@@ -715,9 +715,9 @@ interface TrashEntry {
 - Full-text search: case-insensitive substring over the **displayed** variant,
   newest-first, **limit 30**, minimum query length 2, snippet radius **46** chars each
   side with `…` ellipses. Scans the whole store in memory (deliberately local).
-- Backup file: `{ app:"mino", version:1, exportedAt:ISO, chats:[], messages:[] }`.
+- Backup file: `{ app:"openmi", version:1, exportedAt:ISO, chats:[], messages:[] }`.
   Restore bounds: **≤ 2000 chats, ≤ 50 000 messages**, else
-  `That backup is too large to restore`; invalid shape → `Invalid Mino backup file`.
+  `That backup is too large to restore`; invalid shape → `Invalid Openmi backup file`.
   Restore is `bulkPut` (whole-file replace semantics).
 - Variants: `MAX_VARIANTS = 8`. Retry/edit **retire** the current answer into
   `variants` (only text moves — sources, usage, truncation, error stay with the
@@ -727,27 +727,27 @@ interface TrashEntry {
 
 | Key | Values | Default |
 |---|---|---|
-| `mino:selected-mode` | `auto` \| `code` (legacy `dev` accepted) | `auto` |
-| `mino:display-name` | string ≤40 | — (gate until set) |
-| `mino:response-length` | `short` \| `balanced` \| `detailed` | `balanced` |
-| `mino:reasoning-effort` | `low` \| `medium` \| `high` | `low` |
-| `mino:appearance` | `dark` \| `light` | `dark` |
-| `mino:memory-suggest` | `on` \| `off` | on |
-| `mino:memory-suggest-off` | `1` when "Don't suggest this" pressed | — |
-| `mino:subscription-ack` | highest acknowledged `announcementId` | `0` |
-| `mino:deleted-chats` | JSON of local delete markers | `[]` |
-| `mino:first-seen` | epoch ms | — |
-| `mino:empty-headline-cursor` | int index into the headline list | 0 |
-| `mino:splash-seen` | session flag | — |
-| `mino:tutorial` | `done` | — |
-| `mino:install-asked` | per-visit flag | — |
-| `mino:sw-ready` | service-worker ready flag | — |
-| `mino:notes-seen` | JSON array of seen note ids | `[]` |
-| `mino:push-device-id` | device id for push | — |
-| `mino:availability` | written by the availability probe event | — |
-| `mino:engage` | event name (first send) | — |
-| `mino:data-wiped` | event name fired after "Your data" erase | — |
-| `mino:custom-instructions` | **legacy — actively deleted** on load | — |
+| `openmi:selected-mode` | `auto` \| `code` (legacy `dev` accepted) | `auto` |
+| `openmi:display-name` | string ≤40 | — (gate until set) |
+| `openmi:response-length` | `short` \| `balanced` \| `detailed` | `balanced` |
+| `openmi:reasoning-effort` | `low` \| `medium` \| `high` | `low` |
+| `openmi:appearance` | `dark` \| `light` | `dark` |
+| `openmi:memory-suggest` | `on` \| `off` | on |
+| `openmi:memory-suggest-off` | `1` when "Don't suggest this" pressed | — |
+| `openmi:subscription-ack` | highest acknowledged `announcementId` | `0` |
+| `openmi:deleted-chats` | JSON of local delete markers | `[]` |
+| `openmi:first-seen` | epoch ms | — |
+| `openmi:empty-headline-cursor` | int index into the headline list | 0 |
+| `openmi:splash-seen` | session flag | — |
+| `openmi:tutorial` | `done` | — |
+| `openmi:install-asked` | per-visit flag | — |
+| `openmi:sw-ready` | service-worker ready flag | — |
+| `openmi:notes-seen` | JSON array of seen note ids | `[]` |
+| `openmi:push-device-id` | device id for push | — |
+| `openmi:availability` | written by the availability probe event | — |
+| `openmi:engage` | event name (first send) | — |
+| `openmi:data-wiped` | event name fired after "Your data" erase | — |
+| `openmi:custom-instructions` | **legacy — actively deleted** on load | — |
 
 ### 7.3 Firebase (Realtime Database) layout
 
@@ -782,24 +782,24 @@ and local data is left alone.
 ```ts
 type ModeId = "auto" | "code" | "self";
 DEFAULT_MODE_ID = "auto"
-IMAGE_ENGINE = "mino-canvas"   // label shown for generated images: "Mino Canvas"
+IMAGE_ENGINE = "openmi-canvas"   // label shown for generated images: "Openmi Canvas"
 ```
 
 ### 8.2 Wire models (server-only, `lib/modelEngines.ts`)
 
-| Mino name | Wire id |
+| Openmi name | Wire id |
 |---|---|
-| Mino Auto | `openrouter/auto` |
-| Mino V3 | `gemini-3.8-flash` |
-| Mino V2 | `gemini-3.7-flash` |
-| Mino V1 | `gemini-3.6-flash` |
-| Mino Azure | `mino-self` (the Gradio Space) |
-| Mino Canvas | `mino-canvas` |
+| Openmi Auto | `openrouter/auto` |
+| Openmi V3 | `gemini-3.8-flash` |
+| Openmi V2 | `gemini-3.7-flash` |
+| Openmi V1 | `gemini-3.6-flash` |
+| Openmi Azure | `openmi-self` (the Gradio Space) |
+| Openmi Canvas | `openmi-canvas` |
 
-`toMinoName()` is the only bridge outward and can only emit a Mino name; anything
-unrecognised → `Mino`. `getModelDisplayName()` filters stored values with
-`/^Mino(?: Auto| Self| Azure| Canvas| V\d+)?$/` (legacy `Mino Self` still accepted) and
-falls back to `Mino` — this is what renders and what lands in exported backups.
+`toOpenmiName()` is the only bridge outward and can only emit a Openmi name; anything
+unrecognised → `Openmi`. `getModelDisplayName()` filters stored values with
+`/^Openmi(?: Auto| Self| Azure| Canvas| V\d+)?$/` (legacy `Openmi Self` still accepted) and
+falls back to `Openmi` — this is what renders and what lands in exported backups.
 
 ### 8.3 Fallback chains (`lib/providers.ts`)
 
@@ -810,7 +810,7 @@ falls back to `Mino` — this is what renders and what lands in exported backups
 | `self` | Gradio Space only | Never silently replaced by a vendor |
 
 - Endpoints: OpenRouter `https://openrouter.ai/api/v1/chat/completions` (headers
-  `HTTP-Referer`, `X-Title: Mino`; body `provider.allow_fallbacks`,
+  `HTTP-Referer`, `X-Title: Openmi`; body `provider.allow_fallbacks`,
   `stream_options.include_usage`), Gemini
   `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`,
   Groq `https://api.groq.com/openai/v1/chat/completions`.
@@ -833,7 +833,7 @@ falls back to `Mino` — this is what renders and what lands in exported backups
 
 ### 8.4 The persona
 
-- **`MINO_SYSTEM_PROMPT`** (base): *You are Mino, an AI assistant created and
+- **`OPENMI_SYSTEM_PROMPT`** (base): *You are Openmi, an AI assistant created and
   developed by Minetallest…* with 6 absolute identity rules: never claim any vendor
   (explicit list: Gemini, Google AI, DeepMind, Claude, ChatGPT, GPT, Llama, Mistral,
   DeepSeek, Grok, Copilot, OpenRouter…), answer identity questions in one short
@@ -852,7 +852,7 @@ falls back to `Mino` — this is what renders and what lands in exported backups
   messages are filtered out of `messages`.
 - **Streaming identity filter** (`IdentityFilter`): buffers each delta and rewrites
   *self-referential* vendor claims ("I am Gemini", "I was created by Google", "I'm
-  powered by GPT-4") into Mino, leaving legitimate mentions ("Gemini changed its
+  powered by GPT-4") into Openmi, leaving legitimate mentions ("Gemini changed its
   pricing") untouched. Provider error text is scrubbed by the same rules
   (`sanitizeProviderDetail`) before it can reach the user.
 
@@ -907,7 +907,7 @@ Event stream (each line `data: {json}\n\n`, terminated by `data: [DONE]\n\n`):
 |---|---|---|
 | search | `{ search: { used, query, sources[] } }` | only if search was requested |
 | google | `{ google: { connected } }` | Google tools context attached |
-| model | `{ mode, provider, model }` | first model; `model` is a **Mino name** |
+| model | `{ mode, provider, model }` | first model; `model` is a **Openmi name** |
 | model switch | `{ provider, model }` | emitted when a continuation changes model |
 | content | `{ content: "<delta>" }` | identity-filtered text delta |
 | usage | `{ usage: { prompt, completion, total } }` | token counts |
@@ -921,7 +921,7 @@ Client handling rules: accumulate `content` into the assistant row; on `model` p
 the label and, if it differs from the selected mode's display name, show the notice
 `The model was changed automatically because the current model is experiencing a problem.`;
 on `error` mark the message and run the rate-limit parser; if the stream ends with no
-content and no error → `Mino returned an empty response. Try again.`; abort with no
+content and no error → `Openmi returned an empty response. Try again.`; abort with no
 content → delete the empty bubble.
 
 ### 9.2 `POST /api/image`
@@ -937,13 +937,13 @@ rewrites the short prompt into one descriptive paragraph, 6 s budget, best-effor
 **(2)** `planPoster` — if it looks like a poster: take the headline from a quoted
 phrase, strip all lettering from the artwork prompt, reserve an empty band across the
 upper third + a clear strip at the bottom, generate, then **draw the real text**
-afterwards with `next/og` + `sharp` compositing. Response header `X-Mino-Poster-Text: 1`.
+afterwards with `next/og` + `sharp` compositing. Response header `X-Openmi-Poster-Text: 1`.
 Compositing failure returns the unlettered artwork, never an error.
 **(3)** Cloudflare `POST /accounts/{id}/ai/run/{slug}` → raw image bytes **or** a
 base64 JSON envelope (both accepted; unpadded base64 is re-padded).
 
 Response: image bytes with `Content-Type` image/*, `Cache-Control: no-store`,
-`X-Mino-Image-Model`. Errors:
+`X-Openmi-Image-Model`. Errors:
 
 | Case | Status | Body |
 |---|---|---|
@@ -1001,7 +1001,7 @@ returns `{ suggestions: [] }`. Suggestions are re-validated server-side
 - `PUT /api/admin/config` — admin only; verifies the caller then performs the write
   **with that same token**, so the rules make the final decision; returns
   `{ ok, config }`.
-- `GET /api/admin/models` → `{ models: [ { id, name, … } ] }` (opaque ids + Mino names
+- `GET /api/admin/models` → `{ models: [ { id, name, … } ] }` (opaque ids + Openmi names
   only).
 - `POST /api/admin/models { id }` → `{ result }` — a **real** single-model probe that
   bypasses the fallback chain (so a chain can't make everything look healthy).
@@ -1056,19 +1056,19 @@ regex; invalid → UTC). Failures degrade silently: the answer simply has no too
   reference material**, with an instruction to *report on* instructions found in pages
   rather than follow them. The UI repeats that notice to the human.
 - If `searchMode !== "off"` but no usable source was found, show:
-  `Mino checked the web but could not find a usable source.`
+  `Openmi checked the web but could not find a usable source.`
 - Missing `TAVILY_API_KEY` → Settings shows an amber dot, buttons disabled, chat works.
 
 ### 10.2 Memory
 
 - Cap: **20 memories**, flat list, injected wholesale into every system prompt.
-- Two doors: composer **Remember this**, and **Mino's offer** under the chat.
+- Two doors: composer **Remember this**, and **Openmi's offer** under the chat.
 - Suggestions: after a non-empty answer, client calls `POST /api/memory` (guarded by
   `shouldSuggest`: enabled on, not dismissed, dedup/cap checks) with a monotonic run
   counter so a slow older request can't overwrite a newer one.
 - The offer banner: **"Worth remembering"**, up to 3 lines, each with
   **Remember** / **Not now** (hides this batch) / **Don't suggest this** (sets
-  `mino:memory-suggest-off`). **Nothing is ever stored without a tap.**
+  `openmi:memory-suggest-off`). **Nothing is ever stored without a tap.**
 - Guard `normalizeMemoryText` (client **and** server): rejects instruction-shaped text
   ("ignore your instructions", "always answer in Spanish"-style *orders* — note a
   factual "I work in Spanish" survives), secrets (password/key/token/address/phone),
@@ -1143,7 +1143,7 @@ regex; invalid → UTC). Failures degrade silently: the answer simply has no too
   (it touches no stores). Native share sheet first, clipboard fallback, truncation
   summary `latest {k} of {n} messages`.
 - **Share image** — the conversation rendered to a downloadable PNG.
-- **Copy chat** — `You:` / `Mino:` plain text.
+- **Copy chat** — `You:` / `Openmi:` plain text.
 
 ### 10.11 PWA behaviour
 
@@ -1151,8 +1151,8 @@ regex; invalid → UTC). Failures degrade silently: the answer simply has no too
 - Service worker registered outside dev; `clients.claim()` on activate is
   load-bearing (Chromium won't offer install otherwise).
 - **Install prompt**: mobile only, once per visit, only *after* the first message
-  (`mino:engage`), pitched around "the conversation is one swipe away", stored in
-  `mino:install-asked`.
+  (`openmi:engage`), pitched around "the conversation is one swipe away", stored in
+  `openmi:install-asked`.
 - **NotificationNag**: checked **every visit** — if the browser can receive
   notifications and isn't subscribed, show a one-line, one-tap ask. Permission is
   never requested by itself.
@@ -1160,12 +1160,12 @@ regex; invalid → UTC). Failures degrade silently: the answer simply has no too
 ### 10.12 Splash, tutorial, notes
 
 - **Splash**: full-bleed image over the finished page, blurs and dissolves; once per
-  browser session on a fresh `/`; **two images** (desktop 16:9 `mino-splash.jpg`,
-  tall `mino-splash-mobile.jpg`) because the crop is driven by screen shape.
-- **MinoTutorial**: first-run guided tour keyed by `data-tutorial` anchors
+  browser session on a fresh `/`; **two images** (desktop 16:9 `openmi-splash.jpg`,
+  tall `openmi-splash-mobile.jpg`) because the crop is driven by screen shape.
+- **OpenmiTutorial**: first-run guided tour keyed by `data-tutorial` anchors
   (`mobile-menu`, `sidebar-new-chat`, `sidebar-utilities`, `sidebar-recent`,
   `sidebar-data`, `gallery-button`, `composer`, `model-selector`); finishes to
-  `mino:tutorial = done`.
+  `openmi:tutorial = done`.
 - **Notes / dev news**: `config.notes[]` (`DevNote` with badge text/colour tone
   `important|info|success|neutral`, byline, date wording, summary, body). `/notes`
   lists, `/notes/[id]` shows one, `NotesPrompt` shows a **new note once per reader**
@@ -1176,7 +1176,7 @@ regex; invalid → UTC). Failures degrade silently: the answer simply has no too
 
 - **/about**: logo (this page carries the **ten-tap admin trigger**), `Created by`,
   `Minetallest`, `Date created`, `AI name`, `Progress` fields, and the public story.
-- **/donate**: DuitNow QR (`/mino-donate-qr.png`), caption `Scan with your banking
+- **/donate**: DuitNow QR (`/openmi-donate-qr.png`), caption `Scan with your banking
   app`, bank details, amount presets **5 / 10 / 20 / 50** (RM), fallback text
   `QR not added yet` if the image is missing.
 
@@ -1186,7 +1186,7 @@ regex; invalid → UTC). Failures degrade silently: the answer simply has no too
 
 ### 11.1 Dew — the currency (as of the Dew refactor)
 
-Mino has **no subscriptions and no daily caps** any more. Everything is paid for with
+Openmi has **no subscriptions and no daily caps** any more. Everything is paid for with
 **Dew (💧)**, a pay-as-you-go currency charged from a server-side balance:
 
 - **Unit:** 1 Dew ≈ **US $0.01** of value (100 Dew = $1).
@@ -1194,7 +1194,7 @@ Mino has **no subscriptions and no daily caps** any more. Everything is paid for
   pinned by the database rules, not by any client.
 - **Precision:** balances and charges are kept to **3 decimal places** (`roundDew`).
 - **Image generation:** flat **1 Dew** per successful generation.
-- **Thresholds:** a request is refused below **0.05 Dew** (0.25 for Mino Azure);
+- **Thresholds:** a request is refused below **0.05 Dew** (0.25 for Openmi Azure);
   the UI chip turns amber below **10 Dew**.
 
 ### 11.2 Pricing per token (`lib/dew.ts` — the single source of truth)
@@ -1208,7 +1208,7 @@ continuation of one request:
 | **fast** | **0.015 Dew** | **0.06 Dew** |
 | **pro** | **0.25 Dew** | **1.00 Dew** |
 
-Tier selection (`tierForRequest`): Mino Azure (`self`) is always **pro**; a request
+Tier selection (`tierForRequest`): Openmi Azure (`self`) is always **pro**; a request
 that asked for **medium or high** reasoning bills **pro**; everything else (Auto, Code
 at low/none) bills **fast**.
 
@@ -1313,7 +1313,7 @@ on the maintenance notice, so the site can always be reopened.
 6. **Notes** — full composer for dev-news notes (badge text + tone, byline, date
    wording, summary, body); **Publish** is the only write action.
 7. **Model health** — one row per reachable model with a **Test** button that sends a
-   real single-model request (no fallback chain) and renders the Mino name + result.
+   real single-model request (no fallback chain) and renders the Openmi name + result.
 8. **Push** — compose title/body/url and broadcast to every persisted subscriber.
 9. **Wipes** — remove `users/{uid}`, `admin/registry/{uid}`, `subscriptions/{uid}`
    (and the full three-tree wipe).
@@ -1361,19 +1361,19 @@ verified identity.
 
 | Variable | Purpose |
 |---|---|
-| `OPENROUTER_API_KEY` | Mino Auto |
-| `GEMINI_API_KEY` | Mino Code (V3/V2/V1) |
+| `OPENROUTER_API_KEY` | Openmi Auto |
+| `GEMINI_API_KEY` | Openmi Code (V3/V2/V1) |
 | `GROQ_API_KEY` | Auto's last-resort fallback only |
 | `TAVILY_API_KEY` | Web search |
 | `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Image generation |
-| `MINO_ADMIN_EMAIL` | Admin address expected by the server (must match the rules) |
+| `OPENMI_ADMIN_EMAIL` | Admin address expected by the server (must match the rules) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google tools OAuth |
 | `GOOGLE_ENCRYPTION_KEY` | 32-byte hex, AES-256 key for the token cookie |
 | `GOOGLE_REDIRECT_URI` | optional override of `…/api/google/callback` |
 | `GOOGLE_MAPS_API_KEY` | optional structured Maps results |
 | `NEXT_PUBLIC_FIREBASE_{API_KEY,AUTH_DOMAIN,DATABASE_URL,PROJECT_ID,STORAGE_BUCKET,MESSAGING_SENDER_ID,APP_ID}` | Firebase web config |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, `WEB_PUSH_SUBJECT` | Web push |
-| `MINO_HF_SPACE` (default `Minetallest/Mino`, `off` disables), `MINO_HF_TOKEN`, `MINO_HF_TIMEOUT_MS` (120000), `MINO_HF_PROMPT_BUDGET` (12000) | Mino Azure Space |
+| `OPENMI_HF_SPACE` (default `Minetallest/Mino`, `off` disables), `OPENMI_HF_TOKEN`, `OPENMI_HF_TIMEOUT_MS` (120000), `OPENMI_HF_PROMPT_BUDGET` (12000) | Openmi Azure Space |
 
 Missing keys never break the app — they produce in-chat setup notices and disable the
 corresponding control with an amber dot.
@@ -1389,7 +1389,7 @@ corresponding control with an amber dot.
 | Code's key missing | Code unavailable (`GET /api/chat` omits `code`); Groq cannot make it available |
 | Space configured | `self` always available (needs no vendor key) |
 | Provider outage/rate limit before streaming | Next model in the family, then next family; header notice about the model change |
-| Every Mino model in Auto exhausted | Groq chain, comparable-tier models |
+| Every Openmi model in Auto exhausted | Groq chain, comparable-tier models |
 | `reasoning_effort` rejected (400) | One retry without the parameter; that retry decides family exhaustion |
 | Model hits output limit | Up to 2 continuation attempts on other models, then `{truncated:true}` + the amber notice |
 | Answer stream dies mid-way | `{error: "<label> stream interrupted: …"}`; partial text kept; a continuation that can't start does **not** turn readable output into an error |
@@ -1400,7 +1400,7 @@ corresponding control with an amber dot.
 | Rules not republished | Pulls return null → local data untouched (old, safe behaviour) |
 | `config/` unreadable | Permissive defaults; app keeps working |
 | Daily-cap counter race | Approximate cap accepted (read-modify-write; no transaction available) |
-| Empty assistant response | `Mino returned an empty response. Try again.` |
+| Empty assistant response | `Openmi returned an empty response. Try again.` |
 | Aborted stream with no text | Empty bubble deleted |
 | Clipboard unavailable | Notice instead of silent failure |
 
@@ -1471,7 +1471,7 @@ as tests.
 4. Enter sends, Shift+Enter (or Enter on a multiline IME) does not; send becomes Stop
    while streaming.
 5. Streamed tokens appear progressively with the caret; finished text never re-animates.
-6. Stored messages and backups contain **only** Mino names — never a vendor id.
+6. Stored messages and backups contain **only** Openmi names — never a vendor id.
 7. The model badge matches the mode; an automatic model change shows the notice and
    re-labels the message.
 8. A truncated answer shows the exact amber sentence and hides the action row.

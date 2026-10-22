@@ -1,21 +1,21 @@
-// ── Mino — the wire models behind the Mino names (server only) ───────────────
+// ── Openmi — the wire models behind the Openmi names (server only) ───────────────
 //
 // The one place a provider's model ids are named. Nothing here may be imported
 // by a client component: these strings end up in the browser through any import
 // path, and from there in stored messages and in the backup a user downloads.
 //
-// `toMinoName` is the only bridge outward, and it only ever emits a Mino name.
+// `toOpenmiName` is the only bridge outward, and it only ever emits a Openmi name.
 
-// ── Mino Code answers with Mino V3, falling back to V2 then V1 ───────────────
+// ── Openmi Code answers with Openmi V3, falling back to V2 then V1 ───────────────
 // The names are inverted on purpose — the newest model is the highest number —
 // so a name a user learns today stays correct as older models are retired.
 const CODE_MODELS = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"] as const;
 
-/** The wire id of the model each Mino version corresponds to. */
+/** The wire id of the model each Openmi version corresponds to. */
 const VERSION_NAMES: Record<string, string> = {
-  "3.8": "Mino V3",
-  "3.7": "Mino V2",
-  "3.6": "Mino V1",
+  "3.8": "Openmi V3",
+  "3.7": "Openmi V2",
+  "3.6": "Openmi V1",
 };
 
 /** The OpenAI-compatible router, which picks a model per message. */
@@ -37,22 +37,22 @@ export const MODE_ENV_VARS: Record<string, string> = {
 /**
  * Turns a wire model id into the name the product shows.
  *
- * Falls back to plain "Mino" rather than echoing anything, because this value
+ * Falls back to plain "Openmi" rather than echoing anything, because this value
  * is rendered in the chat and in error messages: an unrecognised id must not
  * become a vendor name on screen.
  */
-export function toMinoName(model?: string): string {
-  if (!model) return "Mino";
-  if (model === AUTO_ENGINE) return "Mino Auto";
-  if (model === "mino-canvas") return "Mino Canvas";
-  // Mino's own model, served from a Gradio Space. Matched as a literal rather
+export function toOpenmiName(model?: string): string {
+  if (!model) return "Openmi";
+  if (model === AUTO_ENGINE) return "Openmi Auto";
+  if (model === "openmi-canvas") return "Openmi Canvas";
+  // Openmi's own model, served from a Gradio Space. Matched as a literal rather
   // than imported, because lib/gradioSpace.ts is server-only and this module
   // is imported by the client through models.ts.
-  if (model === "mino-self") return "Mino Azure";
-  if (model === "mino-opus") return "~Claude Opus 5.5";
+  if (model === "openmi-self") return "Openmi Azure";
+  if (model === "openmi-opus") return "~Claude Opus 5.5";
   if (model === FABLE_ENGINE) return "~Claude Fable 5.1";
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];
   if (version && VERSION_NAMES[version]) return VERSION_NAMES[version]!;
-  return "Mino";
+  return "Openmi";
 }

@@ -6,7 +6,7 @@ import { DEW_QR, DEW_QR_CAPTION, formatDew, type DewPack } from "@/lib/dew";
 // ── Pay for Dew ──────────────────────────────────────────────────────────────
 // The pay-as-you-go top-up dialog. The buyer picks a pack on /plus, and this
 // shows the exact ringgit amount they must enter against the shared DuitNow
-// QR — the same manual-transfer flow every Mino payment uses. The QR carries
+// QR — the same manual-transfer flow every Openmi payment uses. The QR carries
 // no amount, so the number here is the whole instruction.
 
 export default function DewQrDialog({
@@ -139,7 +139,7 @@ export default function DewQrDialog({
             <span className="shrink-0 font-semibold text-[#2f6b48]">3</span>
             <span>
               Your Dew balance updates once the payment lands. Redeem a code if the person
-              who runs this Mino gave you one.
+              who runs this Openmi gave you one.
             </span>
           </li>
         </ol>

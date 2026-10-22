@@ -1,4 +1,4 @@
-// ── Mino — tests for the code fence label ───────────────────────────────────
+// ── Openmi — tests for the code fence label ───────────────────────────────────
 //
 // This decides whether a code block is labelled with a file name or just a
 // language. Getting it wrong is quiet and ugly: a path read as a language gives
@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFenceInfo } from "../lib/codeFence";
 import { getModelDisplayName } from "../lib/models";
-import { toMinoName } from "../lib/modelEngines";
+import { toOpenmiName } from "../lib/modelEngines";
 
 let failures = 0;
 let passes = 0;
@@ -89,15 +89,15 @@ test("c# and other punctuated languages survive", () => {
 
 console.log("\nmodel names");
 
-test("each wire model maps to a Mino name", () => {
-  assert.equal(toMinoName("gemini-3.6-flash"), "Mino V1");
-  assert.equal(toMinoName("gemini-3.7-flash"), "Mino V2");
-  assert.equal(toMinoName("gemini-3.8-flash"), "Mino V3");
+test("each wire model maps to a Openmi name", () => {
+  assert.equal(toOpenmiName("gemini-3.6-flash"), "Openmi V1");
+  assert.equal(toOpenmiName("gemini-3.7-flash"), "Openmi V2");
+  assert.equal(toOpenmiName("gemini-3.8-flash"), "Openmi V3");
 });
 
 test("the router and image engine keep their own names", () => {
-  assert.equal(toMinoName("openrouter/auto"), "Mino Auto");
-  assert.equal(toMinoName("mino-canvas"), "Mino Canvas");
+  assert.equal(toOpenmiName("openrouter/auto"), "Openmi Auto");
+  assert.equal(toOpenmiName("openmi-canvas"), "Openmi Canvas");
 });
 
 test("a wire id never becomes the wire id", () => {
@@ -112,16 +112,16 @@ test("a wire id never becomes the wire id", () => {
     "some-unknown-model",
   ];
   for (const input of inputs) {
-    const name = toMinoName(input);
+    const name = toOpenmiName(input);
     assert.ok(
-      name === "Mino" || name.startsWith("Mino "),
-      `"${input}" became "${name}", which is not a Mino name`
+      name === "Openmi" || name.startsWith("Openmi "),
+      `"${input}" became "${name}", which is not a Openmi name`
     );
   }
 });
 
-test("a stored Mino name survives display unchanged", () => {
-  for (const name of ["Mino V1", "Mino V2", "Mino V3", "Mino Auto", "Mino Canvas"]) {
+test("a stored Openmi name survives display unchanged", () => {
+  for (const name of ["Openmi V1", "Openmi V2", "Openmi V3", "Openmi Auto", "Openmi Canvas"]) {
     assert.equal(getModelDisplayName(name), name);
   }
 });
@@ -129,8 +129,8 @@ test("a stored Mino name survives display unchanged", () => {
 test("a stored provider id from an old backup is not shown", () => {
   // A backup written before the rename carries raw ids. Restoring one must not
   // put a vendor name back on screen.
-  assert.equal(getModelDisplayName("gemini-3.8-flash"), "Mino");
-  assert.equal(getModelDisplayName(undefined), "Mino");
+  assert.equal(getModelDisplayName("gemini-3.8-flash"), "Openmi");
+  assert.equal(getModelDisplayName(undefined), "Openmi");
 });
 
 const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
@@ -146,7 +146,7 @@ const SANCTIONED_DISPLAY_NAMES = ["~Claude Opus 5.5", "~Claude Fable 5.1"];
  * The source with the sanctioned display names removed.
  *
  * Each name appears twice in lib/models.ts: once as the label shown in the UI
- * and once inside the MINO_NAME regex, where its dots are backslash-escaped.
+ * and once inside the OPENMI_NAME regex, where its dots are backslash-escaped.
  * Both spellings are removed so the scan below sees the rest of the file.
  */
 function withoutSanctionedNames(source: string): string {

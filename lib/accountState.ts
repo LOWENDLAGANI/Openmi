@@ -9,7 +9,7 @@
 // naming one address, so there is no code path here by which signing in could
 // reach the console. See the note on bindGoogleAccount in lib/account.ts.
 
-/** What Mino knows about who is using it right now. */
+/** What Openmi knows about who is using it right now. */
 export type AccountStatus =
   /** No NEXT_PUBLIC_FIREBASE_* values, so there is no account to have. */
   | "unconfigured"
@@ -27,7 +27,7 @@ export interface AccountView {
   /**
    * The name Google holds for the account. It is the weakest of the three names
    * available — a name the person typed beats a name they chose on another site
-   * — and it is the only one Mino never asked them for.
+   * — and it is the only one Openmi never asked them for.
    */
   name: string | null;
   /** True when a Google account is attached. */
@@ -90,7 +90,7 @@ export function accountHeadline(view: AccountView, displayName: string): string 
     case "unconfigured":
       return "Accounts are not set up on this deployment";
     case "unreachable":
-      return "Mino cannot reach the account service";
+      return "Openmi cannot reach the account service";
     case "linked":
       return view.email ?? "Linked to a Google account";
     case "guest":
@@ -105,14 +105,14 @@ export function accountHeadline(view: AccountView, displayName: string): string 
 export function accountExplanation(view: AccountView): string {
   switch (view.status) {
     case "unconfigured":
-      return "Add the NEXT_PUBLIC_FIREBASE_* values and redeploy to turn this on. Everything else about Mino keeps working without it.";
+      return "Add the NEXT_PUBLIC_FIREBASE_* values and redeploy to turn this on. Everything else about Openmi keeps working without it.";
     case "unreachable":
       return "Nothing has changed. Your chats and your name are still on this device — check the connection and try again in a moment.";
     case "linked":
       return "Your account and its chats follow you to any browser you sign in from. Detaching returns this device to a name on its own.";
     case "guest":
     default:
-      return "Link a Google account and your chats follow you to any browser you sign in from. Your name stays the same either way, and you can still use Mino without an account.";
+      return "Link a Google account and your chats follow you to any browser you sign in from. Your name stays the same either way, and you can still use Openmi without an account.";
   }
 }
 
@@ -137,9 +137,9 @@ const LINK_ERRORS: Record<string, string> = {
     "The browser blocked the sign-in window. Allow pop-ups for this site and try again.",
   "auth/too-many-requests": "Too many attempts. Wait a minute and try again.",
   "auth/credential-already-in-use":
-    "That Google account is already linked to Mino on another browser. Sign in to it there instead — your existing chats are waiting.",
+    "That Google account is already linked to Openmi on another browser. Sign in to it there instead — your existing chats are waiting.",
   "auth/account-exists-with-different-credential":
-    "That Google account already has a Mino history. Sign in to it from the browser that has it, and your chats will come with you.",
+    "That Google account already has a Openmi history. Sign in to it from the browser that has it, and your chats will come with you.",
   "auth/requires-recent-login":
     "For safety, sign in again before changing what is linked to this account.",
   "auth/user-disabled": "That account has been disabled.",
@@ -197,7 +197,7 @@ export function resolveName(
  * must not be filled over the top of an answer the person already gave.
  *
  * The Google display name is the last resort, and is used only when the account
- * holds no name either — it is the one value here that Mino did not ask the
+ * holds no name either — it is the one value here that Openmi did not ask the
  * person for, so it is the one least entitled to represent them.
  */
 export function greetingName(

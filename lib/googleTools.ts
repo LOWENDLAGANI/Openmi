@@ -1,4 +1,4 @@
-// ── Mino's Google tools (server only) ────────────────────────────────────────
+// ── Openmi's Google tools (server only) ────────────────────────────────────────
 //
 // Read and write access to the connected account's Calendar, Tasks, Sheets and
 // Docs, plus Google Maps — executed only when the model emits an explicit
@@ -17,7 +17,7 @@ import { ensureFreshSession } from "./googleAuth";
 //
 // A fenced block the model emits when the user's request needs Google:
 //
-//   ```mino-google
+//   ```openmi-google
 //   {"action":"calendar.create","params":{"summary":"Dentist","start":"2026-10-09T15:00:00","durationMinutes":30}}
 //   ```
 //
@@ -26,7 +26,7 @@ import { ensureFreshSession } from "./googleAuth";
 // ignores the instruction to use it cannot produce a stray partial token that
 // looks like ordinary prose.
 
-export const ACTION_FENCE = "mino-google";
+export const ACTION_FENCE = "openmi-google";
 
 const API = "https://www.googleapis.com";
 // Google's APIs answer well inside this on a good day; a hung call must not
@@ -328,7 +328,7 @@ const sheetHandlers: Record<string, Handler> = {
   },
 
   "sheets.create": async (session, params) => {
-    const name = str(params, "name") || "Mino spreadsheet";
+    const name = str(params, "name") || "Openmi spreadsheet";
     const rows = Array.isArray(params.rows) ? (params.rows as unknown[][]) : null;
     const drive = await googleFetch(session, `${API}/drive/v3/files`, {
       method: "POST",
@@ -365,7 +365,7 @@ const sheetHandlers: Record<string, Handler> = {
 
 const docHandlers: Record<string, Handler> = {
   "docs.create": async (session, params) => {
-    const title = str(params, "title") || "Mino document";
+    const title = str(params, "title") || "Openmi document";
     const content = str(params, "content");
     const drive = await googleFetch(session, `${API}/drive/v3/files`, {
       method: "POST",
@@ -525,7 +525,7 @@ export async function runGoogleAction(session: GoogleSession, action: GoogleActi
 // ── Should this message touch Google? ────────────────────────────────────────
 //
 // The same philosophy as shouldUseWebSearch: a cheap, explicit pattern match on
-// the user's own words. Mino stays off for ordinary questions, and a request
+// the user's own words. Openmi stays off for ordinary questions, and a request
 // that names a Google surface gets the tools. "Set a reminder tomorrow" alone
 // does NOT match — a reminder could be anything — unless Calendar is the only
 // reading that makes sense with an explicit time or the word calendar.

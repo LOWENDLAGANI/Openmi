@@ -18,7 +18,7 @@ import type { Chat, ChatFolder } from "@/lib/types";
 import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/firebaseHistory";
 import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import MinoMark from "@/components/MinoMark";
+import OpenmiMark from "@/components/OpenmiMark";
 import SearchOverlay from "@/components/SearchOverlay";
 import TrashOverlay from "@/components/TrashOverlay";
 import GalleryOverlay from "@/components/GalleryOverlay";
@@ -296,7 +296,7 @@ export default function Sidebar({
   const handleExport = async () => {
     try {
       const backup = await exportBackup();
-      downloadJson(`mino-backup-${new Date().toISOString().slice(0, 10)}.json`, backup);
+      downloadJson(`openmi-backup-${new Date().toISOString().slice(0, 10)}.json`, backup);
       setNotice("Backup saved to your downloads");
     } catch {
       setNotice("Export failed");
@@ -366,13 +366,13 @@ export default function Sidebar({
           <button
             onClick={onNewChat}
             className="flex min-w-0 items-center gap-3 text-left"
-            aria-label="Start a new Mino chat"
-            title="Mino"
+            aria-label="Start a new Openmi chat"
+            title="Openmi"
           >
-            <MinoMark className="h-9 w-9 shrink-0" />
+            <OpenmiMark className="h-9 w-9 shrink-0" />
             <span className="min-w-0">
               <span className="block truncate text-[23px] font-semibold leading-none tracking-[-0.045em] text-white">
-                Mino
+                Openmi
               </span>
               <span className="mt-1 block text-[10px] text-white/35">by Minetallest</span>
             </span>
@@ -445,7 +445,7 @@ export default function Sidebar({
         <div
           className="mt-4 flex items-center justify-between px-4"
           role="toolbar"
-          aria-label="Mino tools"
+          aria-label="Openmi tools"
           data-tutorial="sidebar-utilities"
         >
           <ToolbarButton label="Search chats and messages (Ctrl+K)" onClick={() => setSearchOpen(true)}>
@@ -498,7 +498,7 @@ export default function Sidebar({
               className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 bg-gradient-to-r from-transparent via-white/[0.14] to-transparent"
             />
             <span className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xl shadow-[0_0_16px_-4px_rgba(47,107,72,0.9)] ${!signedIn ? "bg-white/[0.07] text-white/40" : low ? "bg-amber-400/15 text-amber-200" : "bg-[#2f6b48]/15 text-[#a9d8bb]"}`}>
-              {/* The drop: Mino's unit of currency. */}
+              {/* The drop: Openmi's unit of currency. */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2.7s6.6 7.1 6.6 11.6a6.6 6.6 0 1 1-13.2 0C5.4 9.8 12 2.7 12 2.7Z" />
               </svg>
@@ -533,7 +533,7 @@ export default function Sidebar({
                 <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
               </svg>
             </span>
-            <span className="relative truncate">Support Mino</span>
+            <span className="relative truncate">Support Openmi</span>
           </Link>
         </div>
 
@@ -869,7 +869,7 @@ export default function Sidebar({
             <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "Guest"}</span>
             <span className="flex shrink-0 items-center gap-1">
               <Link href="/notes" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="News from the developers">News</Link>
-              <Link href="/about" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="About Mino">About</Link>
+              <Link href="/about" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="About Openmi">About</Link>
             </span>
           </div>
         </div>

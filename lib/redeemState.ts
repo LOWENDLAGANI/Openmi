@@ -4,7 +4,7 @@
 // without a browser or a network.
 //
 // A code is a word the owner chooses, carrying a Dew amount — the pay-as-you-go
-// currency Mino bills in. It used to carry a plan and a number of days; the
+// currency Openmi bills in. It used to carry a plan and a number of days; the
 // subscription model is gone, and so is that shape. A record without a Dew
 // amount is not a code any more: it resolves to nothing rather than to the
 // nearest thing that still fits, because a code whose meaning cannot be read
@@ -20,7 +20,7 @@
 /**
  * How a code is written down.
  *
- * Upper case and no spaces, so `mino-topup` and `MINO TOPUP` are one code rather
+ * Upper case and no spaces, so `openmi-topup` and `OPENMI TOPUP` are one code rather
  * than two that a buyer could mistype between. The owner picks the word; this
  * only decides the form it is stored in.
  */

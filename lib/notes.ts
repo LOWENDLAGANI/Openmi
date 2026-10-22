@@ -18,7 +18,7 @@ export interface DevNote {
   /** Optional pill above the title. Empty hides it. */
   badge: string;
   badgeTone: NoteBadgeTone;
-  /** Shown next to the date, e.g. "mino_dev · 25 Sep". */
+  /** Shown next to the date, e.g. "openmi_dev · 25 Sep". */
   author: string;
   /** Free-form so the administrator can write "25 Sep" or "yesterday". */
   dateLabel: string;
@@ -134,7 +134,7 @@ export function formatNoteDate(timestamp: number): string {
 
 // ── Once-only bookkeeping ───────────────────────────────────────────────────
 
-const SEEN_KEY = "mino:notes-seen";
+const SEEN_KEY = "openmi:notes-seen";
 /** Bounded, because a reader who never clears storage should not grow it
  *  without limit as notes come and go. */
 const MAX_SEEN = 60;

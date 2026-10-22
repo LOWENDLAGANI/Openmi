@@ -61,7 +61,7 @@ type View =
   | { name: "chats"; uid: string; label: string }
   | { name: "chat"; uid: string; chatId: string; title: string };
 
-const PROVIDER_LABEL: Record<string, string> = { auto: "Mino Auto", code: "Mino Code" };
+const PROVIDER_LABEL: Record<string, string> = { auto: "Openmi Auto", code: "Openmi Code" };
 
 function when(ts?: number | null): string {
   if (!ts) return "—";
@@ -195,32 +195,32 @@ export default function AdminPanel({
     void call("listUsers")
       .then((data) => setUsers(data.users as AdminUser[]))
       .catch((e: unknown) => {
-        console.error("[mino] Failed to list users", e);
+        console.error("[openmi] Failed to list users", e);
         setError(e instanceof Error ? e.message : "Could not load users.");
       });
     void readDewBalances()
       .then(setDewBalances)
       .catch((e: unknown) => {
-        console.error("[mino] Failed to read Dew balances", e);
+        console.error("[openmi] Failed to read Dew balances", e);
         setDewBalances({});
       });
     void fetch("/api/chat")
       .then((response) => response.json())
       .then((data) => setProviders(data))
       .catch((e: unknown) => {
-        console.error("[mino] Failed to fetch chat config", e);
+        console.error("[openmi] Failed to fetch chat config", e);
         setProviders(null);
       });
     void fetchVisitorRegistry()
       .then(setNamed)
       .catch((e: unknown) => {
-        console.error("[mino] Failed to fetch visitor registry", e);
+        console.error("[openmi] Failed to fetch visitor registry", e);
         setNamed([]);
       });
     void listAdminAudit()
       .then(setAudit)
       .catch((e: unknown) => {
-        console.error("[mino] Failed to list admin audit", e);
+        console.error("[openmi] Failed to list admin audit", e);
         setAudit([]);
       });
 
@@ -272,7 +272,7 @@ export default function AdminPanel({
   /** Writes to the ledger, reporting a refusal instead of swallowing it. */
   const logAudit = useCallback(async (entry: Omit<AdminAuditEntry, "id">) => {
     const written = await appendAdminAudit(entry).catch((cause) => {
-      console.error("[mino] Failed to write audit entry", cause);
+      console.error("[openmi] Failed to write audit entry", cause);
       setAuditBroken(true);
       return null;
     });
@@ -303,7 +303,7 @@ export default function AdminPanel({
       setTopUpNote("");
       setTopUp(null);
     } catch (e: unknown) {
-      console.error("[mino] Top-up failed", e);
+      console.error("[openmi] Top-up failed", e);
       setTopUpError(e instanceof Error ? e.message : "The top-up did not go through.");
     } finally {
       setBusy(false);
@@ -330,7 +330,7 @@ export default function AdminPanel({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Mino admin console"
+        aria-label="Openmi admin console"
         className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
       >
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-4">
@@ -344,7 +344,7 @@ export default function AdminPanel({
             )}
             <h2 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
               {view.name === "users"
-                ? "Mino console"
+                ? "Openmi console"
                 : view.name === "codes"
                   ? "Dew codes"
                   : view.name === "chats"
@@ -471,7 +471,7 @@ export default function AdminPanel({
                   <p className="py-2 text-[11px] text-white/35">Loading…</p>
                 ) : users.length === 0 ? (
                   <p className="py-2 text-[11px] leading-relaxed text-white/35">
-                    Nobody has visited yet. Anyone who opens Mino and gives a name appears here,
+                    Nobody has visited yet. Anyone who opens Openmi and gives a name appears here,
                     whether or not they have ever sent a message.
                   </p>
                 ) : visible.length === 0 ? (
@@ -638,7 +638,7 @@ export default function AdminPanel({
                     >
                       <div className="mb-1 flex items-center gap-2">
                         <span className={`text-[9px] font-semibold uppercase tracking-[0.12em] ${message.role === "user" ? "text-[#a9d8bb]/75" : "text-white/40"}`}>
-                          {message.role === "user" ? "User" : "Mino"}
+                          {message.role === "user" ? "User" : "Openmi"}
                         </span>
                         {message.role === "assistant" && message.model && (
                           <span className="text-[9px] text-white/25">{message.model}</span>
@@ -788,7 +788,7 @@ function CodesSection({
   /** Appends to the ledger, reporting a refusal rather than swallowing it. */
   const log = async (entry: Omit<AdminAuditEntry, "id">) => {
     const written = await appendAdminAudit(entry).catch((cause) => {
-      console.error("[mino] Failed to write audit entry", cause);
+      console.error("[openmi] Failed to write audit entry", cause);
       onLedgerError();
       return null;
     });
@@ -853,7 +853,7 @@ function CodesSection({
           id="code-word"
           value={word}
           onChange={(event) => setWord(event.target.value)}
-          placeholder="MINO-TOPUP"
+          placeholder="OPENMI-TOPUP"
           spellCheck={false}
           autoComplete="off"
           className="w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-white placeholder:font-normal placeholder:normal-case placeholder:tracking-normal placeholder:text-white/25"

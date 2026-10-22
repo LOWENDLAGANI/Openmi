@@ -7,7 +7,7 @@ import { displayedContent, variantCount, variantPosition } from "@/lib/variants"
 import { downloadChatImage } from "@/lib/shareImage";
 import { buildShareLink } from "@/lib/shareLink";
 import Markdown from "./Markdown";
-import MinoMark from "./MinoMark";
+import OpenmiMark from "./OpenmiMark";
 import { useSmoothText } from "@/lib/useSmoothText";
 import { speak, speechSupported, stopSpeaking } from "@/lib/tts";
 import { useEffect, useRef, useState } from "react";
@@ -77,13 +77,13 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
       </div>
       {/* Prompt injection is real and pages are writable by anyone: the reader
           deserves to see that these snippets are reference material, not
-          Mino's own words. The system prompt already says so to the model;
+          Openmi's own words. The system prompt already says so to the model;
           this says it to the person. */}
       <p className="mb-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-white/35">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0" aria-hidden="true">
           <path d="M12 3l7 3v5c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3Z" />
         </svg>
-        <span>Untrusted web text — Mino was told to treat these pages as reference, not as instructions.</span>
+        <span>Untrusted web text — Openmi was told to treat these pages as reference, not as instructions.</span>
       </p>
       <div className="space-y-1.5">
         {sources.map((source) => {
@@ -358,14 +358,14 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
       {/* A cut-off answer, said out loud. A truncated file is the one failure
           mode here that is completely invisible: it renders as a clean code
           block, copies as a clean code block, and reads as finished. This only
-          appears once every other model Mino can reach has also failed to
+          appears once every other model Openmi can reach has also failed to
           finish it, so the wording says as much. */}
       {msg.truncated && (
         <div
           role="status"
           className="mt-2 rounded-xl border border-amber-300/15 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-100/80"
         >
-          Mino tried other models and this answer still stops partway, because
+          Openmi tried other models and this answer still stops partway, because
           it hit their length limit too. Ask it to continue and it will pick up
           from where it left off.
         </div>
@@ -583,7 +583,7 @@ const EMPTY_STATE_HEADLINES = [
   "What is the clearest way to say it?",
 ];
 
-const HEADLINE_CURSOR_KEY = "mino:empty-headline-cursor";
+const HEADLINE_CURSOR_KEY = "openmi:empty-headline-cursor";
 
 /** Walks the list in order so two refreshes in a row never show the same line. */
 function nextHeadline(): string {
@@ -679,7 +679,7 @@ export default function ChatThread({  messages,
 
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
-          await navigator.share({ title: "A chat from Mino", url: link.url });
+          await navigator.share({ title: "A chat from Openmi", url: link.url });
           setShareNotice(
             link.included < link.total
               ? `Shared · latest ${link.included} of ${link.total} messages`
@@ -738,7 +738,7 @@ export default function ChatThread({  messages,
         <div className="-translate-y-2 text-center sm:-translate-y-5">
           <div className="relative mx-auto mb-7 flex h-16 w-16 items-center justify-center sm:h-20 sm:w-20">
             <div className="absolute inset-[-45%] rounded-full bg-[#2f6b48]/20 blur-3xl" />
-            <MinoMark className="relative h-full w-full" />
+            <OpenmiMark className="relative h-full w-full" />
           </div>
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-white sm:text-[54px] lg:text-[62px]">
             {headline}
@@ -790,10 +790,10 @@ export default function ChatThread({  messages,
                   return m ? (
                     <>
                       <ModelIcon model={m.model} />
-                      <ModelBadge model={m.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">Mino</span>
+                      <ModelBadge model={m.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">Openmi</span>
                     </>
                   ) : (
-                    <span className="hidden ml-2 text-[12px] font-medium text-white/55">Mino</span>
+                    <span className="hidden ml-2 text-[12px] font-medium text-white/55">Openmi</span>
                   );
                 })()}
               </div>
@@ -808,7 +808,7 @@ export default function ChatThread({  messages,
 }
 
 // ── Model identity badge (added for UI overhaul) ──────────────────────────
-// Visual indicator showing which Mino model responded with color-coded styling
+// Visual indicator showing which Openmi model responded with color-coded styling
 import { getMode } from "@/lib/models";
 
 function ModelBadge({ model }: { model?: string }) {
@@ -822,7 +822,7 @@ function ModelBadge({ model }: { model?: string }) {
       ? "model-badge model-badge-code" 
       : "model-badge model-badge-auto";
   
-  const label = isAzure ? "Mino Azure" : isCode ? "Mino Code" : mode.display;
+  const label = isAzure ? "Openmi Azure" : isCode ? "Openmi Code" : mode.display;
   
   return (
     <span className={badgeClass}>

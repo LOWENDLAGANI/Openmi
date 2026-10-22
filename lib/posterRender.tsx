@@ -1,4 +1,4 @@
-// ── Mino poster text rendering ───────────────────────────────────────────────
+// ── Openmi poster text rendering ───────────────────────────────────────────────
 // Draws real words over generated artwork. See lib/posterText.ts for why the
 // image model is never asked to spell anything.
 //

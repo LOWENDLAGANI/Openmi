@@ -189,7 +189,7 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
       const current = await getServices();
       const token = await current?.auth.currentUser?.getIdToken(true);
       if (!token) throw new Error("Sign in with Google again, then send the push.");
-      const result = await broadcastPush({ title: "Mino", body: text });
+      const result = await broadcastPush({ title: "Openmi", body: text });
       if (!result.ok) {
         throw new Error(
           result.error === "missing-keys"
@@ -274,7 +274,7 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
       {config.maintenanceEnabled && (
         <div className="mt-2 rounded-[12px] border border-amber-300/20 bg-amber-400/[0.06] px-3 py-2.5">
           <p className="text-[11px] leading-relaxed text-amber-100/80">
-            Mino is closed to visitors. You can still reach the console from the About page, where
+            Openmi is closed to visitors. You can still reach the console from the About page, where
             this logo opens it.
           </p>
           <input

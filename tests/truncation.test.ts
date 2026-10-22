@@ -1,9 +1,9 @@
-// ── Mino — tests for a silently truncated answer ─────────────────────────────
+// ── Openmi — tests for a silently truncated answer ─────────────────────────────
 //
 // A response that stops at the model's length limit is the one failure mode
 // that looks like success. It renders as a clean code block, copies as a clean
 // code block, and a user has no way to tell the file is half a file. These pin
-// the detection and, just as importantly, pin that Mino is not the thing
+// the detection and, just as importantly, pin that Openmi is not the thing
 // shortening the answer itself.
 //
 //   bun run test
@@ -100,7 +100,7 @@ console.log("\nfinishing a cut-off answer on another model");
 
 test("a length cutoff no longer ends the answer", () => {
   // The flag is collected, not reported: reporting it the moment the model stops
-  // would tell the user the answer is cut off while Mino is still completing it
+  // would tell the user the answer is cut off while Openmi is still completing it
   // on the next model.
   const route = read("app/api/chat/route.ts");
   assert.match(
@@ -110,7 +110,7 @@ test("a length cutoff no longer ends the answer", () => {
   );
   assert.ok(
     !/finish_reason\s*===\s*["']length["']\s*\)\s*\{[\s\S]{0,120}encodeEvent\(\{\s*truncated/.test(route),
-    "the cutoff is still reported to the client before Mino tries another model"
+    "the cutoff is still reported to the client before Openmi tries another model"
   );
 });
 
@@ -139,7 +139,7 @@ test("the model that finishes the answer is the one that is named", () => {
   const route = read("app/api/chat/route.ts");
   assert.match(
     route,
-    /attemptProvider\s*=\s*next;[\s\S]{0,400}getModelDisplayName\(toMinoName\(next\.model\)\)/,
+    /attemptProvider\s*=\s*next;[\s\S]{0,400}getModelDisplayName\(toOpenmiName\(next\.model\)\)/,
     "the label is never updated when the answer moves to another model"
   );
 });
@@ -172,7 +172,7 @@ test("the cutoff is only announced once no model could finish the answer", () =>
   );
 });
 
-console.log("\nMino is not the thing shortening the answer");
+console.log("\nOpenmi is not the thing shortening the answer");
 
 test("no output cap is sent to the provider", () => {
   // A cap here would be a legitimate design choice, but it must be deliberate

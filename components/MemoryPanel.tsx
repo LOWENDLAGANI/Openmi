@@ -1,8 +1,8 @@
 "use client";
 
-// ── What Mino remembers ─────────────────────────────────────────────────────
+// ── What Openmi remembers ─────────────────────────────────────────────────────
 // The whole list is shown, not summarised. That is the point: when an answer
-// comes back wrong, the first question is always "what did Mino think I
+// comes back wrong, the first question is always "what did Openmi think I
 // said", and the fastest answer to that is reading twenty short lines. A
 // feature that hid its contents behind a summary would be the same thing that
 // makes this class of bug so hard to troubleshoot.
@@ -124,7 +124,7 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
   };
 
   const clearAll = async () => {
-    if (!window.confirm("Delete every memory? Mino will forget all of them on every device.")) return;
+    if (!window.confirm("Delete every memory? Openmi will forget all of them on every device.")) return;
     const existing = memories;
     await clearMemories();
     refresh();
@@ -153,7 +153,7 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
             </svg>
           </div>
           <div>
-            <h3 className="text-[14px] font-semibold text-white">What Mino remembers</h3>
+            <h3 className="text-[14px] font-semibold text-white">What Openmi remembers</h3>
             <div className="mt-1 flex items-center gap-2">
               <div className="h-1.5 w-20 rounded-full bg-white/[0.08] overflow-hidden">
                 <div className={`h-full ${usageColor} transition-all duration-300`} style={{ width: `${usagePercent}%` }} />
@@ -173,7 +173,7 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
 
       {/* Description */}
       <p className="mb-3 text-[12px] leading-relaxed text-white/45">
-        Short facts Mino keeps about you and uses in every conversation. Mino
+        Short facts Openmi keeps about you and uses in every conversation. Openmi
         notices some of them itself and offers them below the chat — you choose
         what it keeps.
         {syncAvailable && synced && " These follow your account across devices."}
@@ -274,7 +274,7 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
         <div className="mb-4 flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] p-6 py-8">
           {EMPTY_MEMORY_ICON}
           <p className="text-[13px] text-white/40 text-center">
-            No memories yet. Add facts you want Mino to remember.
+            No memories yet. Add facts you want Openmi to remember.
           </p>
         </div>
       )}
@@ -327,7 +327,7 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
             <path d="M9.5 14.5 12 17l-2.5 2.5M7.5 17h9" />
             <circle cx="12" cy="12" r="9.5" />
           </svg>
-          Let Mino suggest things to remember
+          Let Openmi suggest things to remember
         </span>
       </label>
 

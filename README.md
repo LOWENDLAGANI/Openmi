@@ -1,4 +1,4 @@
-# Mino
+# Openmi
 
 A private, local-first AI assistant by **Minetallest**. Multi-model chat with vision, streaming responses, markdown rendering, automatic anonymous cloud history, and no account required.
 
@@ -7,19 +7,19 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 ## Features
 
 - **Zero-login persistence** — chats and messages live in the current browser’s IndexedDB via Dexie; when Firebase is configured they are also written to Realtime Database under the signed-in identity, and an account holder gets them back on any other browser they sign in from
-- **Optional Google account** — Mino works with just a name. Binding a Google account from the welcome screen or Settings is a migration that keeps the same UID, so the chats and the name carry to another browser. It grants no administrator access and shares no code path with the console
-- **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
-- **Mino Azure** — Mino's own model, served from a Gradio Space on Hugging Face. It needs no vendor key, is never used to answer a Code question, and never silently replaces the model a user chose (see [Mino Azure](#mino-azure-the-gradio-space)). **It is billed at the pro tier** — see [Pay as you go (Dew)](#pay-as-you-go-dew)
-- **Mino's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Mino V1**, **Mino V2**, and **Mino V3** (the oldest, middle, and newest model), and **Mino Auto** for the router. The wire-level provider names stay server-side.
+- **Optional Google account** — Openmi works with just a name. Binding a Google account from the welcome screen or Settings is a migration that keeps the same UID, so the chats and the name carry to another browser. It grants no administrator access and shares no code path with the console
+- **Two modes** — **Openmi Auto** routes every message to the best available model; **Openmi Code** uses Openmi V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
+- **Openmi Azure** — Openmi's own model, served from a Gradio Space on Hugging Face. It needs no vendor key, is never used to answer a Code question, and never silently replaces the model a user chose (see [Openmi Azure](#openmi-azure-the-gradio-space)). **It is billed at the pro tier** — see [Pay as you go (Dew)](#pay-as-you-go-dew)
+- **Openmi's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Openmi V1**, **Openmi V2**, and **Openmi V3** (the oldest, middle, and newest model), and **Openmi Auto** for the router. The wire-level provider names stay server-side.
 - **Code you can copy** — in Code mode every file arrives as a code block labelled with its path (`` ```ts src/lib/thing.ts ``) and a **Copy** button, so it pastes straight into a local editor. The model is asked for complete files rather than fragments, because a partial file gives the reader no way to tell what was left out.
 - **Secure API keys** — provider keys are only ever read server-side in the `/api/chat` Route Handler; the admin console holds no service-account credential at all
-- **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request and the client cannot bypass it. Because a prompt is an instruction rather than a guarantee, every streamed token is additionally passed through a server-side identity guard that rewrites *self-referential* vendor claims ("I am Gemini", "I was created by Google", "I'm powered by GPT-4") into Mino. The guard is deliberately scoped: vendor names in ordinary answers ("Gemini changed its pricing", "compare Gemini with Claude") are left untouched, so Mino never misattributes or confuses legitimate content
+- **Strict persona** — the Openmi system prompt is prepended server-side to *every* completion request and the client cannot bypass it. Because a prompt is an instruction rather than a guarantee, every streamed token is additionally passed through a server-side identity guard that rewrites *self-referential* vendor claims ("I am Gemini", "I was created by Google", "I'm powered by GPT-4") into Openmi. The guard is deliberately scoped: vendor names in ordinary answers ("Gemini changed its pricing", "compare Gemini with Claude") are left untouched, so Openmi never misattributes or confuses legitimate content
 - **Multimodal** — attach images via the phone camera, file picker, drag-and-drop, or clipboard paste; compressed client-side on `<canvas>` (max 1024px, JPEG q0.8) before upload
 - **Streaming** — real-time word-by-word responses over Server-Sent Events
-- **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
+- **Web search** — Openmi stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
 - **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, voice input, and text/code file attachments
-- **Google tools** — connect a Google account in Settings and ask Mino in chat: "what's on my calendar tomorrow", "add a task", "make a sheet of these", "create a doc", "directions to …". The model writes an explicit action block, Mino executes it against the connected account (Calendar, Tasks, Sheets, Docs read **and** write; Maps search), shows the result in the answer, and never sees or holds a token — consent lives in an AES-256-GCM encrypted httpOnly cookie bound to the account that pressed Connect, and Disconnect revokes the refresh token at Google
+- **Google tools** — connect a Google account in Settings and ask Openmi in chat: "what's on my calendar tomorrow", "add a task", "make a sheet of these", "create a doc", "directions to …". The model writes an explicit action block, Openmi executes it against the connected account (Calendar, Tasks, Sheets, Docs read **and** write; Maps search), shows the result in the answer, and never sees or holds a token — consent lives in an AES-256-GCM encrypted httpOnly cookie bound to the account that pressed Connect, and Disconnect revokes the refresh token at Google
 - **Send later** — the composer's clock queues a message (five minutes, thirty, an hour, tomorrow morning, or any datetime) and this open tab fires it when the time comes, oldest first, under the mode and search setting it was written with; queued messages sit as cancellable chips above the composer
 - **Rate limits you can see** — a server refusal is parsed for the wait it names and becomes a live countdown in the composer; *Queue until then* holds the message behind the wait and sends it when the wait lifts
 - **Read aloud** — every finished answer has a speaker button that reads it in the browser's own voice; code blocks are announced rather than spelled out, link targets are dropped, and moving away stops the speech
@@ -29,7 +29,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Token counts per message** — each answer shows what it cost, with the prompt/completion split on hover
 - **Your data** — Settings → *Your data* exports a backup and erases everything — local tables, logged chats, usage, push subscriptions — behind a two-tap button that deliberately keeps the Dew balance
 - **Web push that survives a reload** — notification subscriptions are stored under the account rather than the tab, deduplicated by endpoint, and the console's **Push** button broadcasts to every persisted subscriber
-- **Memory** — up to 20 short facts about you, sent with every request, written by you from the `+` menu or **offered** by Mino under the chat for you to approve. Always visible in Settings, always editable, and never extended by the model on its own (see [Memory](#memory))
+- **Memory** — up to 20 short facts about you, sent with every request, written by you from the `+` menu or **offered** by Openmi under the chat for you to approve. Always visible in Settings, always editable, and never extended by the model on its own (see [Memory](#memory))
 - **Settings** — a single panel in the sidebar for web search mode, response length, reasoning effort (low/medium/high, default low), and dark/light appearance; the composer's `+` menu stays limited to per-message tools
 
 ## Getting started
@@ -43,19 +43,19 @@ Open http://localhost:3000. `bun run test` runs the unit tests.
 
 ### API keys
 
-Mino has two modes, each with its own key. **The site never breaks if one (or both) is missing** — it shows a friendly notice in chat and falls back to whichever key exists.
+Openmi has two modes, each with its own key. **The site never breaks if one (or both) is missing** — it shows a friendly notice in chat and falls back to whichever key exists.
 
 Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel → Settings → Environment Variables:
 
 | Variable | Mode | Provider |
 |---|---|---|
-| `OPENROUTER_API_KEY` | **Mino Auto** | Universal routing that picks the best available model per message |
-| `GEMINI_API_KEY` | **Mino Code** | Serves Mino V3 / V2 / V1 (Gemini 3.8 / 3.7 / 3.6) via the compatible endpoint |
-| `GROQ_API_KEY` | **Fallback** | Last-resort provider used by Auto when no Mino model is available |
+| `OPENROUTER_API_KEY` | **Openmi Auto** | Universal routing that picks the best available model per message |
+| `GEMINI_API_KEY` | **Openmi Code** | Serves Openmi V3 / V2 / V1 (Gemini 3.8 / 3.7 / 3.6) via the compatible endpoint |
+| `GROQ_API_KEY` | **Fallback** | Last-resort provider used by Auto when no Openmi model is available |
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 | `CLOUDFLARE_ACCOUNT_ID` | **Image generation** | Cloudflare account that hosts the Workers AI model |
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
-| `MINO_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
+| `OPENMI_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
 | `GOOGLE_CLIENT_ID` | **Google tools** | OAuth client id from Google Cloud Console |
 | `GOOGLE_CLIENT_SECRET` | **Google tools** | The client's secret — never reaches the browser |
 | `GOOGLE_ENCRYPTION_KEY` | **Google tools** | Any 32-byte hex value (`openssl rand -hex 32`) — AES-256 key for the token cookie |
@@ -81,19 +81,19 @@ Google Maps is separate and optional: create an **API key** (Credentials → API
 
 **Verification** — until the consent screen is published or the domain is verified, Google shows a "not verified" warning before consent; pressing *Advanced → Go to (app) (unsafe)* proceeds and everything works for test users.
 
-### Mino Azure (the Gradio Space)
+### Openmi Azure (the Gradio Space)
 
-Mino's own model lives on a Hugging Face Space behind Gradio and is offered to
-users as a third mode, **Mino Azure**. It needs no vendor key at all, which is why
+Openmi's own model lives on a Hugging Face Space behind Gradio and is offered to
+users as a third mode, **Openmi Azure**. It needs no vendor key at all, which is why
 it is the only mode that still answers on a deployment with nothing else
 configured.
 
 | Variable | Purpose |
 |---|---|
-| `MINO_HF_SPACE` | Space id, e.g. `Minetallest/Mino`. Defaults to `Minetallest/Mino`. Set to `off` to remove Mino Azure from the deployment entirely |
-| `MINO_HF_TOKEN` | Optional. A read-only Hugging Face token — needed for a private Space, and worth setting for a ZeroGPU one, because it draws on your own GPU quota instead of the small anonymous pool |
-| `MINO_HF_TIMEOUT_MS` | Optional. How long one call may take before it is reported as a Space that stopped answering. Defaults to `120000` |
-| `MINO_HF_PROMPT_BUDGET` | Optional. Characters of conversation sent to the Space. Defaults to `12000` |
+| `OPENMI_HF_SPACE` | Space id, e.g. `Minetallest/Mino`. Defaults to `Minetallest/Mino`. Set to `off` to remove Openmi Azure from the deployment entirely |
+| `OPENMI_HF_TOKEN` | Optional. A read-only Hugging Face token — needed for a private Space, and worth setting for a ZeroGPU one, because it draws on your own GPU quota instead of the small anonymous pool |
+| `OPENMI_HF_TIMEOUT_MS` | Optional. How long one call may take before it is reported as a Space that stopped answering. Defaults to `120000` |
+| `OPENMI_HF_PROMPT_BUDGET` | Optional. Characters of conversation sent to the Space. Defaults to `12000` |
 
 To get a token: Hugging Face → **Settings → Access Tokens → Create new token**
 (fine-grained, read-only). Nothing else is needed — the Space is public.
@@ -107,7 +107,7 @@ filter, the truncation check, the fallback chain, the client — then behaves
 exactly as it does for every other provider, with no special case anywhere else.
 
 **Where it sits in the chain.** Self mode is the Space and nothing else: someone
-who picked Mino's own model did not agree to be answered by a vendor if it is
+who picked Openmi's own model did not agree to be answered by a vendor if it is
 down. Code mode excludes it entirely, because code written by a different model
 family is a different answer. Auto reaches it last, as the one model guaranteed
 to belong to the deployment.
@@ -123,20 +123,20 @@ to belong to the deployment.
   marking a finished answer as broken is the more expensive mistake.
 - **A stalled feed never ends.** A ZeroGPU Space that is asleep queues the job
   behind the allocation, and a worker that dies simply closes the stream. Both
-  are bounded by `MINO_HF_TIMEOUT_MS` and reported as a retryable message.
+  are bounded by `OPENMI_HF_TIMEOUT_MS` and reported as a retryable message.
 - **The prompt would overflow silently.** The transcript is budgeted, and a long
   thread loses its oldest turns rather than its newest question, with the loss
   stated in the prompt rather than hidden.
 
 ### Automatic Firebase logging
 
-When Firebase is configured, Mino automatically signs in with a hidden anonymous identity and writes local chat text to that identity’s Realtime Database namespace. The Realtime Database rules grant that identity a read **only on its own `users/$uid` node**, so a client can pull its own history back — which is what makes a phone’s conversations appear on a computer signed in with the same Google account — while still being unable to read anybody else’s logs. Chats are merged as a union rather than a replace, and a deletion is recorded so a sync cannot resurrect it.
+When Firebase is configured, Openmi automatically signs in with a hidden anonymous identity and writes local chat text to that identity’s Realtime Database namespace. The Realtime Database rules grant that identity a read **only on its own `users/$uid` node**, so a client can pull its own history back — which is what makes a phone’s conversations appear on a computer signed in with the same Google account — while still being unable to read anybody else’s logs. Chats are merged as a union rather than a replace, and a deletion is recorded so a sync cannot resurrect it.
 
 **Pulling requires one rule to be published.** `users/$uid/chats` grants `.read` to its owner alongside the write. A deployment that has not republished `database.rules.json` keeps the previous write-only behaviour, and `loadChatsFromAccount` returns null rather than emptying the local database — chats then stay on the device, which is the old, safe behaviour rather than a broken one.
 
 To enable automatic logging:
 
-1. Create a Firebase project, create a **Realtime Database**, and enable **Anonymous** under Authentication → Sign-in method. Enable **Google** there too if you want the optional account binding in **Settings → Account** to work; without it, Mino still works with a name alone and simply hides the option.
+1. Create a Firebase project, create a **Realtime Database**, and enable **Anonymous** under Authentication → Sign-in method. Enable **Google** there too if you want the optional account binding in **Settings → Account** to work; without it, Openmi still works with a name alone and simply hides the option.
 2. Add a Web app in Firebase and provide these variables in the Freebuff Keys/API keys UI or your deployment environment:
 
 `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
@@ -145,7 +145,7 @@ To enable automatic logging:
 
 ### Admin console
 
-Clicking the Mino logo **on the About page** ten times within a couple of seconds opens a sign-in prompt. Signing in with the administrator's Google account opens a read-only console showing which providers are configured, local chat/message counts, storage used, the signed-in identity, and the list of visitors who have given Mino a name. It also draws the **DAU/WAU trend chart** from the per-visitor daily counters (`usage/`), with the message and image totals and the mode breakdown beside it, and a **Push** button that broadcasts an announcement to every persisted web-push subscriber.
+Clicking the Openmi logo **on the About page** ten times within a couple of seconds opens a sign-in prompt. Signing in with the administrator's Google account opens a read-only console showing which providers are configured, local chat/message counts, storage used, the signed-in identity, and the list of visitors who have given Openmi a name. It also draws the **DAU/WAU trend chart** from the per-visitor daily counters (`usage/`), with the message and image totals and the mode breakdown beside it, and a **Push** button that broadcasts an announcement to every persisted web-push subscriber.
 
 **There is no PIN and no service account.** Access is granted by the Realtime Database rules themselves, which name a single Firebase Auth UID:
 
@@ -184,16 +184,16 @@ A wiped user loses `users/{uid}` and `admin/registry/{uid}`; a full wipe clears 
 
 ## Pay as you go (Dew)
 
-**Mino is billed in Dew, per request.** There are no plans, no terms and no renewal dates left in the product: every message is charged for the tokens it actually uses, every generated picture costs one Dew, and the balance simply spends down as somebody chats. One Dew is 1/100 of a US dollar of model use, and the whole price table lives in one place — `lib/dew.ts`:
+**Openmi is billed in Dew, per request.** There are no plans, no terms and no renewal dates left in the product: every message is charged for the tokens it actually uses, every generated picture costs one Dew, and the balance simply spends down as somebody chats. One Dew is 1/100 of a US dollar of model use, and the whole price table lives in one place — `lib/dew.ts`:
 
 | Tier | Input (per 1,000 tokens) | Output (per 1,000 tokens) | Used by |
 |---|---|---|---|
 | fast | 0.015 Dew | 0.06 Dew | Auto and Code, when nobody asked for more reasoning |
-| pro | 0.25 Dew | 1.00 Dew | Mino Azure, and any request that asked for medium or high reasoning |
+| pro | 0.25 Dew | 1.00 Dew | Openmi Azure, and any request that asked for medium or high reasoning |
 
 An image costs `IMAGE_DEW_COST` (1 Dew), charged only after the picture exists — a failed generation is never billed. A new account is granted `TRIAL_DEW` (25) exactly once, pinned at that value by the rules.
 
-**Buying Dew is a QR transfer, like everything else Mino sells.** `/plus` shows the balance, four packs with their ringgit prices, and the shared DuitNow QR. There is no payment gateway and no webhook: the owner matches the transfer and hands over a code, or the buyer redeems a code they were given directly.
+**Buying Dew is a QR transfer, like everything else Openmi sells.** `/plus` shows the balance, four packs with their ringgit prices, and the shared DuitNow QR. There is no payment gateway and no webhook: the owner matches the transfer and hands over a code, or the buyer redeems a code they were given directly.
 
 **Top-ups belong to an account.** Dew is keyed on the uid, so `/plus` shows the wallet only for a verified identity — anonymous or Google-linked — and says so, rather than showing a browser that can never hold a balance a balance of zero.
 
@@ -223,7 +223,7 @@ What is on screen comes from the same derivation: `lib/useDew.ts` is one shared 
 
 One check without the other leaves a hole. Rules alone keep honouring claims made earlier; the server alone lets the claim be written and only refuses to honour it.
 
-**Codes cannot be listed.** `codes/$code` is readable only by somebody signed in, and only when they already know the word — the parent is not readable, so there is no way to enumerate them. Words are normalized to upper case with no spaces, so `mino-topup` and `MINO TOPUP` are one code rather than two a buyer can be given by mistake, and a word shorter than four characters is refused before it can be created.
+**Codes cannot be listed.** `codes/$code` is readable only by somebody signed in, and only when they already know the word — the parent is not readable, so there is no way to enumerate them. Words are normalized to upper case with no spaces, so `openmi-topup` and `OPENMI TOPUP` are one code rather than two a buyer can be given by mistake, and a word shorter than four characters is refused before it can be created.
 
 **A code does not expire and is not counted.** Its whole lifetime is the owner's switch. There is deliberately no "redeemed N times" limit: counting would need a write to `codes/`, which the rules reserve for the administrator, and the deployment holds no service account to do it another way. A counter stuck at zero beside a console reading `0/1 used` would be a control that looks real and does nothing. One word, one shared balance, and **Terminate** the moment a word starts being resold — which is the moment that actually matters.
 
@@ -233,7 +233,7 @@ One check without the other leaves a hole. Rules alone keep honouring claims mad
 
 ## Visitor names
 
-On first visit Mino asks what to call you. The name is stored in that browser's `localStorage` only, so it is never asked again on the same device, and it is written to Realtime Database at `admin/registry/{uid}` alongside the first- and last-seen timestamps so the console can list visitors.
+On first visit Openmi asks what to call you. The name is stored in that browser's `localStorage` only, so it is never asked again on the same device, and it is written to Realtime Database at `admin/registry/{uid}` alongside the first- and last-seen timestamps so the console can list visitors.
 
 That registry is names and timestamps **only**. Logged chat text under `users/{uid}/chats` is read by the server-side admin API and by the browser **only on the visitor's own node**, so opening the console does not expose anyone's conversations to a visitor, and no visitor can read another visitor's.
 
@@ -241,35 +241,35 @@ Note that `admin/registry` is readable by the administrator through the console;
 
 ## Accounts (optional)
 
-**Using Mino requires no account, and that has not changed.** A name and a chat history in your own browser is a complete Mino. Google sign-in is a second door, never a condition of entry.
+**Using Openmi requires no account, and that has not changed.** A name and a chat history in your own browser is a complete Openmi. Google sign-in is a second door, never a condition of entry.
 
 **Where to use it.** The welcome screen offers “Continue with Google” under the name field, and **Settings → Account** has the same action at any time. A deployment with no `NEXT_PUBLIC_FIREBASE_*` values hides both — a button that cannot work is worse than an absence nobody misses.
 
-**Binding is a migration, not a copy.** Mino signs every first-time visitor in anonymously, which creates a real Firebase account with a UID. Binding calls `linkWithPopup`, which attaches the Google credential to *that* account rather than creating a new one, so **the UID does not change**. Everything already logged under it — the chats, the registry entry — stays exactly where it is. No chat is moved, re-uploaded, or duplicated, and the migration cannot half-finish, because there is no transfer to interrupt.
+**Binding is a migration, not a copy.** Openmi signs every first-time visitor in anonymously, which creates a real Firebase account with a UID. Binding calls `linkWithPopup`, which attaches the Google credential to *that* account rather than creating a new one, so **the UID does not change**. Everything already logged under it — the chats, the registry entry — stays exactly where it is. No chat is moved, re-uploaded, or duplicated, and the migration cannot half-finish, because there is no transfer to interrupt.
 
-**If the account already exists elsewhere**, `linkWithPopup` is refused with `auth/credential-already-in-use`. That is not a dead end: Mino signs into the existing account instead, pulls that account's chats into this browser, and then writes this device's own chats up onto it. The merge is a **union**, never a replace — either device can hold conversations the other has never seen, and a replace would silently delete one of them. Where the same message exists on both sides the newer `updatedAt` wins, and attachments (images, documents, generated images) are never uploaded at all, so the copy that has them is the only copy that keeps them.
+**If the account already exists elsewhere**, `linkWithPopup` is refused with `auth/credential-already-in-use`. That is not a dead end: Openmi signs into the existing account instead, pulls that account's chats into this browser, and then writes this device's own chats up onto it. The merge is a **union**, never a replace — either device can hold conversations the other has never seen, and a replace would silently delete one of them. Where the same message exists on both sides the newer `updatedAt` wins, and attachments (images, documents, generated images) are never uploaded at all, so the copy that has them is the only copy that keeps them.
 
 **Detaching** signs out and back in anonymously, rather than unlinking the Google provider. Firebase deletes an account that has had no sign-in provider for a while, so unlinking the only one would quietly discard the history. Detaching leaves the account intact for the next browser that signs into it.
 
-**The name and the chats both follow you.** The name is written to `users/{uid}/profile`, a node the owner alone can read, so signing in on a new browser greets you by the name you already chose instead of asking again. The chats are read back from `users/{uid}/chats`, which the owner can read alone, and the pull runs on **every** visit rather than only at sign-in — so a phone that wrote history while the computer was closed hands it over the next time the computer is opened. Precedence is fixed and deliberate: **a name typed on this device always wins**, then the account's saved name, and only then the name Google holds. That last one is the only name Mino never asked you for, so it is the one least entitled to represent you.
+**The name and the chats both follow you.** The name is written to `users/{uid}/profile`, a node the owner alone can read, so signing in on a new browser greets you by the name you already chose instead of asking again. The chats are read back from `users/{uid}/chats`, which the owner can read alone, and the pull runs on **every** visit rather than only at sign-in — so a phone that wrote history while the computer was closed hands it over the next time the computer is opened. Precedence is fixed and deliberate: **a name typed on this device always wins**, then the account's saved name, and only then the name Google holds. That last one is the only name Openmi never asked you for, so it is the one least entitled to represent you.
 
-That profile node needs **one extra rule published** — a read on `users/$uid/profile` for its owner — before cross-browser names work. Until then, and on any failure, Mino falls back to the local name and says nothing. Binding itself does not depend on it.
+That profile node needs **one extra rule published** — a read on `users/$uid/profile` for its owner — before cross-browser names work. Until then, and on any failure, Openmi falls back to the local name and says nothing. Binding itself does not depend on it.
 
 **This is not the administrator's account.** The console is reached by tapping the logo ten times, and the two share nothing but the Firebase project. Binding grants a token and nothing else: elevation is decided entirely by `database.rules.json` naming one address, so there is no client-side copy of who the administrator is and no sign-in path from this feature to the console — including for the person who owns it. `lib/account.ts` never imports `lib/firebaseAdmin.ts` and never touches `admin/`, which a test enforces.
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
-Get keys from the providers linked in your deployment environment. The product UI only ever shows Mino names — Mino Auto, Mino V1, Mino V2, Mino V3 — and never a provider or a provider's version number.
+Get keys from the providers linked in your deployment environment. The product UI only ever shows Openmi names — Openmi Auto, Openmi V1, Openmi V2, Openmi V3 — and never a provider or a provider's version number.
 
 Resilience behavior:
-- **Mino Code is single-family.** Every automatic fallback stays inside the Mino V3 → V2 → V1 chain. OpenRouter and Groq are excluded from its chain entirely: a code answer produced by a different model family is a different answer, so a clear error is better than silently changing families mid-task. The `GROQ_API_KEY` fallback therefore applies to Auto only, and `GET /api/chat` no longer reports Code as available on the strength of a Groq key.
-- Auto mode's requested key missing → Mino uses the other configured key; the chat keeps working.
-- Provider outage or rate limit before streaming starts → Mino retries the stable Mino V2 and Mino V1 fallbacks, then the other configured route as needed, with a small automatic model-change notice in the chat header.
-- Auto mode, every Mino model exhausted → Mino falls back to the Groq provider (`GROQ_API_KEY`) with its own quota, so a capacity outage on the primary route does not break the chat. Its fallback models are all comparable-tier rather than progressively weaker, because a last line of defence should still be worth reading.
+- **Openmi Code is single-family.** Every automatic fallback stays inside the Openmi V3 → V2 → V1 chain. OpenRouter and Groq are excluded from its chain entirely: a code answer produced by a different model family is a different answer, so a clear error is better than silently changing families mid-task. The `GROQ_API_KEY` fallback therefore applies to Auto only, and `GET /api/chat` no longer reports Code as available on the strength of a Groq key.
+- Auto mode's requested key missing → Openmi uses the other configured key; the chat keeps working.
+- Provider outage or rate limit before streaming starts → Openmi retries the stable Openmi V2 and Openmi V1 fallbacks, then the other configured route as needed, with a small automatic model-change notice in the chat header.
+- Auto mode, every Openmi model exhausted → Openmi falls back to the Groq provider (`GROQ_API_KEY`) with its own quota, so a capacity outage on the primary route does not break the chat. Its fallback models are all comparable-tier rather than progressively weaker, because a last line of defence should still be worth reading.
 - Model rejects the chosen reasoning effort → the same request is retried once without `reasoning_effort` before that provider is given up on, so an unsupported value can never take a conversation down.
-- All providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
+- All providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Openmi hit an error” message.
 - No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
-- Web search key missing → Mino keeps answering without web context and the composer shows a setup state instead of failing the chat.
+- Web search key missing → Openmi keeps answering without web context and the composer shows a setup state instead of failing the chat.
 
 ## Deploying to Vercel
 
@@ -279,9 +279,9 @@ Add the Firebase variables above and publish `database.rules.json` in the Fireba
 
 ## Image generation
 
-Mino can also draw. The composer's `+` menu has a **Create image** item, which switches the composer into image mode: the prompt is sent to `/api/image`, which runs a two-stage pipeline and returns the finished image. The result is stored in the same local Dexie database as the rest of the thread, so images survive a reload exactly like chat history.
+Openmi can also draw. The composer's `+` menu has a **Create image** item, which switches the composer into image mode: the prompt is sent to `/api/image`, which runs a two-stage pipeline and returns the finished image. The result is stored in the same local Dexie database as the rest of the thread, so images survive a reload exactly like chat history.
 
-**Stage 1 — prompt optimization.** Short text like *"a girl named Mino"* is weak input for a diffusion model, so `lib/promptOptimizer.ts` first rewrites it through a fast text LLM (Groq → Gemini → OpenRouter, whichever keys the deployment has) with a strict system instruction: return **one** descriptive paragraph adding physical detail, setting, lighting, and an art style, and nothing else — no preamble, no quotes, no lists. The stage is best effort by design: it has a 6s budget, and if no text model is configured, the call fails, or the model returns a refusal or an echo of the input, the user's original prompt is passed through unchanged so image generation keeps working. Sending `"raw": true` in the request body skips it entirely for callers who already wrote a full prompt.
+**Stage 1 — prompt optimization.** Short text like *"a girl named Openmi"* is weak input for a diffusion model, so `lib/promptOptimizer.ts` first rewrites it through a fast text LLM (Groq → Gemini → OpenRouter, whichever keys the deployment has) with a strict system instruction: return **one** descriptive paragraph adding physical detail, setting, lighting, and an art style, and nothing else — no preamble, no quotes, no lists. The stage is best effort by design: it has a 6s budget, and if no text model is configured, the call fails, or the model returns a refusal or an echo of the input, the user's original prompt is passed through unchanged so image generation keeps working. Sending `"raw": true` in the request body skips it entirely for callers who already wrote a full prompt.
 
 **Stage 2 — image generation.** The optimized string goes straight to **Cloudflare Workers AI** (`@cf/black-forest-labs/flux-1-schnell`). Workers AI returns raw image bytes, which the route captures as a buffer and returns to the browser with the correct `image/png` content type. The pre-existing handling of Cloudflare's base64 JSON envelope is kept, because which of the two shapes arrives is a property of the model rather than of the request.
 
@@ -291,13 +291,13 @@ Mino can also draw. The composer's `+` menu has a **Create image** item, which s
 
 **A diffusion model cannot spell.** FLUX learns what text *looks like*, not what letters are, so a requested headline comes back as `KESEELAMATAN` and any fine print is shapes that resemble tiny text. No prompt wording fixes this; it is a property of the architecture, not a setting.
 
-So text is never asked of the image model. When a request looks like a poster (`lib/posterText.ts`), Mino:
+So text is never asked of the image model. When a request looks like a poster (`lib/posterText.ts`), Openmi:
 
 1. **Extracts the headline** from the user's own words — a quoted phrase is used verbatim, which is what makes the spelling correct. If no headline can be found, the request is generated as an ordinary image, because a poster with nothing to say is just a blank area.
 2. **Strips the text out of the artwork prompt** and reserves an empty band across the upper third plus a clear strip along the bottom, with an explicit instruction that the image contain no lettering at all.
 3. **Draws the real words afterwards** (`lib/posterRender.ts`) by rendering a transparent text layer with `next/og` and compositing it over the returned bytes with `sharp`.
 
-The text layer is rendered by `next/og` rather than by sharp's own SVG text support, and that is deliberate. sharp renders SVG text through the host's fontconfig, and a host with no fonts installed produces a **blank image with a success status** — no error, no warning, just missing letters. `next/og` bundles its own font file, so the result cannot depend on what happens to be installed on the host. Responses also carry `X-Mino-Poster-Text: 1` so the client can tell drawn text from generated pixels.
+The text layer is rendered by `next/og` rather than by sharp's own SVG text support, and that is deliberate. sharp renders SVG text through the host's fontconfig, and a host with no fonts installed produces a **blank image with a success status** — no error, no warning, just missing letters. `next/og` bundles its own font file, so the result cannot depend on what happens to be installed on the host. Responses also carry `X-Openmi-Poster-Text: 1` so the client can tell drawn text from generated pixels.
 
 If compositing fails for any reason, the unlettered artwork is returned rather than an error — imperfect lettering is worth more than no image, and the failure is recoverable by retrying.
 
@@ -328,7 +328,7 @@ The console can change how the live site behaves without a redeploy: **maintenan
 
 - `config/` has a **public read**, which is what lets a route handler read the settings with no credential at all. The page also asks the server whether it is the administrator, so the maintenance notice is never shown to the person who can lift it.
 - Writing `config/` is refused to everyone except the administrator's address, and the console's save goes through `/api/admin/config`, which verifies the caller's Firebase ID token and then performs the write *with that same token* — so `database.rules.json` makes the final decision, not the route.
-- `MINO_ADMIN_EMAIL` tells the server which address to expect. It must match the address in the rules, and a mismatch surfaces as a refused write rather than a silent success.
+- `OPENMI_ADMIN_EMAIL` tells the server which address to expect. It must match the address in the rules, and a mismatch surfaces as a refused write rather than a silent success.
 
 After changing the rules in `database.rules.json`, **publish them in the Firebase console** (Realtime Database → Rules), or the server will keep reading the old permissions.
 
@@ -355,11 +355,11 @@ Search excerpts are third-party text and are injected into the system prompt, so
 
 ## Memory
 
-Mino remembers up to **20 short facts** about you and sends them with every request, so an answer knows who it is answering without you re-explaining. The list is a flat document, not a retrieval index: the whole thing goes into the system prompt, which is why twenty is a hard cap — past that, stale entries start contradicting each other and the list itself becomes the reason an answer is wrong.
+Openmi remembers up to **20 short facts** about you and sends them with every request, so an answer knows who it is answering without you re-explaining. The list is a flat document, not a retrieval index: the whole thing goes into the system prompt, which is why twenty is a hard cap — past that, stale entries start contradicting each other and the list itself becomes the reason an answer is wrong.
 
-**You can write one.** The composer's `+` menu has **Remember this**, and Settings → **What Mino remembers** lists, edits, and deletes everything.
+**You can write one.** The composer's `+` menu has **Remember this**, and Settings → **What Openmi remembers** lists, edits, and deletes everything.
 
-**Mino can also offer one.** After an answer, a small *Worth remembering* banner appears under the chat with up to three facts a model noticed in the exchange. Nothing is written until you tap **Remember**; **Not now** hides that batch and **Don't suggest this** stops Mino asking on this browser. The setting is off in one place — the checkbox in Settings.
+**Openmi can also offer one.** After an answer, a small *Worth remembering* banner appears under the chat with up to three facts a model noticed in the exchange. Nothing is written until you tap **Remember**; **Not now** hides that batch and **Don't suggest this** stops Openmi asking on this browser. The setting is off in one place — the checkbox in Settings.
 
 The division is the whole design. A model is good at noticing that someone shipping a Next.js app in March said so in passing; it is bad at knowing whether they meant it. Let it store what it infers and you get memories you never held, applied without question. So the model reads and the user decides, and both paths write through the same guard:
 
@@ -375,19 +375,19 @@ Memories are stored in Dexie and mirrored to `users/$uid/memory`, so they follow
 
 ## Branding
 
-Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark in the app (sidebar header, top bar, empty state, message avatars, quick tour) renders that file, and the browser tab / Apple touch icon use it too. The path is configurable through the `src` prop on `components/MinoMark.tsx`; if the file is missing or fails to load, the app falls back to the built-in sparkle mark so nothing ever renders broken.
+Drop a transparent-background logo at `public/openmi-logo.png`. Every brand mark in the app (sidebar header, top bar, empty state, message avatars, quick tour) renders that file, and the browser tab / Apple touch icon use it too. The path is configurable through the `src` prop on `components/OpenmiMark.tsx`; if the file is missing or fails to load, the app falls back to the built-in sparkle mark so nothing ever renders broken.
 
 ## Project structure
 
 ```
 app/
-  api/chat/route.ts    # SSE streaming proxy with server-side keys, web search, and Mino persona
+  api/chat/route.ts    # SSE streaming proxy with server-side keys, web search, and Openmi persona
   api/image/route.ts   # Cloudflare Workers AI image generation with a server-side token
   api/memory/route.ts  # Proposes durable facts from one exchange; stores nothing
   api/admin/config/    # Administrator-only writes for the runtime controls
   layout.tsx           # Root layout, dark theme
   page.tsx             # Main chat orchestration: state, streaming, model switching
-  globals.css          # Tailwind + Mino dark blue design system
+  globals.css          # Tailwind + Openmi dark blue design system
 components/
   Sidebar.tsx          # IndexedDB chat history, backup/restore
   ChatThread.tsx       # Streaming message list, markdown, image rendering
@@ -395,18 +395,18 @@ components/
   NamePrompt.tsx       # First-visit display name prompt
   AboutLogo.tsx        # About page logo carrying the ten-tap admin trigger
   SettingsPanel.tsx    # Web search, response length, reasoning effort, appearance
-  MemoryPanel.tsx      # What Mino remembers: list, edit, wipe, suggestion toggle
+  MemoryPanel.tsx      # What Openmi remembers: list, edit, wipe, suggestion toggle
   MemorySuggestions.tsx  # The "Worth remembering" offer under the chat
   AdminGate.tsx        # Ten-tap logo trigger and administrator sign-in
   AdminPanel.tsx       # Diagnostics console: people, chats, messages, wipes
   about/page.tsx       # Public About page: logo, creator, date, progress
-  MinoMark.tsx         # Brand mark (renders /public/mino-logo.png with SVG fallback)
+  OpenmiMark.tsx         # Brand mark (renders /public/openmi-logo.png with SVG fallback)
   ModelSelector.tsx    # Navbar model dropdown
   Markdown.tsx         # react-markdown + Prism + copy buttonlib/
   db.ts                # Dexie schema, chat/message ops, backup, persona prompt
   imageUtils.ts        # Canvas compression (1024px, JPEG q0.8)
   models.ts            # Model catalog + token estimator
-  gradioSpace.ts       # Server only: the one file that talks to Mino's Gradio Space
+  gradioSpace.ts       # Server only: the one file that talks to Openmi's Gradio Space
   webSearch.ts         # Server-side current-web search and source formatting
   appConfig.ts         # Runtime control settings, shared by client and server
   serverControl.ts     # Server-side enforcement: config read, token verify, usage
@@ -434,6 +434,6 @@ Conversations and attachments are loaded only from the current browser’s Index
 
 ## Dependency hygiene
 
-`bun audit` is clean. The 14.x line carried a long tail of advisories — two of them critical — most of which applied to features Mino does not use, since there is no middleware, no `next/image`, no Server Actions and no rewrites. Two did apply: denial of service through App Router server components, and cache poisoning in RSC responses. Mino now runs the maintained 15.5 backport line rather than waiting for those to age out.
+`bun audit` is clean. The 14.x line carried a long tail of advisories — two of them critical — most of which applied to features Openmi does not use, since there is no middleware, no `next/image`, no Server Actions and no rewrites. Two did apply: denial of service through App Router server components, and cache poisoning in RSC responses. Openmi now runs the maintained 15.5 backport line rather than waiting for those to age out.
 
 `postcss` and `prismjs` are pinned by `overrides`, because they arrive as transitives of Next and the syntax highlighter at versions with published advisories. Both are build-time or render-time libraries rather than reachable server surface, but there is no reason to carry a known advisory in a public beta.

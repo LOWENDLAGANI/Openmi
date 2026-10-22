@@ -48,7 +48,7 @@ jobs:
       # A build catches what typecheck cannot: a bad import path, a route that
       # breaks static generation, a client component that reaches for `window`
       # during prerender. No environment variables are set here on purpose —
-      # Mino must build with nothing configured, and a build that silently
+      # Openmi must build with nothing configured, and a build that silently
       # depended on a secret would be a deployment waiting to fail.
       - name: Production build
         run: bun run build

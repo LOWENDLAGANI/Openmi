@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import MinoMark from "@/components/MinoMark";
+import OpenmiMark from "@/components/OpenmiMark";
 
-const TUTORIAL_STORAGE_KEY = "mino:first-use-tutorial-v2";
+const TUTORIAL_STORAGE_KEY = "openmi:first-use-tutorial-v2";
 
 type TutorialTarget =
   | "mobile-menu"
@@ -29,23 +29,23 @@ const STEPS: TutorialStep[] = [
   {
     target: "composer",
     highlight: "composer",
-    eyebrow: "Welcome to Mino",
+    eyebrow: "Welcome to Openmi",
     title: "Start a conversation",
-    body: "Type any question or idea below and press send. Mino streams answers in real-time — watch it think as you read. Use Stop to pause, Copy to save.",
+    body: "Type any question or idea below and press send. Openmi streams answers in real-time — watch it think as you read. Use Stop to pause, Copy to save.",
   },
   {
     target: "composer",
     highlight: "composer",
     eyebrow: "Bring context",
     title: "Add images & files",
-    body: "Tap the attachment button, drag files in, or paste from clipboard. Mino understands images — show it something and ask questions about what you see.",
+    body: "Tap the attachment button, drag files in, or paste from clipboard. Openmi understands images — show it something and ask questions about what you see.",
   },
   {
     target: "model-selector",
     highlight: "selector",
     eyebrow: "Choose your mode",
-    title: "Pick the right Mino",
-    body: "Mino Auto for everyday tasks, Mino Code for programming, or Mino Azure — Mino's own model created by Minetallest. Your choice is remembered.",
+    title: "Pick the right Openmi",
+    body: "Openmi Auto for everyday tasks, Openmi Code for programming, or Openmi Azure — Openmi's own model created by Minetallest. Your choice is remembered.",
   },
   {
     target: "gallery-button",
@@ -75,12 +75,12 @@ const STEPS: TutorialStep[] = [
     highlight: "sidebar",
     eyebrow: "Your data",
     title: "Stored on your device",
-    body: "Mino keeps chats in your browser — no account needed. Import backups, export your data, or clear everything. You own your conversations.",
+    body: "Openmi keeps chats in your browser — no account needed. Import backups, export your data, or clear everything. You own your conversations.",
     mobileSidebar: true,
   },
 ];
 
-interface MinoTutorialProps {
+interface OpenmiTutorialProps {
   sidebarOpen: boolean;
   onOpenSidebar: () => void;
   onFinished: () => void;
@@ -109,7 +109,7 @@ function rememberTutorial(): void {
   }
 }
 
-export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }: MinoTutorialProps) {
+export default function OpenmiTutorial({ sidebarOpen, onOpenSidebar, onFinished }: OpenmiTutorialProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [visible, setVisible] = useState(false);
@@ -202,7 +202,7 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
       : "rgba(110, 194, 148, 0.4)";
 
   return (
-    <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-labelledby="mino-tutorial-title">
+    <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-labelledby="openmi-tutorial-title">
       {spotlightStyle && (
         <div
           aria-hidden="true"
@@ -217,7 +217,7 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#a9d8bb]/20 to-[#2f6b48]/20 border border-[#a9d8bb]/20">
-                <MinoMark className="h-8 w-8" />
+                <OpenmiMark className="h-8 w-8" />
               </div>
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#a9d8bb]/80">
@@ -232,7 +232,7 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
               type="button"
               onClick={finish}
               className="rounded-full px-3 py-1.5 text-[12px] text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white/70"
-              aria-label="Skip Mino tutorial"
+              aria-label="Skip Openmi tutorial"
             >
               Skip
             </button>
@@ -240,7 +240,7 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
 
           {/* Content */}
           <div className="mt-6">
-            <h2 id="mino-tutorial-title" className="text-[26px] font-semibold tracking-[-0.04em] text-white leading-tight">
+            <h2 id="openmi-tutorial-title" className="text-[26px] font-semibold tracking-[-0.04em] text-white leading-tight">
               {step.title}
             </h2>
             <p className="mt-3 text-[14px] leading-relaxed text-white/60">{step.body}</p>

@@ -4,13 +4,13 @@ import type { ScheduledMessage } from "./scheduler";
 import type { TrashEntry } from "./trash";
 import { displayedContent } from "./variants";
 
-// ── Mino — zero-login client-side persistence (IndexedDB via Dexie) ─────────
+// ── Openmi — zero-login client-side persistence (IndexedDB via Dexie) ─────────
 //
 // Client-side only. Anything the server keeps private — the identity system
 // prompt, provider keys, wire model ids — lives in a separate module so it is
 // never compiled into the page bundle. See lib/systemPrompt.ts.
 
-export class MinoDB extends Dexie {
+export class OpenmiDB extends Dexie {
   chats!: Table<Chat, string>;
   messages!: Table<ChatMessage, string>;
   memories!: Table<Memory, string>;
@@ -19,7 +19,7 @@ export class MinoDB extends Dexie {
   trash!: Table<TrashEntry, string>;
 
   constructor() {
-    super("mino-db");
+    super("openmi-db");
     this.version(1).stores({
       chats: "id, updatedAt, pinned",
       messages: "id, chatId, createdAt",
@@ -57,7 +57,7 @@ export class MinoDB extends Dexie {
   }
 }
 
-export const db = new MinoDB();
+export const db = new OpenmiDB();
 
 export function uid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -135,7 +135,7 @@ export async function setMessageUsage(
 // ── Backup / restore ─────────────────────────────────────────────────────────
 
 export interface BackupPayload {
-  app: "mino";
+  app: "openmi";
   version: 1;
   exportedAt: string;
   chats: Chat[];
@@ -145,7 +145,7 @@ export interface BackupPayload {
 export async function exportBackup(): Promise<BackupPayload> {
   const [chats, messages] = await Promise.all([db.chats.toArray(), db.messages.toArray()]);
   return {
-    app: "mino",
+    app: "openmi",
     version: 1,
     exportedAt: new Date().toISOString(),
     chats,
@@ -158,8 +158,8 @@ const MAX_IMPORT_CHATS = 2000;
 const MAX_IMPORT_MESSAGES = 50000;
 
 export async function importBackup(payload: BackupPayload): Promise<{ chats: number; messages: number }> {
-  if (payload?.app !== "mino" || !Array.isArray(payload.chats) || !Array.isArray(payload.messages)) {
-    throw new Error("Invalid Mino backup file");
+  if (payload?.app !== "openmi" || !Array.isArray(payload.chats) || !Array.isArray(payload.messages)) {
+    throw new Error("Invalid Openmi backup file");
   }
   if (payload.chats.length > MAX_IMPORT_CHATS || payload.messages.length > MAX_IMPORT_MESSAGES) {
     throw new Error("That backup is too large to restore");
@@ -277,9 +277,9 @@ export async function searchMessages(query: string): Promise<MessageSearchHit[]>
 
 // ── Mode preference (persisted outside Dexie to survive before DB open) ─────
 
-import { DEFAULT_MODE_ID, MINO_MODES, type ModeId } from "./models";
+import { DEFAULT_MODE_ID, OPENMI_MODES, type ModeId } from "./models";
 
-const MODE_KEY = "mino:selected-mode";
+const MODE_KEY = "openmi:selected-mode";
 
 export function loadSelectedMode(): ModeId {
   if (typeof window === "undefined") return DEFAULT_MODE_ID;
@@ -291,7 +291,7 @@ export function loadSelectedMode(): ModeId {
     // Any mode currently in the catalog is a valid stored choice — including
     // Azure, Opus and Fable. An older build only recognised "auto" and "code",
     // which dropped every other selection on reload.
-    if (v && MINO_MODES.some((m) => m.id === v)) return v as ModeId;
+    if (v && OPENMI_MODES.some((m) => m.id === v)) return v as ModeId;
     return DEFAULT_MODE_ID;
   } catch {
     return DEFAULT_MODE_ID;

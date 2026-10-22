@@ -65,7 +65,7 @@ export interface AppConfig {
   /** Everyone the server refuses, with the reason and the length of the ban. */
   bans: BanRecord[];
   /**
-   * Closes Mino to everyone but the administrator. Enforced in the route
+   * Closes Openmi to everyone but the administrator. Enforced in the route
    * handlers, so it holds even for a visitor with a modified bundle.
    */
   maintenanceEnabled: boolean;
@@ -86,7 +86,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   dailyImageCap: 0,
   bans: [],
   maintenanceEnabled: false,
-  maintenanceMessage: "Mino is down for maintenance. Please check back soon.",
+  maintenanceMessage: "Openmi is down for maintenance. Please check back soon.",
   updatedAt: 0,
 };
 

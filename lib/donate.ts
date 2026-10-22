@@ -5,7 +5,7 @@
 // string is simply not rendered, so a half-filled page still looks finished.
 
 /** Path (in /public) of the bank QR code. */
-export const DONATE_QR = "/mino-donate-qr.png";
+export const DONATE_QR = "/openmi-donate-qr.png";
 
 /** Shown under the QR, e.g. "DuitNow · Maybank". */
 export const DONATE_QR_CAPTION = "Scan with your banking app";

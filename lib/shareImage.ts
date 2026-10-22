@@ -117,7 +117,7 @@ export async function downloadChatImage(messages: ChatMessage[], title?: string)
     const lines = wrapText(measure, textFor(message), contentWidth);
     const height = 34 /* label */ + lines.length * 38 + 40 /* gap */;
     return {
-      label: isUser ? "You" : "Mino",
+      label: isUser ? "You" : "Openmi",
       labelColor: isUser ? DIM : SAGE,
       lines,
       height,
@@ -160,12 +160,12 @@ export async function downloadChatImage(messages: ChatMessage[], title?: string)
 
   ctx.fillStyle = INK;
   ctx.font = `600 34px ${FONT}`;
-  const heading = title?.trim() || "Mino";
+  const heading = title?.trim() || "Openmi";
   ctx.fillText(fit(ctx, heading, WIDTH - PAD - 140), PAD + 76, 84);
   ctx.fillStyle = DIM;
   ctx.font = `400 22px ${FONT}`;
   ctx.fillText(
-    `Mino · ${new Date().toLocaleDateString(undefined, { dateStyle: "long" })}`,
+    `Openmi · ${new Date().toLocaleDateString(undefined, { dateStyle: "long" })}`,
     PAD + 76,
     116
   );
@@ -202,7 +202,7 @@ export async function downloadChatImage(messages: ChatMessage[], title?: string)
   // Footer.
   ctx.fillStyle = "rgba(255,255,255,0.28)";
   ctx.font = `400 20px ${FONT}`;
-  ctx.fillText("Mino — a private AI assistant by Minetallest", PAD, height - 44);
+  ctx.fillText("Openmi — a private AI assistant by Minetallest", PAD, height - 44);
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("Could not build the image");
@@ -210,7 +210,7 @@ export async function downloadChatImage(messages: ChatMessage[], title?: string)
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `mino-${(title || "chat")
+  link.download = `openmi-${(title || "chat")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")

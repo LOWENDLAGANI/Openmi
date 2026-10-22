@@ -1,7 +1,7 @@
 "use client";
 
 // ── Worth remembering ────────────────────────────────────────────────────────
-// Mino notices facts by itself now, and offers them instead of storing them.
+// Openmi notices facts by itself now, and offers them instead of storing them.
 //
 // The offer is the feature. A model that quietly wrote down what it inferred is
 // the reason memory in this category has a bad reputation: you find out months

@@ -64,7 +64,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
 
     const fail = (cause: unknown) => {
       if (cancelled) return;
-      console.error("[mino admin]", cause);
+      console.error("[openmi admin]", cause);
       setDetail(describe(cause));
       setMode("unavailable");
     };
@@ -111,7 +111,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
         if (await verifyAdminAccess()) onUnlocked();
         else setMode("denied");
       } catch (cause: unknown) {
-        console.error("[mino admin] verify after sign-in", cause);
+        console.error("[openmi admin] verify after sign-in", cause);
         setDetail(describe(cause));
         setError(describe(cause).message);
         setMode("signin");
@@ -121,7 +121,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
       if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
         setError("Sign-in was cancelled.");
       } else {
-        console.error("[mino admin]", cause);
+        console.error("[openmi admin]", cause);
         setDetail(describe(cause));
         setError(describe(cause).message);
       }
@@ -168,23 +168,23 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Mino administrator sign-in"
+        aria-label="Openmi administrator sign-in"
         className="relative w-full max-w-sm rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] p-5 shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
       >
-        <h2 className="text-[15px] font-semibold text-white">Mino administrator</h2>
+        <h2 className="text-[15px] font-semibold text-white">Openmi administrator</h2>
 
         {mode === "checking" && <p className="mt-2 text-[13px] text-white/50">Checking this browser…</p>}
 
         {mode === "notconfigured" && (
           <p className="mt-2 text-[13px] text-red-200/80">
-            The NEXT_PUBLIC_FIREBASE_* values are missing, so Mino has no database to talk to. Add
+            The NEXT_PUBLIC_FIREBASE_* values are missing, so Openmi has no database to talk to. Add
             them to the deployment and redeploy.
           </p>
         )}
 
         {mode === "unavailable" && (
           <div className="mt-2 space-y-2 text-[13px] text-white/60">
-            <p>Mino could not reach Firebase, so the console cannot be opened.</p>
+            <p>Openmi could not reach Firebase, so the console cannot be opened.</p>
             {detail && (
               <p className="break-words rounded-lg bg-black/40 px-2 py-2 font-mono text-[11px] leading-relaxed text-white/75">
                 {detail.code}

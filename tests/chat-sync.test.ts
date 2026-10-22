@@ -1,4 +1,4 @@
-// ── Mino — tests for how two devices' chat histories are merged ─────────────
+// ── Openmi — tests for how two devices' chat histories are merged ─────────────
 //
 // Chat history is written to the account so it follows the person to another
 // browser, and it was failing at exactly that: the data was written correctly
@@ -100,7 +100,7 @@ test("keeps the attachments the upload never carried", () => {
     updatedAt: 300,
     images: [{ url: "data:image/jpeg;base64,AAA", name: "photo.jpg", size: 10 }],
     generatedImages: [
-      { url: "data:image/png;base64,BBB", prompt: "a cat", mime: "image/png", model: "Mino Canvas", createdAt: 300 },
+      { url: "data:image/png;base64,BBB", prompt: "a cat", mime: "image/png", model: "Openmi Canvas", createdAt: 300 },
     ],
   });
   const remote = { chat: chat({ updatedAt: 500 }), messages: [message({ content: "look at this", updatedAt: 800 })] };

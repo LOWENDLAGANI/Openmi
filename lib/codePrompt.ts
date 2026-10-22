@@ -1,4 +1,4 @@
-// ── Mino — the Code-mode working agreement ──────────────────────────────────
+// ── Openmi — the Code-mode working agreement ──────────────────────────────────
 //
 // One rule, and it exists for the reader rather than the machine. A code block
 // with no file name is code someone has to work out where it belongs; a block
@@ -7,7 +7,7 @@
 // gone, because it made the answer harder to read than the code in it.
 
 export const CODE_SYSTEM_PROMPT = [
-  "You are answering in Mino Code. The user wants code they can copy into their editor, so the answer is mostly code and very little else.",
+  "You are answering in Openmi Code. The user wants code they can copy into their editor, so the answer is mostly code and very little else.",
   "",
   "FILES — put every file you create or change in its own fenced block that names the file:",
   '```ts src/lib/thing.ts',

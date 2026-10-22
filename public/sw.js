@@ -1,4 +1,4 @@
-// ── Mino service worker ─────────────────────────────────────────────────────
+// ── Openmi service worker ─────────────────────────────────────────────────────
 // This exists so the site is installable as an app and opens something
 // sensible when the network is gone. It is deliberately NOT a caching layer
 // for the application itself.
@@ -19,7 +19,7 @@
 // an in-flight SSE stream is the fastest way to break replies, and there is
 // nothing here worth caching about them.
 
-const VERSION = "mino-shell-v2";
+const VERSION = "openmi-shell-v2";
 const SHELL_CACHE = VERSION;
 
 // Only the artwork. The document and its JavaScript are always fetched fresh.
@@ -29,7 +29,7 @@ const SHELL_ASSETS = [
   "/icon-512.png",
   "/icon-maskable-512.png",
   "/apple-touch-icon.png",
-  "/mino-logo.png",
+  "/openmi-logo.png",
 ];
 
 const OFFLINE_DOCUMENT = `<!doctype html>
@@ -38,7 +38,7 @@ const OFFLINE_DOCUMENT = `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b1310" />
-    <title>Mino</title>
+    <title>Openmi</title>
     <style>
       html, body { height: 100%; margin: 0; }
       body {
@@ -55,9 +55,9 @@ const OFFLINE_DOCUMENT = `<!doctype html>
   </head>
   <body>
     <div>
-      <img src="/mino-logo.png" alt="" />
+      <img src="/openmi-logo.png" alt="" />
       <h1>You are offline</h1>
-      <p>Mino needs a connection to answer.<br />Reopen the app when you are back online.</p>
+      <p>Openmi needs a connection to answer.<br />Reopen the app when you are back online.</p>
     </div>
   </body>
 </html>`;
@@ -93,7 +93,7 @@ self.addEventListener("activate", (event) => {
 // and a body that is not JSON still produces a notification rather than a
 // silent failure.
 self.addEventListener("push", (event) => {
-  let payload = { title: "Mino", body: "", url: "/" };
+  let payload = { title: "Openmi", body: "", url: "/" };
   try {
     if (event.data) payload = { ...payload, ...event.data.json() };
   } catch {
@@ -106,7 +106,7 @@ self.addEventListener("push", (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(String(payload.title || "Mino"), {
+    self.registration.showNotification(String(payload.title || "Openmi"), {
       body: String(payload.body || ""),
       icon: "/icon-192.png",
       badge: "/icon-192.png",
@@ -122,7 +122,7 @@ self.addEventListener("notificationclick", (event) => {
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((clients) => {
-        // Focus what is already open before opening a second copy: two Mino
+        // Focus what is already open before opening a second copy: two Openmi
         // tabs is two answers streaming at each other.
         for (const client of clients) {
           if ("focus" in client) return client.focus();

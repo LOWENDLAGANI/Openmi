@@ -1,9 +1,9 @@
 import { MEMORY_COUNT_LIMIT, normalizeMemoryText } from "./memory";
 import type { Memory } from "./types";
 
-// ── Mino memory suggestions ──────────────────────────────────────────────────
+// ── Openmi memory suggestions ──────────────────────────────────────────────────
 //
-// Capture used to be manual only, which made it reliable and forgetful: Mino
+// Capture used to be manual only, which made it reliable and forgetful: Openmi
 // could only ever remember what the user thought to tell it. Every other
 // assistant in this category reads the conversation and decides what to keep —
 // and that is genuinely more useful, because most people never type "remember
@@ -36,15 +36,15 @@ const MIN_SOURCE_WORDS = 5;
 /**
  * Storage key for the user's answer to the offer.
  *
- * Two states, deliberately, not a list of dismissed items: either Mino keeps
+ * Two states, deliberately, not a list of dismissed items: either Openmi keeps
  * suggesting or it never does. Someone who dismisses the banner has said they
  * do not want this, and asking again next message would be the nagging version
  * of the same pattern.
  */
-const SETTING_KEY = "mino:memory-suggest";
-const DISMISSED_KEY = "mino:memory-suggest-off";
+const SETTING_KEY = "openmi:memory-suggest";
+const DISMISSED_KEY = "openmi:memory-suggest-off";
 
-/** Whether Mino may offer memory suggestions at all. On by default. */
+/** Whether Openmi may offer memory suggestions at all. On by default. */
 export function loadSuggestionEnabled(): boolean {
   if (typeof localStorage === "undefined") return true;
   try {
@@ -88,7 +88,7 @@ export function dismissSuggestions(): void {
  *
  * The list is full, the user turned it off, or the user dismissed it already:
  * all three mean stay quiet. A short message means there is nothing to extract.
- * The answer is deliberately not consulted — a fact the user stated and Mino
+ * The answer is deliberately not consulted — a fact the user stated and Openmi
  * never repeated is still a fact, and reading the reply for eligibility would
  * only add a way to miss it.
  */

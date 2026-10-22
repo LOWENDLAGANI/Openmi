@@ -1,4 +1,4 @@
-// ── Mino mode catalog ────────────────────────────────────────────────────────
+// ── Openmi mode catalog ────────────────────────────────────────────────────────
 // This module is imported by client components, so it deliberately contains no
 // provider name, no API key name, and no wire model id. Those live in
 // lib/modelEngines.ts, which is server-only.
@@ -6,7 +6,7 @@
 // The split is not tidiness. A vendor's model id reaching the browser is not a
 // cosmetic problem: it is written into every stored message, included in the
 // backup file a user downloads, and readable in the page source. The product's
-// identity stance is that Mino is Mino, and a name that reaches a user's
+// identity stance is that Openmi is Openmi, and a name that reaches a user's
 // downloads is a name the user can see.
 
 export type ModeId = "auto" | "code" | "self" | "opus" | "fable";
@@ -25,11 +25,11 @@ export interface ModeOption {
   blurb: string;
 }
 
-export const MINO_MODES: ModeOption[] = [
+export const OPENMI_MODES: ModeOption[] = [
   {
     id: "auto",
     name: "Auto",
-    display: "Mino Auto",
+    display: "Openmi Auto",
     separateSession: false,
     blurb: "Best available model",
   },
@@ -38,14 +38,14 @@ export const MINO_MODES: ModeOption[] = [
     name: "Code",
     display: "Code",
     separateSession: true,
-    blurb: "Mino V3 · V2 · V1 only",
+    blurb: "Openmi V3 · V2 · V1 only",
   },
   {
     id: "self",
     name: "Azure",
-    display: "Mino Azure",
+    display: "Openmi Azure",
     separateSession: true,
-    blurb: "Mino's own model",
+    blurb: "Openmi's own model",
   },
   {
     id: "opus",
@@ -66,36 +66,36 @@ export const MINO_MODES: ModeOption[] = [
 export const DEFAULT_MODE_ID: ModeId = "auto";
 
 /** Engine label used for messages produced by the image model. */
-export const IMAGE_ENGINE = "mino-canvas";
+export const IMAGE_ENGINE = "openmi-canvas";
 
-export const IMAGE_ENGINE_NAME = "Mino Canvas";
+export const IMAGE_ENGINE_NAME = "Openmi Canvas";
 
 export function getMode(id: string): ModeOption {
-  return MINO_MODES.find((m) => m.id === id) ?? MINO_MODES[0];
+  return OPENMI_MODES.find((m) => m.id === id) ?? OPENMI_MODES[0];
 }
 
 /**
- * A name Mino is willing to show. Anything else is not a Mino name.
+ * A name Openmi is willing to show. Anything else is not a Openmi name.
  *
- * `Self` is still accepted even though the mode is now called Mino Azure: it
+ * `Self` is still accepted even though the mode is now called Openmi Azure: it
  * is what was written into every message stored before the rename, and dropping
  * it would blank out the model name on a year of existing conversations.
  */
 // "~Claude Opus 5.5" is allowed through verbatim: it is the product name for
 // the Opus mode, not a vendor leak. Everything else is still normalised.
-const MINO_NAME = /^(?:Mino(?: Auto| Self| Azure| Canvas| V\d+)?|~Claude Opus 5\.5|~Claude Fable 5\.1)$/;
+const OPENMI_NAME = /^(?:Openmi(?: Auto| Self| Azure| Canvas| V\d+)?|~Claude Opus 5\.5|~Claude Fable 5\.1)$/;
 
 /**
  * Normalises whatever a message carries into a name safe to show.
  *
- * Messages store the Mino name rather than a provider id, so this is normally a
+ * Messages store the Openmi name rather than a provider id, so this is normally a
  * pass-through. It is still a filter rather than an echo, because a message
  * written by an older version of the app — or restored from a backup made
  * before the rename — can carry a provider id, and the one thing that must never
  * happen is rendering that to a user. An unrecognised value becomes plain
- * "Mino": correct, if less specific.
+ * "Openmi": correct, if less specific.
  */
 export function getModelDisplayName(model?: string): string {
-  if (!model) return "Mino";
-  return MINO_NAME.test(model) ? model : "Mino";
+  if (!model) return "Openmi";
+  return OPENMI_NAME.test(model) ? model : "Openmi";
 }

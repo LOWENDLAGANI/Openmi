@@ -1,10 +1,10 @@
-// ── Google OAuth for Mino's Google tools (server only) ───────────────────────
+// ── Google OAuth for Openmi's Google tools (server only) ───────────────────────
 //
 // A separate consent from the Firebase "Link a Google account" flow. That flow
-// grants identity only; these scopes (Calendar, Tasks, Sheets, Docs) let Mino
+// grants identity only; these scopes (Calendar, Tasks, Sheets, Docs) let Openmi
 // read and write the user's own Google data on their explicit request in chat.
 //
-// Design constraints, in the spirit of the rest of Mino:
+// Design constraints, in the spirit of the rest of Openmi:
 // - No new database. The token set lives in an AES-256-GCM encrypted, httpOnly
 //   cookie on the browser that consented. It is bound to the caller's verified
 //   Firebase uid, so a copied cookie from another browser cannot act for them.
@@ -38,8 +38,8 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/drive",
 ];
 
-const TOKEN_COOKIE = "mino_google";
-const STATE_COOKIE = "mino_google_state";
+const TOKEN_COOKIE = "openmi_google";
+const STATE_COOKIE = "openmi_google_state";
 // Refresh tokens are long-lived; the cookie may sit for weeks. The state cookie
 // only has to survive the redirect through Google's consent screen.
 const TOKEN_MAX_AGE = 60 * 60 * 24 * 120;

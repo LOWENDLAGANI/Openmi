@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 import { useState } from "react";
-import MinoMark from "./MinoMark";
+import OpenmiMark from "./OpenmiMark";
 import AdminGate from "./AdminGate";
 // The console is ~2,400 lines of admin UI that no visitor ever sees. Loading
 // it on demand rather than in the page bundle keeps it off every visitor's
@@ -13,7 +13,7 @@ const AdminPanel = dynamic(() => import("./AdminPanel"), { ssr: false });
 import { useAdminTaps } from "@/lib/useAdminTaps";
 
 // ── The maintenance notice ──────────────────────────────────────────────────
-// Shown in place of a page rather than on top of one, so while Mino is closed
+// Shown in place of a page rather than on top of one, so while Openmi is closed
 // there is nothing behind it to reach. The routes refuse independently, and
 // that refusal is what actually holds.
 //
@@ -44,15 +44,15 @@ export default function MaintenanceScreen({ message }: { message: string }) {
             type="button"
             onClick={() => registerTap()}
             className="relative h-full w-full cursor-default select-none"
-            aria-label="Mino"
-            title="Mino"
+            aria-label="Openmi"
+            title="Openmi"
           >
-            <MinoMark className="h-full w-full" title="Mino" />
+            <OpenmiMark className="h-full w-full" title="Openmi" />
           </button>
         </div>
 
         <h1 className="mt-8 text-[38px] font-normal leading-none tracking-[-0.05em] text-white sm:text-[52px]">
-          Mino
+          Openmi
         </h1>
 
         <div className="mt-4 flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-400/[0.07] px-3 py-1.5">

@@ -26,18 +26,18 @@
 import { useEffect, useState } from "react";
 
 /** Landscape artwork, used from 768px up. */
-const DESKTOP_IMAGE = "/mino-splash.jpg";
+const DESKTOP_IMAGE = "/openmi-splash.jpg";
 
 /** Portrait artwork, used below 768px. Falls back to the desktop one. */
-const MOBILE_IMAGE = "/mino-splash-mobile.jpg";
+const MOBILE_IMAGE = "/openmi-splash-mobile.jpg";
 
 /** Shown if neither artwork is found, so a wrong filename never shows a gap. */
-const FALLBACK_IMAGE = "/mino-logo.png";
+const FALLBACK_IMAGE = "/openmi-logo.png";
 
 /** Where the `<picture>` element stops offering the portrait source. */
 const WIDE_QUERY = "(min-width: 768px)";
 
-const SESSION_KEY = "mino:splash-seen";
+const SESSION_KEY = "openmi:splash-seen";
 const HOLD_MS = 1600; // image sits crisp while the app loads behind it
 const FADE_MS = 1100; // blur + fade out
 

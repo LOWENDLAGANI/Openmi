@@ -1,4 +1,4 @@
-// ── Mino — tests for the admin model health checks ───────────────────────────
+// ── Openmi — tests for the admin model health checks ───────────────────────────
 //
 // A status board that cannot be trusted is worse than none: an administrator
 // who sees every model green while a chat is failing stops investigating. These
@@ -56,30 +56,30 @@ async function main(): Promise<void> {
 console.log("\nthe model list the panel receives");
 
 await test("every configured model gets its own row", async () => {
-  await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: undefined, MINO_HF_SPACE: "off" }, () => {
+  await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: undefined, OPENMI_HF_SPACE: "off" }, () => {
     const targets = listModelTargets();
     const names = targets.map((target) => target.name);
-    assert.deepEqual(names, ["Mino Auto", "Mino V3", "Mino V2", "Mino V1"]);
+    assert.deepEqual(names, ["Openmi Auto", "Openmi V3", "Openmi V2", "Openmi V1"]);
   });
 });
 
 await test("the last-resort models are listed separately and are distinguishable", async () => {
-  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: "test-key", MINO_HF_SPACE: "off" }, () => {
+  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: "test-key", OPENMI_HF_SPACE: "off" }, () => {
     const targets = listModelTargets();
     assert.equal(targets.length, 3, "the last-resort models are missing from the panel");
     const names = targets.map((target) => target.name);
     assert.equal(new Set(names).size, names.length, `two rows share a name: ${names.join(", ")}`);
-    for (const target of targets) assert.match(target.name, /^Mino Backup \d+$/);
+    for (const target of targets) assert.match(target.name, /^Openmi Backup \d+$/);
   });
 });
 
-await test("Mino's own model is reachable without any vendor key, and can be switched off", async () => {
-  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: undefined, MINO_HF_SPACE: undefined }, () => {
+await test("Openmi's own model is reachable without any vendor key, and can be switched off", async () => {
+  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: undefined, OPENMI_HF_SPACE: undefined }, () => {
     const names = listModelTargets().map((target) => target.name);
-    assert.deepEqual(names, ["Mino Azure"], "the Space is the only model, and it needs no key");
+    assert.deepEqual(names, ["Openmi Azure"], "the Space is the only model, and it needs no key");
   });
-  await withKeys({ MINO_HF_SPACE: "off" }, () => {
-    assert.equal(listModelTargets().length, 0, "MINO_HF_SPACE=off removes it entirely");
+  await withKeys({ OPENMI_HF_SPACE: "off" }, () => {
+    assert.equal(listModelTargets().length, 0, "OPENMI_HF_SPACE=off removes it entirely");
   });
 });
 
@@ -173,7 +173,7 @@ await test("a status an administrator cannot act on is still named", () => {
 });
 
 await test("a detail that names a provider is dropped, not mangled", () => {
-  // Rewriting a model id produces "Mino model service-oss-120b" and breaks the
+  // Rewriting a model id produces "Openmi model service-oss-120b" and breaks the
   // URLs around it. Saying nothing beats saying something half-redacted.
   assert.equal(
     providerDetail(JSON.stringify({ error: { message: "The model `gpt-oss-120b` does not exist." } })),
@@ -188,8 +188,8 @@ await test("a detail that names a provider is dropped, not mangled", () => {
 
 await test("a model's own reply is never rewritten into nonsense", () => {
   const { sanitizeIdentity } = require("../lib/identity") as typeof import("../lib/identity");
-  assert.equal(sanitizeIdentity("Mino online"), "Mino online");
-  assert.match(sanitizeIdentity("I am Gemini"), /Mino/);
+  assert.equal(sanitizeIdentity("Openmi online"), "Openmi online");
+  assert.match(sanitizeIdentity("I am Gemini"), /Openmi/);
 });
 
 await test("an unreachable model is reported, not thrown", async () => {

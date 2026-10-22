@@ -12,7 +12,7 @@ import { isBanActive, normalizeConfig, DEFAULT_CONFIG, type AppConfig, type BanR
 
 const databaseUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL?.trim() ?? "";
 const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY?.trim() ?? "";
-const adminEmail = process.env.MINO_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
+const adminEmail = process.env.OPENMI_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
 
 /** `https://x.firebaseio.com` -> `https://x.firebaseio.com` (no trailing slash). */
 function restBase(): string | null {
@@ -196,7 +196,7 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
  * from a genuine permission failure. The token itself is never logged.
  */
 function fail(reason: string, detail?: unknown): null {
-  console.warn(`[mino control] caller not identified: ${reason}`, detail ?? "");
+  console.warn(`[openmi control] caller not identified: ${reason}`, detail ?? "");
   return null;
 }
 
@@ -221,7 +221,7 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
     return {
       allowed: false,
       status: 503,
-      error: "Set `MINO_ADMIN_EMAIL` in the deployment environment to match the address in the database rules.",
+      error: "Set `OPENMI_ADMIN_EMAIL` in the deployment environment to match the address in the database rules.",
     };
   }
 
@@ -240,7 +240,7 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
       // Reached when the token is valid but carries no administrator address,
       // which is what an anonymous session looks like even after signing in.
       error: identity.email
-        ? "This account is not the Mino administrator."
+        ? "This account is not the Openmi administrator."
         : "This session is still anonymous. Sign in with Google inside the console before using the controls.",
     };
   }
@@ -370,12 +370,12 @@ export async function checkRateLimit(
    * Chat and memory suggestions share a client but not a purpose, so they get
    * separate buckets. Sharing one would mean every suggestion request silently
    * costs a message of the user's allowance, and the limit would then be a
-   * function of how often Mino noticed something — a number nobody can explain.
+   * function of how often Openmi noticed something — a number nobody can explain.
    */
   scope = "chat"
 ): Promise<RateLimit> {
   const now = Date.now();
-  const key = `mino:rl:${clientKey(req, identity)}:${scope}`;
+  const key = `openmi:rl:${clientKey(req, identity)}:${scope}`;
   const shared = sharedRateLimit ? await redisIncrement(key) : null;
   const { count, ttlMs } = shared ?? localIncrement(key, now);
   if (count > max) {
@@ -415,8 +415,8 @@ function formatBanDate(ms: number): string {
 export function banMessage(ban: BanRecord): string {
   const until = ban.expiresAt !== null ? ` until ${formatBanDate(ban.expiresAt)}` : "";
   const base = ban.expiresAt !== null
-    ? `This device is blocked from Mino${until}.`
-    : "This device is not allowed to use Mino.";
+    ? `This device is blocked from Openmi${until}.`
+    : "This device is not allowed to use Openmi.";
   const reason = ban.reason.trim().replace(/\.+$/, "");
   if (!reason) return base;
   return `${base} Reason: ${reason}. If you believe this is a mistake, contact the administrator.`;
@@ -449,7 +449,7 @@ export function identityGate(
   if (!identity) {
     return {
       allowed: false,
-      error: "Mino needs to identify this device before it can answer. Reload the page and try again.",
+      error: "Openmi needs to identify this device before it can answer. Reload the page and try again.",
     };
   }
   const ban = bans.find((entry) => entry.uid === identity.uid);

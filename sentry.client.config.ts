@@ -5,7 +5,7 @@ import * as Sentry from "@sentry/nextjs";
 // so a deployment that has not set one pays nothing for having this file — no
 // network calls, no bundle weight beyond the SDK, and no build failure.
 //
-// Mino had no monitoring at all, which meant the only way to learn a visitor's
+// Openmi had no monitoring at all, which meant the only way to learn a visitor's
 // session was broken was for them to say so. The trade this sets up is the
 // usual one for a chat product: enough context to reproduce a crash, without
 // shipping the conversation itself. `beforeSend` strips anything that looks

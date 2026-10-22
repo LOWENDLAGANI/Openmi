@@ -5,8 +5,8 @@ import Link from "next/link";
 import MaintenanceGate from "@/components/MaintenanceGate";
 import { DONATE_BANK, DONATE_PRESETS, DONATE_QR, DONATE_QR_CAPTION } from "@/lib/donate";
 
-// ── Support Mino ────────────────────────────────────────────────────────────
-// Mino is free, so this page asks for nothing until the reader chooses an
+// ── Support Openmi ────────────────────────────────────────────────────────────
+// Openmi is free, so this page asks for nothing until the reader chooses an
 // amount, and the QR is the actual ask. The image path and bank fields live in
 // lib/donate.ts — drop the QR into /public and fill in the rest there.
 
@@ -69,7 +69,7 @@ export default function DonatePage() {
         <div className="mx-auto w-full max-w-lg">
           <Link
             href="/"
-            aria-label="Back to Mino"
+            aria-label="Back to Openmi"
             className="lift inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12] hover:text-white"
           >
             <svg
@@ -97,10 +97,10 @@ export default function DonatePage() {
           </div>
 
           <h1 className="mt-5 text-[clamp(1.8rem,7vw,2.7rem)] font-semibold leading-[1.08] tracking-tight">
-            Support Mino
+            Support Openmi
           </h1>
           <p className="mt-3 max-w-sm text-[clamp(0.95rem,3.2vw,1.05rem)] leading-relaxed text-white/55">
-            Mino stays free for everyone, with no ads and no account wall. If it
+            Openmi stays free for everyone, with no ads and no account wall. If it
             saved you time, a little help keeps the models and the servers paid
             for.
           </p>
@@ -199,7 +199,7 @@ export default function DonatePage() {
           </section>
 
           <p className="mt-6 text-center text-[12px] leading-relaxed text-white/30">
-            Every ringgit goes straight back into Mino. Thank you.
+            Every ringgit goes straight back into Openmi. Thank you.
           </p>
         </div>
       </main>

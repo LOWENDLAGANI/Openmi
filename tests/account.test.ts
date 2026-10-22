@@ -1,4 +1,4 @@
-// ── Mino — tests for the visitor's account ───────────────────────────────────
+// ── Openmi — tests for the visitor's account ───────────────────────────────────
 //
 // The rules pinned here are the ones whose failure is quiet. A guest shown as
 // linked keeps a name they never asked to change; a name from the account
@@ -178,11 +178,11 @@ test("a disabled sign-in method is reported as the fixable thing it is", () => {
 test("an account that already exists says so rather than failing cryptically", () => {
   assert.match(
     describeLinkError({ code: "auth/credential-already-in-use" }),
-    /already linked to Mino/
+    /already linked to Openmi/
   );
   assert.match(
     describeLinkError({ code: "auth/account-exists-with-different-credential" }),
-    /already has a Mino history/
+    /already has a Openmi history/
   );
 });
 

@@ -7,7 +7,7 @@ import { optimizePrompt } from "@/lib/promptOptimizer";
 import { planPoster, type PosterPlan } from "@/lib/posterText";
 import { renderPoster } from "@/lib/posterRender";
 
-// ── Mino image generation — Cloudflare Workers AI ───────────────────────────
+// ── Openmi image generation — Cloudflare Workers AI ───────────────────────────
 //   CLOUDFLARE_ACCOUNT_ID → Cloudflare account holding the Workers AI model
 //   CLOUDFLARE_API_TOKEN  → API token with "Workers AI: Read" permission
 //
@@ -90,9 +90,9 @@ async function imageResponse(bytes: Buffer, mime: string, spec: ModelSpec, plan:
       "Content-Type": mime,
       "Content-Length": String(out.length),
       "Cache-Control": "no-store",
-      "X-Mino-Image-Model": spec.slug,
+      "X-Openmi-Image-Model": spec.slug,
       // Lets the client show that the words were drawn, not generated.
-      ...(plan.isPoster ? { "X-Mino-Poster-Text": "1" } : {}),
+      ...(plan.isPoster ? { "X-Openmi-Poster-Text": "1" } : {}),
     },
   });
 }
@@ -113,7 +113,7 @@ async function chargeImageDew(
   if (!identity || !state) return;
   const deduct = await deductDew(authorization, identity.uid, state.spent, IMAGE_DEW_COST);
   if (!deduct.ok) {
-    console.warn(`[mino dew] image charge of ${IMAGE_DEW_COST} not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`);
+    console.warn(`[openmi dew] image charge of ${IMAGE_DEW_COST} not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`);
     return;
   }
   void writeAsCaller(

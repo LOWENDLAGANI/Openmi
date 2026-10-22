@@ -1,4 +1,4 @@
-// ── Mino image utilities — canvas-based client-side compression ─────────────
+// ── Openmi image utilities — canvas-based client-side compression ─────────────
 // Resizes to fit within 1024×1024 and re-encodes to JPEG (quality 0.8)
 // BEFORE the base64 payload is sent, to save bandwidth and API credits.
 

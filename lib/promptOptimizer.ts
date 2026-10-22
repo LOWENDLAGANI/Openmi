@@ -1,5 +1,5 @@
-// ── Mino Stage 1 — prompt optimization ──────────────────────────────────────
-// Raw user text ("a girl named Mino") is a poor input for FLUX, which responds
+// ── Openmi Stage 1 — prompt optimization ──────────────────────────────────────
+// Raw user text ("a girl named Openmi") is a poor input for FLUX, which responds
 // to descriptive language. This module turns that text into a single
 // descriptive paragraph before it ever reaches the image model.
 //
@@ -112,7 +112,7 @@ function optimizerProviders(): OptimizerProvider[] {
       url: "https://openrouter.ai/api/v1/chat/completions",
       key: openrouterKey,
       model: "openai/gpt-oss-20b",
-      headers: { "HTTP-Referer": "https://mino-ai.vercel.app", "X-Title": "Mino" },
+      headers: { "HTTP-Referer": "https://openmi-ai.vercel.app", "X-Title": "Openmi" },
     });
   }
   return providers;

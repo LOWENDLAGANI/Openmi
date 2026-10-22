@@ -1,6 +1,6 @@
-// ── Mino — tests for the Dew pay-as-you-go currency ─────────────────────────
+// ── Openmi — tests for the Dew pay-as-you-go currency ─────────────────────────
 //
-// Dew is the only money Mino has. Every rule about what it costs, what a
+// Dew is the only money Openmi has. Every rule about what it costs, what a
 // balance means, and whether a request may start is decided in lib/dew.ts and
 // enforced by the routes — so the arithmetic here is the arithmetic the
 // deployment runs on. A silent error in pricing, rounding, or the balance

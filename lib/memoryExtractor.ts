@@ -1,4 +1,4 @@
-// ── Mino memory extractor (server only) ─────────────────────────────────────
+// ── Openmi memory extractor (server only) ─────────────────────────────────────
 // Reads one exchange and returns the handful of durable facts in it, as short
 // first-person sentences.
 //
@@ -16,7 +16,7 @@ const MAX_SOURCE_ANSWER = 1200;
 
 const SYSTEM_INSTRUCTION = `You decide what an AI assistant should remember about a person between conversations.
 
-You are given one exchange: something the user wrote, and Mino's reply. Return the durable facts the exchange revealed — things that will still be true next week.
+You are given one exchange: something the user wrote, and Openmi's reply. Return the durable facts the exchange revealed — things that will still be true next week.
 
 Worth returning:
 - Stable preferences: "I prefer TypeScript over JavaScript", "I answer in Spanish", "keep answers short".
@@ -43,8 +43,8 @@ Output: ["My Postgres export takes 40 minutes and the client times out."]
 Exchange: "Write me a Python script to sort a list."
 Output: []
 
-Exchange: "I'm Minetallest, and Mino is the app I'm building. Keep the answers tight."
-Output: ["My name is Minetallest.", "I'm building an app called Mino.", "I prefer tight answers."]`;
+Exchange: "I'm Minetallest, and Openmi is the app I'm building. Keep the answers tight."
+Output: ["My name is Minetallest.", "I'm building an app called Openmi.", "I prefer tight answers."]`;
 
 interface ExtractorProvider {
   label: string;
@@ -57,7 +57,7 @@ interface ExtractorProvider {
 /**
  * The cheapest text models the deployment already has keys for.
  *
- * Deliberately the small models rather than Mino's main chat route: this is a
+ * Deliberately the small models rather than Openmi's main chat route: this is a
  * classification task over a couple of thousand characters, run in the
  * background after an answer has already been delivered. It must never make a
  * message feel slower, and it must not spend the budget that pays for answers.
@@ -90,7 +90,7 @@ function extractorProviders(): ExtractorProvider[] {
       url: "https://openrouter.ai/api/v1/chat/completions",
       key: openrouterKey,
       model: "openai/gpt-oss-20b",
-      headers: { "HTTP-Referer": "https://mino-ai.vercel.app", "X-Title": "Mino" },
+      headers: { "HTTP-Referer": "https://openmi-ai.vercel.app", "X-Title": "Openmi" },
     });
   }
   return providers;
@@ -106,7 +106,7 @@ export async function extractMemories(input: {
 }): Promise<string> {
   const transcript = [
     `User wrote: ${input.userText}`,
-    `Mino replied: ${input.answer.slice(0, MAX_SOURCE_ANSWER)}`,
+    `Openmi replied: ${input.answer.slice(0, MAX_SOURCE_ANSWER)}`,
   ].join("\n");
 
   for (const provider of extractorProviders()) {

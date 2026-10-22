@@ -1,4 +1,4 @@
-// ── Mino — tests for what memory is allowed to contain ──────────────────────
+// ── Openmi — tests for what memory is allowed to contain ──────────────────────
 //
 // A memory is a line of text that goes into the system prompt on every future
 // request. That makes it the only user-supplied content in this product that

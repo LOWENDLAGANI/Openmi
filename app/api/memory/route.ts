@@ -4,7 +4,7 @@ import { parseSuggestions } from "@/lib/memorySuggestions";
 import type { Memory } from "@/lib/types";
 import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 
-// ── Mino — memory suggestions ────────────────────────────────────────────────
+// ── Openmi — memory suggestions ────────────────────────────────────────────────
 // One question after an answer has already been delivered: does this exchange
 // contain something worth remembering? Nothing is stored here. The route
 // proposes, the user accepts, and the browser writes through the same guarded

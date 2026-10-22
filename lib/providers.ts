@@ -1,11 +1,11 @@
-// ── Mino provider configuration (server only) ────────────────────────────────
+// ── Openmi provider configuration (server only) ────────────────────────────────
 // The one place an endpoint, a key and a wire model id are assembled, so the
 // chat route and the admin model-health probe talk to exactly the same models
 // with the same settings. Nothing here may be imported by a client component:
 // these strings carry provider names and, via `key`, credentials.
 
 import type { ModeId } from "./models";
-import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, FABLE_ENGINE, toMinoName } from "./modelEngines";
+import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, FABLE_ENGINE, toOpenmiName } from "./modelEngines";
 import { isSpaceConfigured, SPACE_MODEL, SPACE_MODEL_OPUS, SPACE_CHOICE_AZURE, SPACE_CHOICE_OPUS } from "./gradioSpace";
 
 export type ProviderFamily = "openrouter" | "gemini" | "groq" | "space";
@@ -33,12 +33,12 @@ export interface ProviderConfig {
   spaceModelChoice?: string;
 }
 
-/** Which Mino mode a provider family belongs to, for user-facing error copy. */
+/** Which Openmi mode a provider family belongs to, for user-facing error copy. */
 export const FAMILY_MODE: Record<ProviderFamily, string> = {
-  openrouter: "Mino Auto",
-  gemini: "Mino Code",
-  groq: "the Mino fallback",
-  space: "Mino's own model",
+  openrouter: "Openmi Auto",
+  gemini: "Openmi Code",
+  groq: "the Openmi fallback",
+  space: "Openmi's own model",
 };
 
 export function getProviders(requested: ModeId): ProviderConfig[] {
@@ -50,14 +50,14 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
     ? {
         id: "auto",
         family: "openrouter",
-        label: "Mino Auto",
+        label: "Openmi Auto",
         url: "https://openrouter.ai/api/v1/chat/completions",
         key: openrouterKey,
         model: AUTO_ENGINE,
         supportsReasoning: true,
         headers: {
-          "HTTP-Referer": "https://mino-ai.vercel.app",
-          "X-Title": "Mino",
+          "HTTP-Referer": "https://openmi-ai.vercel.app",
+          "X-Title": "Openmi",
         },
         extraBody: {
           provider: { allow_fallbacks: true },
@@ -66,7 +66,7 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
       }
     : null;
 
-  // Mino V3 is the preferred stable model, but the provider can return a
+  // Openmi V3 is the preferred stable model, but the provider can return a
   // temporary 503 while a model has no serving capacity. V2 and V1 are also
   // stable and remain available as immediate fallbacks without leaving the Code
   // mode family. The wire names are provider detail and never reach the user.
@@ -75,7 +75,7 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
     ? geminiModels.map((model) => ({
         id: "code" as const,
         family: "gemini" as const,
-        label: toMinoName(model),
+        label: toOpenmiName(model),
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         key: geminiKey,
         model,
@@ -102,7 +102,7 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
     ? groqModels.map(({ model, supportsReasoning }) => ({
         id: requested,
         family: "groq" as const,
-        label: "Mino",
+        label: "Openmi",
         url: "https://api.groq.com/openai/v1/chat/completions",
         key: groqKey,
         model,
@@ -111,7 +111,7 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
       }))
     : [];
 
-  // Mino's own model, on a Gradio Space. It has no OpenAI-compatible endpoint,
+  // Openmi's own model, on a Gradio Space. It has no OpenAI-compatible endpoint,
   // so the URL below is never fetched: the chat route recognises the `space`
   // family and calls lib/gradioSpace.ts instead, which returns the same
   // OpenAI-shaped SSE every other provider does. The placeholder exists only so
@@ -132,7 +132,7 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
           : {
               id: requested,
               family: "space" as const,
-              label: "Mino Azure",
+              label: "Openmi Azure",
               url: "",
               key: "",
               model: SPACE_MODEL,
@@ -142,16 +142,16 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
       ]
     : [];
 
-  // Code mode never leaves the Mino family. OpenRouter, Groq and the Space are
+  // Code mode never leaves the Openmi family. OpenRouter, Groq and the Space are
   // excluded from its fallback chain entirely, so an outage produces a clear
   // error instead of code written by a model the user did not ask for.
   if (requested === "code") return [...gemini];
 
-  // Azure mode is the Space and nothing else: a user who picked Mino's own
+  // Azure mode is the Space and nothing else: a user who picked Openmi's own
   // model did not agree to be answered by a vendor model if it is down.
   if (requested === "self") return [...space];
   // Opus mode is the same Space on the 72B weights, and nothing else — for the
-  // same reason as Azure: the user picked Mino's own model, not a vendor.
+  // same reason as Azure: the user picked Openmi's own model, not a vendor.
   if (requested === "opus") return [...space];
   // ~Claude Fable 5.1 is a single named OpenRouter model and nothing else. A
   // user who picked it did not agree to be answered by another model if it is
@@ -169,8 +169,8 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
             model: FABLE_ENGINE,
             supportsReasoning: false,
             headers: {
-              "HTTP-Referer": "https://mino-ai.vercel.app",
-              "X-Title": "Mino",
+              "HTTP-Referer": "https://openmi-ai.vercel.app",
+              "X-Title": "Openmi",
             },
             extraBody: { stream_options: { include_usage: true } },
           },

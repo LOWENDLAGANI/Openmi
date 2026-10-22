@@ -4,10 +4,10 @@ import ServiceWorker from "@/components/ServiceWorker";
 import "./globals.css";
 
 const DESCRIPTION =
-  "Mino is a private AI assistant by Minetallest. Multi-model chat, vision, image understanding, and image generation.";
+  "Openmi is a private AI assistant by Minetallest. Multi-model chat, vision, image understanding, and image generation.";
 
 export const metadata: Metadata = {
-  title: "Mino — AI Assistant by Minetallest",
+  title: "Openmi — AI Assistant by Minetallest",
   description: DESCRIPTION,
   // Relative share links resolve against whatever domain this deployment is
   // served from, so a preview and production both produce a correct absolute
@@ -23,32 +23,32 @@ export const metadata: Metadata = {
   // preview cannot drift from what the app looks like.
   openGraph: {
     type: "website",
-    siteName: "Mino",
-    title: "Mino — AI Assistant by Minetallest",
+    siteName: "Openmi",
+    title: "Openmi — AI Assistant by Minetallest",
     description: DESCRIPTION,
-    images: [{ url: "/mino-splash.jpg", alt: "Mino" }],
+    images: [{ url: "/openmi-splash.jpg", alt: "Openmi" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Mino — AI Assistant by Minetallest",
+    title: "Openmi — AI Assistant by Minetallest",
     description: DESCRIPTION,
-    images: ["/mino-splash.jpg"],
+    images: ["/openmi-splash.jpg"],
   },
   // Without a manifest and a service worker the site is not installable, and
   // without `standalone` the installed copy opens in a browser chrome frame
   // that looks like a website rather than an app.
   manifest: "/manifest.webmanifest",
-  applicationName: "Mino",
+  applicationName: "Openmi",
   appleWebApp: {
     capable: true,
-    title: "Mino",
+    title: "Openmi",
     statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false },
   icons: {
     icon: [
-      // Uploaded brand logo (public/mino-logo.png) takes over once present.
-      { url: "/mino-logo.png", type: "image/png" },
+      // Uploaded brand logo (public/openmi-logo.png) takes over once present.
+      { url: "/openmi-logo.png", type: "image/png" },
       // Built-in fallback so the tab icon is never empty.
       {
         url:

@@ -1,7 +1,7 @@
 "use client";
 
 // ── Service worker registration ─────────────────────────────────────────────
-// Installing Mino as an app requires a service worker alongside the manifest.
+// Installing Openmi as an app requires a service worker alongside the manifest.
 // Chromium refuses to fire `beforeinstallprompt` without one, so the install
 // prompt in `InstallPrompt.tsx` is inert until this runs.
 //
@@ -43,14 +43,14 @@ export default function ServiceWorker() {
             // The worker claimed this page a moment ago. Re-asking the browser
             // is what surfaces the install prompt that was withheld until now.
             navigator.serviceWorker.addEventListener("controllerchange", () => {
-              window.dispatchEvent(new Event("mino:sw-ready"));
+              window.dispatchEvent(new Event("openmi:sw-ready"));
             });
           }
         })
         .catch((error: unknown) => {
           // A failed registration costs the install prompt, nothing else. The
           // app is fully usable in a browser tab without it.
-          console.error("[Mino] Service worker registration failed", error);
+          console.error("[Openmi] Service worker registration failed", error);
         });
     };
 

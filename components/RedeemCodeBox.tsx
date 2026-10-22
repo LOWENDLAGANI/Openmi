@@ -83,7 +83,7 @@ export default function RedeemCodeBox() {
         onKeyDown={(event) => {
           if (event.key === "Enter" && !busy) void submit();
         }}
-        placeholder="MINO-LUNAR"
+        placeholder="OPENMI-LUNAR"
         spellCheck={false}
         autoComplete="off"
         autoCapitalize="characters"

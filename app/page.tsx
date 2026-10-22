@@ -6,8 +6,8 @@ import Sidebar from "@/components/Sidebar";
 import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
 import ModeSelector from "@/components/ModelSelector";
-import MinoMark from "@/components/MinoMark";
-import MinoTutorial from "@/components/MinoTutorial";
+import OpenmiMark from "@/components/OpenmiMark";
+import OpenmiTutorial from "@/components/OpenmiTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import NotificationNag from "@/components/NotificationNag";
 import NamePrompt from "@/components/NamePrompt";
@@ -86,7 +86,7 @@ import {
   suggestionsDismissed,
 } from "@/lib/memorySuggestions";
 
-// ── Mino — main client orchestration: modes, streaming, chats ────────────────
+// ── Openmi — main client orchestration: modes, streaming, chats ────────────────
 
 interface SessionUsage {
   prompt: number;
@@ -201,7 +201,7 @@ export default function HomePage() {
   // this page knowing about it in advance.
   const memorySnapshot = useLiveQuery(() => db.memories.toArray(), [], []);
 
-  // Facts Mino noticed by itself and is offering, kept apart from the list
+  // Facts Openmi noticed by itself and is offering, kept apart from the list
   // until the user accepts. Offered, never stored — see MemorySuggestions.
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [checkingMemory, setCheckingMemory] = useState(false);
@@ -221,7 +221,7 @@ export default function HomePage() {
     // screen does that write.
     if (savedName) {
       void syncVisitorProfile(savedName).catch((error: unknown) => {
-        console.error("[Mino] Could not log the visitor name", error);
+        console.error("[Openmi] Could not log the visitor name", error);
       });
     }
   }, []);    // A name typed on this device is the authority, and a linked account brings
@@ -308,7 +308,7 @@ export default function HomePage() {
           if (result.synced) setLoggingError(false);
         })
         .catch((error: unknown) => {
-          console.error("[Mino] Firebase logging failed", error);
+          console.error("[Openmi] Firebase logging failed", error);
           setLoggingError(true);
         });
     }, 900);
@@ -339,7 +339,7 @@ export default function HomePage() {
     const saved = saveDisplayName(name);
     setDisplayName(saved);
     void syncVisitorProfile(saved).catch((error: unknown) => {
-      console.error("[Mino] Could not log the visitor name", error);
+      console.error("[Openmi] Could not log the visitor name", error);
     });
   }, []);
 
@@ -387,7 +387,7 @@ export default function HomePage() {
       await finishGoogleEntry(await bindGoogleAccount());
     } catch (cause: unknown) {
       if (isDismissed(cause)) return;
-      console.error("[Mino] Google entry failed", cause);
+      console.error("[Openmi] Google entry failed", cause);
       setGoogleError(describeLinkError(cause));
     } finally {
       setGoogleBusy(false);
@@ -408,14 +408,14 @@ export default function HomePage() {
           if (redirect.outcome === "linked") {
             await finishGoogleEntry({ outcome: "linked", view: redirect.view });
           } else if (redirect.cause) {
-            console.error("[Mino] Google redirect failed", redirect.cause);
+            console.error("[Openmi] Google redirect failed", redirect.cause);
             setGoogleError(describeLinkError(redirect.cause));
           }
         } finally {
           if (!cancelled) setGoogleBusy(false);
         }
       })
-      .catch((cause: unknown) => console.error("[Mino] Google redirect check failed", cause));
+      .catch((cause: unknown) => console.error("[Openmi] Google redirect check failed", cause));
     return () => {
       cancelled = true;
     };
@@ -431,8 +431,8 @@ export default function HomePage() {
       if (Array.isArray(detail.available)) setAvailable(detail.available);
       if (typeof detail.searchAvailable === "boolean") setSearchAvailable(detail.searchAvailable);
     };
-    window.addEventListener("mino:availability", handler);
-    return () => window.removeEventListener("mino:availability", handler);
+    window.addEventListener("openmi:availability", handler);
+    return () => window.removeEventListener("openmi:availability", handler);
   }, []);
 
   // A stored preference can outlive the availability that made it valid: a mode
@@ -454,7 +454,7 @@ export default function HomePage() {
   }, [available, selectedMode]);
 
   // Switching modes is not a mid-conversation toggle. Code mode is pinned to the
-  // Mino V3/V2/V1 family for code-generation accuracy, and continuing a chat
+  // Openmi V3/V2/V1 family for code-generation accuracy, and continuing a chat
   // written by one model under another would blend two different answers into
   // one thread. So picking a mode that declares `separateSession` starts a fresh
   // session instead of reinterpreting the current one.
@@ -541,7 +541,7 @@ export default function HomePage() {
         createdAt: Date.now(),
       };
       void db.scheduled.add(item).catch((error: unknown) => {
-        console.error("[Mino] Could not queue the message", error);
+        console.error("[Openmi] Could not queue the message", error);
       });
     },
     [activeChatId, searchMode, selectedMode, temporary]
@@ -580,8 +580,8 @@ export default function HomePage() {
   // follows the data back to an empty thread.
   useEffect(() => {
     const onWiped = () => handleNewChat();
-    window.addEventListener("mino:data-wiped", onWiped);
-    return () => window.removeEventListener("mino:data-wiped", onWiped);
+    window.addEventListener("openmi:data-wiped", onWiped);
+    return () => window.removeEventListener("openmi:data-wiped", onWiped);
   }, [handleNewChat]);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
@@ -798,7 +798,7 @@ export default function HomePage() {
       // appended after the transcript is built and never persisted into a
       // previous user message.
       setModelNotice(null);
-      // The Mino name is stored rather than a provider id, so nothing vendor-
+      // The Openmi name is stored rather than a provider id, so nothing vendor-
       // specific ends up in the local database or in an exported backup.
       const assistantMsg: ChatMessage =
         (reuseId ? await readMessage(reuseId) : undefined) ??
@@ -863,7 +863,7 @@ export default function HomePage() {
         });
         if (!res.ok) {
           const payload = (await res.json().catch(() => null)) as { error?: string } | null;
-          const message = payload?.error || `Mino request failed (HTTP ${res.status})`;
+          const message = payload?.error || `Openmi request failed (HTTP ${res.status})`;
           noteRateLimit(message);
           throw new Error(message);
         }
@@ -904,7 +904,7 @@ export default function HomePage() {
             if (evt.usage) await writeUsage(assistantMsg.id, evt.usage);
             if (evt.search) {
               await patchMessage(assistantMsg.id, { searchQuery: evt.search.query, sources: evt.search.sources ?? [] });
-              if (!evt.search.used && activeSearch !== "off") setModelNotice("Mino checked the web but could not find a usable source.");
+              if (!evt.search.used && activeSearch !== "off") setModelNotice("Openmi checked the web but could not find a usable source.");
             }
           } catch (err) {
             if (err instanceof Error && err.message !== "Stream interrupted") throw err;
@@ -919,7 +919,7 @@ export default function HomePage() {
           for (const line of lines) await flushLine(line);
         }
         if (buffer.trim()) await flushLine(buffer);
-        if (!full.trim() && !sawError) await markError(assistantMsg.id, "Mino returned an empty response. Try again.");
+        if (!full.trim() && !sawError) await markError(assistantMsg.id, "Openmi returned an empty response. Try again.");
 
         // Whether anything here is worth remembering is decided after the
         // answer, on the user's machine, by a request they never wait for. It
@@ -1058,11 +1058,11 @@ export default function HomePage() {
 
   const handleSend = useCallback(
     (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
-      // Someone who has sent a message has decided Mino is worth a second
+      // Someone who has sent a message has decided Openmi is worth a second
       // look, which is the earliest the install prompt can be justified. It
       // arrives as a custom event because the prompt decides for itself
       // whether to ask — this page only reports what happened.
-      window.dispatchEvent(new Event("mino:engage"));
+      window.dispatchEvent(new Event("openmi:engage"));
       if (imageMode) {
         void drawImage(text);
         return;
@@ -1097,7 +1097,7 @@ export default function HomePage() {
   const threadMessages = temporary ? tempMessages : messages;
 
   const handleCopyConversation = useCallback(async () => {
-    const text = threadMessages.map((message) => `${message.role === "user" ? "You" : "Mino"}: ${message.content}`).join("\n\n");
+    const text = threadMessages.map((message) => `${message.role === "user" ? "You" : "Openmi"}: ${message.content}`).join("\n\n");
     try {
       await navigator.clipboard.writeText(text);
       setModelNotice("Conversation copied to your clipboard");
@@ -1133,7 +1133,7 @@ export default function HomePage() {
     );
   }
 
-  // A signed-in person arriving on a new browser has a name Mino already knows
+  // A signed-in person arriving on a new browser has a name Openmi already knows
   // and this one has not read yet. Holding the gate for that single read is the
   // difference between being greeted by name and being asked to type it again.
   // It settles on the first failure too, so a deployment with no account
@@ -1141,13 +1141,13 @@ export default function HomePage() {
   if (hydrated && resolvingAccount) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-[#060a08] text-text-body">
-        <MinoMark className="h-8 w-8 animate-pulse" />
+        <OpenmiMark className="h-8 w-8 animate-pulse" />
         <SplashScreen />
       </div>
     );
   }
 
-  // Entry gate: the name is what the admin console lists visitors by, so Mino
+  // Entry gate: the name is what the admin console lists visitors by, so Openmi
   // is not usable until one is given. There is no skip out of this screen.
   if (!displayName) {
     return (
@@ -1200,12 +1200,12 @@ export default function HomePage() {
           <button
             onClick={handleNewChat}
             className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80 active:opacity-60"
-            aria-label="Start a new Mino chat"
-            title="Mino"
+            aria-label="Start a new Openmi chat"
+            title="Openmi"
           >
-            <MinoMark className="h-7 w-7" />
+            <OpenmiMark className="h-7 w-7" />
             <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">
-              {temporary ? "Temporary chat" : "Mino"}
+              {temporary ? "Temporary chat" : "Openmi"}
             </span>
           </button>
 
@@ -1297,7 +1297,7 @@ export default function HomePage() {
       </main>
 
       {!tutorialFinished && (
-        <MinoTutorial
+        <OpenmiTutorial
           sidebarOpen={sidebarOpen}
           onOpenSidebar={openSidebar}
           onFinished={finishTutorial}
@@ -1323,7 +1323,7 @@ export default function HomePage() {
           session. It sits above the app while this page finishes loading. */}
       <SplashScreen />
 
-      {/* Install prompt — mobile only, and only once Mino has been used. */}
+      {/* Install prompt — mobile only, and only once Openmi has been used. */}
       <InstallPrompt />
 
       {/* Developer notes — shows a newly published note once per reader, then

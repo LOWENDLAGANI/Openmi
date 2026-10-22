@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 import { useState } from "react";
-import MinoMark from "./MinoMark";
+import OpenmiMark from "./OpenmiMark";
 import AdminGate from "./AdminGate";
 // The console is ~2,400 lines of admin UI that no visitor ever sees. Loading
 // it on demand rather than in the page bundle keeps it off every visitor's
@@ -29,10 +29,10 @@ export default function AboutLogo({ className }: { className?: string }) {
         type="button"
         onClick={() => registerTap()}
         className={`shrink-0 cursor-default select-none ${className ?? ""}`}
-        aria-label="Mino"
-        title="Mino"
+        aria-label="Openmi"
+        title="Openmi"
       >
-        <MinoMark className="h-full w-full" title="Mino" />
+        <OpenmiMark className="h-full w-full" title="Openmi" />
       </button>
 
       <AdminGate

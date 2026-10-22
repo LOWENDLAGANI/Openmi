@@ -23,7 +23,7 @@ const CONFIG_PATH = "config";
  * between the two shows up as a refused write rather than a silent success.
  */
 function configuredAdminEmail(): string {
-  return process.env.MINO_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
+  return process.env.OPENMI_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
@@ -76,7 +76,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const written = await writeAsCaller(authorization, CONFIG_PATH, next);
   if (!written) {
     return Response.json(
-      { error: "The database refused the write. Check that the address in the rules matches `MINO_ADMIN_EMAIL`." },
+      { error: "The database refused the write. Check that the address in the rules matches `OPENMI_ADMIN_EMAIL`." },
       { status: 403 }
     );
   }

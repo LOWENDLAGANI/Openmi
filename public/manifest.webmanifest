@@ -1,6 +1,6 @@
 {
-  "name": "Mino — AI Assistant",
-  "short_name": "Mino",
+  "name": "Openmi — AI Assistant",
+  "short_name": "Openmi",
   "description": "A private AI assistant. Multi-model chat, vision, image understanding, and image generation.",
   "start_url": "/",
   "scope": "/",
