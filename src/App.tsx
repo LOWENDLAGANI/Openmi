@@ -21,21 +21,40 @@ function parseHash(): Route {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>(parseHash());
 
   useEffect(() => {
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (!cancelled) {
+        setInitError('Startup timed out — the API may be unreachable. Check the Vercel deployment URL and env vars.');
+        setReady(true);
+      }
+    }, 12000);
     initFirebase()
       .then(() => {
+        if (cancelled) return;
+        clearTimeout(timeout);
         const unsub = onAuthStateChanged(getAuth(), (u) => {
           setUser(u);
           setReady(true);
         });
         return () => unsub();
       })
-      .catch(() => setReady(true));
+      .catch((e: any) => {
+        if (cancelled) return;
+        clearTimeout(timeout);
+        setInitError(e?.message ?? 'Failed to initialise');
+        setReady(true);
+      });
     const onHash = () => setRoute(parseHash());
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      window.removeEventListener('hashchange', onHash);
+    };
   }, []);
 
   const go = (hash: string) => {
@@ -50,7 +69,18 @@ export default function App() {
     );
   }
 
-  if (!user) return <Login />;
+  if (!user) {
+    return (
+      <>
+        {initError && (
+          <div className="fixed top-0 inset-x-0 z-50 bg-amber-500/15 border-b border-amber-500/40 text-amber-300 text-xs px-4 py-2 safe-top">
+            {initError}
+          </div>
+        )}
+        <Login />
+      </>
+    );
+  }
 
   if (route.name === 'task') {
     return <TaskView taskId={route.taskId} onBack={() => history.back()} />;
