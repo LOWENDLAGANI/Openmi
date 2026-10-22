@@ -106,7 +106,10 @@ function stepGeneratePatch(task: Task): Step<PatchSet> {
       await appendEvent(task.id, {
         type: 'patch_generated',
         message: patchSummary(result.patch),
-        data: { tokens: result.usage.total },
+        data: {
+          tokens: result.usage.total,
+          ...(result.attempts.length > 1 ? { attempts: result.attempts } : {}),
+        },
       });
       return result.patch;
     },
@@ -158,6 +161,7 @@ function stepFinalize(task: Task): Step<void> {
 async function handleFailure(task: Task, e: unknown): Promise<void> {
   const code = e instanceof AppError ? e.code : 'INTERNAL';
   const message = e instanceof Error ? e.message : String(e);
+  const issues = e instanceof AppError ? e.issues : [];
   const current = (await getTask(task.id))!;
   // A task that already committed is never marked failed.
   if (current.commitSha) {
@@ -165,8 +169,23 @@ async function handleFailure(task: Task, e: unknown): Promise<void> {
     return;
   }
   const status = code === 'GITHUB_CONFLICT' ? 'conflict' : 'failed';
-  await updateTask(task.id, { status, errorCode: code, errorMessage: message });
-  await appendEvent(task.id, { type: status === 'conflict' ? 'conflict' : 'failed', message });
+  await updateTask(task.id, {
+    status,
+    errorCode: code,
+    errorMessage: message,
+    ...(issues.length ? { errorIssues: issues } : {}),
+  });
+  await appendEvent(task.id, {
+    type: status === 'conflict' ? 'conflict' : 'failed',
+    message,
+    ...(issues.length ? { data: { issues } } : {}),
+  });
+  if (issues.length > 1) {
+    await appendEvent(task.id, {
+      type: 'info',
+      message: `${issues.length} problems found: ${issues.map((i) => i.message).join('; ')}`,
+    });
+  }
   if (refundsQuota(code)) {
     await refundTaskQuota(task.ownerId);
     await appendEvent(task.id, { type: 'info', message: 'quota refunded (system-caused failure)' });

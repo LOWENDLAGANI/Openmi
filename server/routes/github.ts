@@ -80,7 +80,7 @@ app.post('/webhooks/github', async (c) => {
   if (event !== 'installation') {
     return c.json({ ok: true, ignored: true });
   }
-  const payload = JSON.parse(raw);
+  const payload = parseWebhookBody(raw);
   if (String(payload.installation?.app_id) !== env.githubAppId()) {
     return c.json({ ok: true, ignored: true });
   }
@@ -127,5 +127,21 @@ app.get('/github/repos', requireAuth, async (c) => {
     throw new AppError('GITHUB_UNAVAILABLE', `failed to list repos: ${e.message}`);
   }
 });
+
+// The webhook body is only parsed after the signature check, but it can still
+// be malformed. Report it as a bad request instead of a 500.
+function parseWebhookBody(raw: string): any {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new AppError('INVALID_INPUT', 'webhook body is not valid JSON', {
+      details: {
+        issues: [
+          { code: 'INVALID_JSON', message: 'webhook body is not valid JSON' },
+        ],
+      },
+    });
+  }
+}
 
 export default app;

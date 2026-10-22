@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost, ApiError } from '../lib/api';
 import { linkGithub, getConfig } from '../lib/firebase';
+import ErrorList, { toErrorState, type ErrorState } from '../components/ErrorList';
 import type { Project, QuotaInfo, Profile, PublicConfig } from '../../shared/types';
 import { getAuth } from 'firebase/auth';
 
@@ -11,7 +12,7 @@ export default function Home({ onOpenProject }: { onOpenProject: (id: string) =>
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [repoInput, setRepoInput] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null);
   const [linking, setLinking] = useState(false);
 
   const load = async () => {
@@ -23,7 +24,7 @@ export default function Home({ onOpenProject }: { onOpenProject: (id: string) =>
       const p = await apiGet<{ projects: Project[] }>('/api/projects');
       setProjects(p.projects);
     } catch (e: any) {
-      setError(e?.message ?? 'failed to load');
+      setError(toErrorState(e, 'failed to load'));
     }
   };
 
@@ -42,9 +43,9 @@ export default function Home({ onOpenProject }: { onOpenProject: (id: string) =>
       onOpenProject(project.id);
     } catch (e: any) {
       if (e instanceof ApiError && e.code === 'GITHUB_NOT_CONNECTED') {
-        setError('Link GitHub first, then connect the repo.');
+        setError(toErrorState(new Error('Link GitHub first, then connect the repo.')));
       } else {
-        setError(e?.message ?? 'failed to connect');
+        setError(toErrorState(e, 'failed to connect'));
       }
     } finally {
       setConnecting(false);
@@ -58,7 +59,7 @@ export default function Home({ onOpenProject }: { onOpenProject: (id: string) =>
       await linkGithub();
       await load();
     } catch (e: any) {
-      setError(e?.message ?? 'GitHub link failed (may already be linked)');
+      setError(toErrorState(e, 'GitHub link failed (may already be linked)'));
     } finally {
       setLinking(false);
     }
@@ -131,7 +132,7 @@ export default function Home({ onOpenProject }: { onOpenProject: (id: string) =>
         </div>
       </div>
 
-      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+      {error && <ErrorList state={error} className="mb-4" />}
 
       <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
         Your projects

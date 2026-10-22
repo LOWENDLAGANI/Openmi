@@ -1,5 +1,5 @@
 import { getAuth } from 'firebase/auth';
-import type { Task, RepoFile } from '../../shared/types';
+import type { Task, RepoFile, Issue } from '../../shared/types';
 
 async function token(): Promise<string> {
   const user = getAuth().currentUser;
@@ -11,7 +11,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Authorization: `Bearer ${await token()}` } });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.error?.code, body.error?.message);
+    throw new ApiError(res.status, body.error?.code, body.error?.message, body.error?.issues);
   }
   return res.json();
 }
@@ -24,7 +24,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) {
     const b = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, b.error?.code, b.error?.message);
+    throw new ApiError(res.status, b.error?.code, b.error?.message, b.error?.issues);
   }
   return res.json();
 }
@@ -32,10 +32,13 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, code?: string, message?: string) {
+  /** Every problem the API reported, not just the first. */
+  issues?: Issue[];
+  constructor(status: number, code?: string, message?: string, issues?: Issue[]) {
     super(message ?? `API error ${status}`);
     this.status = status;
     this.code = code;
+    this.issues = issues;
   }
 }
 

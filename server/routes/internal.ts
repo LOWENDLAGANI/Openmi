@@ -14,7 +14,18 @@ app.post('/internal/run-task', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const taskId = body?.taskId as string | undefined;
   if (!taskId) {
-    return c.json({ error: { code: 'INVALID_INPUT', message: 'taskId required' } }, 422);
+    return c.json(
+      {
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'taskId required',
+          issues: [
+            { code: 'MISSING_TASK_ID', message: 'taskId required', field: 'taskId' },
+          ],
+        },
+      },
+      422,
+    );
   }
 
   // Kick off the pipeline without awaiting — Vercel keeps the function alive

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost, ApiError, getProjectFiles } from '../lib/api';
+import { apiGet, apiPost, getProjectFiles } from '../lib/api';
+import ErrorList, { toErrorState, type ErrorState } from '../components/ErrorList';
 import type { Project, Task, QuotaInfo, RepoFile } from '../../shared/types';
 
 export default function ProjectView({
@@ -15,12 +16,12 @@ export default function ProjectView({
   const [tasks, setTasks] = useState<Task[]>([]);
   const [files, setFiles] = useState<RepoFile[]>([]);
   const [filesTruncated, setFilesTruncated] = useState(false);
-  const [filesError, setFilesError] = useState<string | null>(null);
+  const [filesError, setFilesError] = useState<ErrorState | null>(null);
   const [tab, setTab] = useState<'tasks' | 'files'>('tasks');
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [prompt, setPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null);
 
   const load = async () => {
     try {
@@ -33,7 +34,7 @@ export default function ProjectView({
       setProject(projects.projects.find((p) => p.id === projectId) ?? null);
       setTasks(taskList.tasks);
     } catch (e: any) {
-      setError(e?.message ?? 'failed to load');
+      setError(toErrorState(e, 'failed to load'));
     }
   };
 
@@ -44,7 +45,7 @@ export default function ProjectView({
       setFiles(data.files);
       setFilesTruncated(data.truncated);
     } catch (e: any) {
-      setFilesError(e?.message ?? 'failed to load files');
+      setFilesError(toErrorState(e, 'failed to load files'));
     }
   };
 
@@ -71,11 +72,7 @@ export default function ProjectView({
       setPrompt('');
       onOpenTask(task.id);
     } catch (e: any) {
-      if (e instanceof ApiError) {
-        setError(`${e.code}: ${e.message}`);
-      } else {
-        setError(e?.message ?? 'failed');
-      }
+      setError(toErrorState(e, 'failed'));
     } finally {
       setSubmitting(false);
     }
@@ -123,7 +120,7 @@ export default function ProjectView({
         >
           {submitting ? 'Dispatching…' : 'Run task'}
         </button>
-        {error && <p className="mt-2 text-red-400 text-sm">{error}</p>}
+        {error && <ErrorList state={error} className="mt-2" />}
       </div>
 
       <div className="flex gap-2 mb-3">
@@ -176,7 +173,7 @@ export default function ProjectView({
 
       {tab === 'files' && (
         <div>
-          {filesError && <p className="text-red-400 text-sm mb-3">{filesError}</p>}
+          {filesError && <ErrorList state={filesError} className="mb-3" />}
           {!filesError && files.length === 0 && (
             <p className="text-sm text-slate-500">Loading repository files…</p>
           )}

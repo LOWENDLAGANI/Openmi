@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { signInWithGoogle } from '../lib/firebase';
+import ErrorList, { toErrorState, type ErrorState } from '../components/ErrorList';
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null);
 
   const go = async () => {
     setLoading(true);
@@ -11,7 +12,7 @@ export default function Login() {
     try {
       await signInWithGoogle();
     } catch (e: any) {
-      setError(e?.message ?? 'sign-in failed');
+      setError(toErrorState(e, 'sign-in failed'));
     } finally {
       setLoading(false);
     }
@@ -33,7 +34,7 @@ export default function Login() {
         >
           {loading ? 'Signing in…' : 'Continue with Google'}
         </button>
-        {error && <p className="mt-4 text-red-400 text-sm">{error}</p>}
+        {error && <ErrorList state={error} className="mt-4" />}
         <p className="mt-6 text-xs text-slate-500">
           GitHub is linked after sign-in so the agent can push.
         </p>

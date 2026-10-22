@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { apiGet, retryTask } from '../lib/api';
+import ErrorList, { toErrorState, type ErrorState } from '../components/ErrorList';
 import type { Task, TaskEvent } from '../../shared/types';
 
 export default function TaskView({ taskId, onBack }: { taskId: string; onBack: () => void }) {
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null);
   const [retrying, setRetrying] = useState(false);
   const retry = async () => {
     if (!task) return;
@@ -15,7 +16,7 @@ export default function TaskView({ taskId, onBack }: { taskId: string; onBack: (
       await retryTask(task.id);
       load();
     } catch (e: any) {
-      setError(e?.message ?? 'retry failed');
+      setError(toErrorState(e, 'retry failed'));
     } finally {
       setRetrying(false);
     }
@@ -27,7 +28,7 @@ export default function TaskView({ taskId, onBack }: { taskId: string; onBack: (
       setTask(data.task);
       setEvents(data.events);
     } catch (e: any) {
-      setError(e?.message ?? 'failed to load');
+      setError(toErrorState(e, 'failed to load'));
     }
   };
 
@@ -47,7 +48,7 @@ export default function TaskView({ taskId, onBack }: { taskId: string; onBack: (
         ← Back
       </button>
 
-      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+      {error && <ErrorList state={error} className="mb-4" />}
       {!task && !error && <p className="text-slate-400 text-sm">Loading…</p>}
 
       {task && (
@@ -96,6 +97,20 @@ export default function TaskView({ taskId, onBack }: { taskId: string; onBack: (
               <div className="mb-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl p-3">
                 <div className="font-medium">{task.errorCode ?? task.status}</div>
                 <div className="text-xs mt-1 opacity-80">{task.errorMessage}</div>
+                {task.errorIssues && task.errorIssues.length > 0 && (
+                  <ul className="mt-2 space-y-1 list-disc pl-4 text-xs opacity-90">
+                    {task.errorIssues.map((issue, idx) => (
+                      <li key={`${issue.code}-${idx}`} className="break-words">
+                        {issue.path ?? issue.field ?? issue.source ? (
+                          <span className="font-mono opacity-80">
+                            {issue.path ?? issue.field ?? issue.source}:{' '}
+                          </span>
+                        ) : null}
+                        {issue.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <button
                 onClick={retry}

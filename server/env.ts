@@ -29,6 +29,12 @@ export const env = {
     // Vercel stores multi-line PEMs with literal \n escapes; unescape them.
     return v.includes('\\n') ? v.replace(/\\n/g, '\n') : v;
   },
+  // A private key that is present but not a PEM block fails deep inside
+  // OpenSSL with an opaque "DECODER routines::unsupported". Detect it early.
+  firebasePrivateKeyValid: () => {
+    const k = env.firebasePrivateKey();
+    return !!k && k.includes('-----BEGIN') && k.includes('-----END');
+  },
 
   // Encryption
   githubTokenEncKey: () => str('GITHUB_TOKEN_ENC_KEY'),
@@ -36,7 +42,20 @@ export const env = {
   // Models
   openRouterApiKey: () => str('OPENROUTER_API_KEY'),
   groqApiKey: () => str('GROQ_API_KEY'),
-  model: () => str('OPENMI_MODEL') ?? 'qwen/qwen3-coder',
+  // Primary OpenRouter model. qwen/qwen3-coder-next is the current member of
+  // the Qwen3-Coder family; the plain qwen/qwen3-coder slug still resolves but
+  // is the older generation.
+  model: () => str('OPENMI_MODEL') ?? 'qwen/qwen3-coder-next',
+  // Extra OpenRouter models tried, in order, when the primary one is gone or
+  // unavailable. Keeps a retired slug from breaking every task.
+  modelFallbacks: () =>
+    (str('OPENMI_MODEL_FALLBACKS') ?? 'qwen/qwen3-coder,qwen/qwen3-coder-flash')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  // Groq fallback model. llama-3.3-70b-versatile was retired for free and
+  // Developer tiers on 2026-08-16, so it is no longer a usable default.
+  groqModel: () => str('GROQ_MODEL') ?? 'openai/gpt-oss-120b',
 
   // Quota
   dailyTaskLimit: () => int('DAILY_TASK_LIMIT', 5),
@@ -55,7 +74,17 @@ export const env = {
   internalTaskToken: () => str('INTERNAL_TASK_TOKEN'),
   internalDispatchUrl: () => str('INTERNAL_DISPATCH_URL'),
   cronSecret: () => str('CRON_SECRET'),
-  runBudgetSeconds: () => int('RUN_BUDGET_SECONDS', 240),
+  // Wall-clock budget for one runner invocation. The function's own
+  // maxDuration (Vercel kills the invocation at that point) is the hard
+  // ceiling, so the budget is clamped below it: an invocation that outlives
+  // maxDuration is killed without releasing its lease, and the task then
+  // hangs until the cron sweep picks it up.
+  maxDurationSeconds: () => int('MAX_FUNCTION_DURATION', 60),
+  runBudgetSeconds: () => {
+    const max = env.maxDurationSeconds();
+    const requested = int('RUN_BUDGET_SECONDS', 50);
+    return Math.max(5, Math.min(requested, max - 10));
+  },
 
   // GitHub App
   githubAppId: () => str('GITHUB_APP_ID'),
@@ -88,7 +117,7 @@ export function firebaseConfigured(): boolean {
   return (
     env.firebaseProjectId() !== undefined &&
     env.firebaseClientEmail() !== undefined &&
-    env.firebasePrivateKey() !== undefined
+    env.firebasePrivateKeyValid()
   );
 }
 

@@ -47,7 +47,7 @@ persisted state. Task state lives in Firestore, not in the client.
 | API | Hono + TypeScript |
 | Frontend | Vite + React 19 + Tailwind CSS v4 (mobile-first SPA) |
 | Database / Auth | Firebase Auth (Google sign-in; GitHub linked to the account afterwards) + Firestore (admin SDK; rules deny client access) |
-| Models | OpenRouter (`qwen/qwen3-coder` default), optional Groq fallback |
+| Models | OpenRouter (`qwen/qwen3-coder-next` default + fallback chain), optional Groq fallback |
 | GitHub | `@octokit/rest` — Git Data API, `base_tree` commits, `force: false` ref updates |
 | GitHub auth | GitHub App installation tokens (per-repo, revocable) with OAuth fallback |
 
@@ -138,7 +138,7 @@ After the first deploy, set:
 | `APP_ORIGIN` | `https://<your-production-domain>` (inferred from `VERCEL_PROJECT_PRODUCTION_URL` when omitted) |
 | `INTERNAL_TASK_TOKEN` | same random value as local |
 | `CRON_SECRET` | same random value as local |
-| `RUN_BUDGET_SECONDS` | optional, default `240` (must stay under `maxDuration`) |
+| `RUN_BUDGET_SECONDS` | optional, default `50` (clamped to `MAX_FUNCTION_DURATION - 10` so a run never outlives `maxDuration`) |
 
 Then redeploy so the values take effect, and point the GitHub App's Setup/Webhook URLs and the
 Firebase authorized domains at the Vercel domain.
@@ -163,7 +163,9 @@ Production. Cron jobs are exempt from protection.
 | `GITHUB_TOKEN_ENC_KEY` | secret | AES-256-GCM key for stored GitHub tokens |
 | `OPENROUTER_API_KEY` | secret | Primary model provider |
 | `GROQ_API_KEY` | secret (optional) | Fallback provider |
-| `OPENMI_MODEL` | var | Model slug, default `qwen/qwen3-coder` |
+| `OPENMI_MODEL` | var | Primary model slug, default `qwen/qwen3-coder-next` |
+| `OPENMI_MODEL_FALLBACKS` | var (optional) | Comma-separated slugs tried in order, default `qwen/qwen3-coder,qwen/qwen3-coder-flash` |
+| `GROQ_MODEL` | var (optional) | Groq model slug, default `openai/gpt-oss-120b` |
 | `DAILY_TASK_LIMIT` | var | Free-tier tasks per user per UTC day (default 5) |
 | `MAX_CONCURRENT_TASKS` | var | In-flight tasks per user (default 2) |
 | `DEFAULT_COMMIT_MODE` | var | `direct` or `pull_request` fallback for new projects |
@@ -171,7 +173,8 @@ Production. Cron jobs are exempt from protection.
 | `INTERNAL_TASK_TOKEN` | secret (Vercel) | Authenticates `POST /api/internal/run-task` |
 | `INTERNAL_DISPATCH_URL` | var (optional) | Dispatch to a specific deployment instead of `APP_ORIGIN` |
 | `CRON_SECRET` | secret (Vercel) | Vercel sends `Authorization: Bearer $CRON_SECRET` to cron |
-| `RUN_BUDGET_SECONDS` | var (optional) | Wall-clock budget per runner invocation (default 240) |
+| `RUN_BUDGET_SECONDS` | var (optional) | Wall-clock budget per runner invocation (default 50, clamped to `MAX_FUNCTION_DURATION - 10`) |
+| `MAX_FUNCTION_DURATION` | var (optional) | Hard ceiling of the function in seconds (default 60; must match `maxDuration` in `api/[[...route]].ts`) |
 | `GITHUB_APP_ID` | var | GitHub App id (enables installation auth when set) |
 | `GITHUB_APP_CLIENT_ID` | var | Preferred JWT issuer for App requests; falls back to the app id |
 | `GITHUB_APP_SLUG` | var | App slug used to build the install URL |
@@ -202,6 +205,63 @@ token>`.
 | `GET` | `/api/tasks/:id` | Task detail + agent timeline |
 | `POST` | `/api/internal/run-task` | **Internal.** Runs one task invocation (`x-openmi-internal`) |
 | `GET` | `/api/cron/recover` | **Internal.** Re-dispatches stale tasks (`Bearer $CRON_SECRET`) |
+
+### Error shape
+
+Every error answers with the same envelope, and with **every** problem that was found, not just
+the first one:
+
+```json
+{
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "2 problems: projectId is required; prompt is required",
+    "issues": [
+      { "code": "MISSING_PROJECT_ID", "message": "projectId is required", "field": "projectId" },
+      { "code": "MISSING_PROMPT", "message": "prompt is required", "field": "prompt" }
+    ]
+  }
+}
+```
+
+An `Issue` is `{ code, message }` plus whichever of `path` (file path), `field` (request field),
+`source` (provider/model) and `status` (HTTP status) applies. `message` is a one-line summary of
+all issues, so clients that only show a string still see the whole picture.
+
+The same list is used everywhere problems are detected: request validation (`POST /api/tasks`,
+`POST /api/projects`), patch policy (unsafe paths, illegal ops, duplicates, size caps), conflict
+detection, model-provider failures (one issue per attempt, so a retired model slug is visible
+alongside the fallback that worked) and configuration errors (every missing key at once).
+
+Failed tasks persist the list on the task document (`errorIssues`) and on the timeline, and the SPA
+renders it as a list rather than a single string.
+
+## Model providers
+
+The agent talks to OpenRouter first and falls back to Groq. Both providers are called through one
+OpenAI-compatible chat-completions request with `response_format: { type: "json_object" }`, and
+the model is asked for a JSON patch object only.
+
+The provider chain is built per call: the configured `OPENMI_MODEL`, then every slug in
+`OPENMI_MODEL_FALLBACKS`, then `GROQ_MODEL` when a Groq key is present. Every attempt is recorded
+(`provider`, `model`, HTTP status, reason) and surfaced on the task timeline, so a task that
+succeeded on the third model says so.
+
+Failures are classified before the next attempt is made:
+
+| Status | Treated as | Next step |
+| --- | --- | --- |
+| 404 | `model_not_found` — the slug was retired or renamed | try the next model, and report the dead slug |
+| 401 / 403 | `auth` — the API key is wrong | stop immediately; another model will not help |
+| 429 | `rate_limited` | try the next model |
+| 5xx / 408 / 409 | `transient` | try the next model |
+| other 4xx | `invalid_request` | try the next model |
+
+The defaults track the current model catalogue, not a pinned 2025 slug: `qwen/qwen3-coder-next` is
+the primary OpenRouter model with `qwen/qwen3-coder` and `qwen/qwen3-coder-flash` behind it, and
+Groq's default is `openai/gpt-oss-120b` (`llama-3.3-70b-versatile` was retired from the free and
+Developer tiers in August 2026). Because providers retire slugs without notice, a retired model is
+a *recoverable* event: the task falls through to the next model instead of failing outright.
 
 ## Safety model
 
@@ -269,8 +329,9 @@ Tests cover the patch policy, the no-deletion invariant, stale-base detection, c
 token envelope encryption, model-output parsing, quota windows, API routing/auth gates, the
 pipeline (step order, replay safety, refund-on-our-failure, no-refund-on-conflict), the inline step
 runner (retries, deadline handoff), runner selection and HTTP dispatch, runner/cron endpoint auth,
-App JWT claims, install-state signing, webhook HMAC verification, installation-token caching, and
-the App-vs-OAuth resolution order.
+App JWT claims, install-state signing, webhook HMAC verification, installation-token caching, the
+App-vs-OAuth resolution order, the multi-problem error contract (every violation reported at once)
+and the regression that a wildcard auth middleware must not guard the runner, cron or webhook.
 
 Local end-to-end checks against the Node API server: `/api/health`, `/api/config`, 401s for
 missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, and runner/cron 401 and 422 responses.

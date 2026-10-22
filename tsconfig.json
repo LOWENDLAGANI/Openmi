@@ -17,11 +17,10 @@
     "allowImportingTsExtensions": false,
     "noEmit": true,
     "types": ["node", "vitest/globals"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@shared/*": ["shared/*"],
-      "@server/*": ["server/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["./shared/*"],
+      "@server/*": ["./server/*"]
     }
   },
   "include": ["src", "server", "shared", "scripts", "tests", "api", "vite.config.ts"]

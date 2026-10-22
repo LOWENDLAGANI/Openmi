@@ -52,10 +52,12 @@ Vercel has no workflow engine, so durability is a property of the data rather th
 - **Resumption markers.** The pinned base sha, the stored patch set and `commitSha` are write-once
   guards. Every stage reads the doc first and skips what already happened, so any invocation can
   pick up any partially completed task.
-- **Deadline handoff.** `RUN_BUDGET_SECONDS` (default 240, under the 300 s `maxDuration`) is the
-  invocation's budget. When a step would exceed it, the runner throws `DeadlineExceededError`
-  *before* starting the step, the lease is released, and a new invocation is dispatched with a
-  fresh budget. Work already persisted is not repeated.
+- **Deadline handoff.** `RUN_BUDGET_SECONDS` (default 50) is the invocation's budget, clamped to
+  `MAX_FUNCTION_DURATION - 10` so it can never outlive the function's own `maxDuration` (60 s) —
+  an invocation that is killed at the platform limit never releases its lease, and the task would
+  hang until the cron sweep picks it up. When a step would exceed the budget, the runner throws
+  `DeadlineExceededError` *before* starting the step, the lease is released, and a new invocation
+  is dispatched with a fresh budget. Work already persisted is not repeated.
 - **Recovery.** A daily Vercel Cron hits `/api/cron/recover`, which finds tasks whose lease expired
   or which were never claimed, and re-dispatches them. Task creation also triggers a bounded sweep
   so a daily cron is not the only safety net.
@@ -77,6 +79,25 @@ Step results are capped and re-fetched after a Vercel re-dispatch. So:
 are short-circuited by the inline runner, so neither burns retries — and, in the AI step, neither
 burns money — on something that cannot succeed. Transient failures (DB blips, provider 5xx) use
 exponential backoff.
+
+### The model layer is a chain, not a single call
+
+Providers retire model slugs without notice, so a single hard-coded model id is a single point of
+failure. `buildProviderChain()` assembles the order per call: the configured OpenRouter model, its
+fallback slugs, then the Groq model when a Groq key is present. Each attempt is classified by HTTP
+status (`classifyProviderStatus`): 404 means the slug is gone — recorded and skipped; 401/403 means
+the key is wrong — the chain stops, because no other model will fix it; 429 and 5xx are transient —
+the next model is tried. Only when the whole chain fails does the task fail, and the error carries
+one issue per attempt, so the timeline shows exactly which model died and why.
+
+### Errors carry every problem, not the first one
+
+`AppError.issues` is the shared contract. Request validation, patch policy, conflict detection and
+configuration checks all collect their violations before throwing, and `summarizeIssues` renders a
+one-line summary of the whole set. The alternative — throwing on the first violation — cost a round
+trip per problem and hid the rest of the damage: a model that returned three unsafe paths had to
+learn about them one regeneration at a time. The list is persisted on the task document
+(`errorIssues`), attached to the timeline event, and rendered by the SPA as a list.
 
 ## Trust boundaries
 

@@ -9,9 +9,10 @@ import type { QuotaInfo } from '../../shared/types.js';
 
 const app = new Hono();
 
-app.use('*', requireAuth);
-
-app.get('/me', async (c) => {
+// Auth is attached per route, never with app.use('*'): a wildcard middleware
+// in a sub-app mounted at /api would also cover /api/internal/*,
+// /api/cron/*, /api/webhooks/* and every unmatched path.
+app.get('/me', requireAuth, async (c) => {
   const uid = getUid(c);
   const profile = getProfile(c);
   const [usedToday, runningNow, ghLinked, inst, tokensUsedToday] = await Promise.all([

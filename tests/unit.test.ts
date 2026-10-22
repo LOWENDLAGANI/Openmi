@@ -10,11 +10,13 @@ import {
 } from '../server/agent/policy.js';
 import { encryptToken, decryptToken } from '../server/crypto.js';
 import { dayKey } from '../server/db/quota.js';
-import { parsePatch } from '../server/agent/model.js';
+import { parsePatch, classifyProviderStatus, buildProviderChain } from '../server/agent/model.js';
+import { env } from '../server/env.js';
 import { signInstallState, verifyInstallState } from '../server/github/webhook.js';
 import { refundsQuota } from '../server/errors.js';
 import { runSteps, type Step } from '../server/agent/step-runner.js';
 import { DeadlineExceededError } from '../server/errors.js';
+import { firebaseApp } from '../server/firebase.js';
 
 beforeAll(() => {
   process.env.GITHUB_TOKEN_ENC_KEY = Buffer.alloc(32, 1).toString('base64');
@@ -173,6 +175,206 @@ describe('refundsQuota', () => {
     expect(refundsQuota('GITHUB_CONFLICT')).toBe(false);
     expect(refundsQuota('QUOTA_EXCEEDED')).toBe(false);
     expect(refundsQuota('AI_OUTPUT_INVALID')).toBe(false);
+  });
+});
+
+describe('multi-problem reporting', () => {
+  it('collects every policy violation instead of only the first', () => {
+    let caught: any;
+    try {
+      validatePatchSet({
+        summary: '',
+        files: [
+          { path: '/abs.txt', op: 'create', content: 'x' },
+          { path: 'a.txt', op: 'delete' as any, content: 'x' },
+          { path: 'a.txt', op: 'create', content: 'x' },
+          { path: '.env', op: 'create', content: 'x' },
+        ],
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    expect(caught.code).toBe('AI_OUTPUT_INVALID');
+    const codes = caught.issues.map((i: any) => i.code);
+    expect(codes).toContain('ABSOLUTE_PATH');
+    expect(codes).toContain('ILLEGAL_OP');
+    expect(codes).toContain('DUPLICATE_PATH');
+    expect(codes).toContain('SECRET_FILE');
+    expect(caught.issues.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('collects every target conflict at once', () => {
+    const tree: TreeEntry[] = [{ path: 'a.txt', sha: 'sha1', type: 'blob' }];
+    const snapshot = new Map([['a.txt', 'sha0']]);
+    let caught: any;
+    try {
+      assertPatchTargets(
+        {
+          summary: '',
+          files: [
+            { path: 'a.txt', op: 'create', content: 'x' },
+            { path: 'b.txt', op: 'update', content: 'x' },
+          ],
+        },
+        tree,
+        snapshot,
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught.code).toBe('GITHUB_CONFLICT');
+    expect(caught.issues.length).toBe(2);
+  });
+
+  it('reports all problems in a bad model output at once', () => {
+    let caught: any;
+    try {
+      parsePatch(
+        JSON.stringify({
+          summary: 'x',
+          files: [
+            { path: '/etc/passwd', op: 'create', content: 'x' },
+            { path: 'dup.txt', op: 'create', content: 'x' },
+            { path: 'dup.txt', op: 'update', content: 'y' },
+          ],
+        }),
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught.code).toBe('AI_OUTPUT_INVALID');
+    const codes = caught.issues.map((i: any) => i.code);
+    expect(codes).toContain('ABSOLUTE_PATH');
+    expect(codes).toContain('DUPLICATE_PATH');
+    expect(caught.issues.length).toBe(2);
+  });
+});
+
+describe('model provider chain', () => {
+  it('classifies provider failures by status', () => {
+    expect(classifyProviderStatus(404)).toBe('model_not_found');
+    expect(classifyProviderStatus(401)).toBe('auth');
+    expect(classifyProviderStatus(403)).toBe('auth');
+    expect(classifyProviderStatus(429)).toBe('rate_limited');
+    expect(classifyProviderStatus(502)).toBe('transient');
+    expect(classifyProviderStatus(503)).toBe('transient');
+    expect(classifyProviderStatus(400)).toBe('invalid_request');
+  });
+
+  it('tries the primary model, its fallbacks, then the other provider', () => {
+    const prev = {
+      openrouter: process.env.OPENROUTER_API_KEY,
+      groq: process.env.GROQ_API_KEY,
+      model: process.env.OPENMI_MODEL,
+      fallbacks: process.env.OPENMI_MODEL_FALLBACKS,
+      groqModel: process.env.GROQ_MODEL,
+    };
+    process.env.OPENROUTER_API_KEY = 'k';
+    process.env.GROQ_API_KEY = 'g';
+    process.env.OPENMI_MODEL = 'primary/model';
+    process.env.OPENMI_MODEL_FALLBACKS = 'second/model,primary/model';
+    process.env.GROQ_MODEL = 'fallback/provider-model';
+    try {
+      const chain = buildProviderChain();
+      expect(chain.map((c) => `${c.provider}:${c.model}`)).toEqual([
+        'openrouter:primary/model',
+        'openrouter:second/model',
+        'groq:fallback/provider-model',
+      ]);
+    } finally {
+      const restore = (k: string, v: string | undefined) => {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      };
+      restore('OPENROUTER_API_KEY', prev.openrouter);
+      restore('GROQ_API_KEY', prev.groq);
+      restore('OPENMI_MODEL', prev.model);
+      restore('OPENMI_MODEL_FALLBACKS', prev.fallbacks);
+      restore('GROQ_MODEL', prev.groqModel);
+    }
+  });
+
+  it('uses a Groq model that still exists', () => {
+    // llama-3.3-70b-versatile was retired for free/Developer tiers in 2026.
+    expect(env.groqModel()).not.toBe('llama-3.3-70b-versatile');
+  });
+});
+
+describe('runner budget', () => {
+  it('never exceeds the function max duration', () => {
+    const prevMax = process.env.MAX_FUNCTION_DURATION;
+    const prevBudget = process.env.RUN_BUDGET_SECONDS;
+    process.env.MAX_FUNCTION_DURATION = '60';
+    try {
+      // A budget above maxDuration would be killed by the platform before the
+      // lease is released, leaving the task stuck until the cron sweep.
+      process.env.RUN_BUDGET_SECONDS = '240';
+      expect(env.runBudgetSeconds()).toBe(50);
+      process.env.RUN_BUDGET_SECONDS = '30';
+      expect(env.runBudgetSeconds()).toBe(30);
+      delete process.env.RUN_BUDGET_SECONDS;
+      expect(env.runBudgetSeconds()).toBe(50);
+    } finally {
+      if (prevMax === undefined) delete process.env.MAX_FUNCTION_DURATION;
+      else process.env.MAX_FUNCTION_DURATION = prevMax;
+      if (prevBudget === undefined) delete process.env.RUN_BUDGET_SECONDS;
+      else process.env.RUN_BUDGET_SECONDS = prevBudget;
+    }
+  });
+});
+
+describe('configuration errors', () => {
+  it('reports every missing Firebase key at once', async () => {
+    const prev = {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY,
+    };
+    delete process.env.FIREBASE_PROJECT_ID;
+    delete process.env.FIREBASE_CLIENT_EMAIL;
+    delete process.env.FIREBASE_PRIVATE_KEY;
+    try {
+      let caught: any;
+      try {
+        firebaseApp();
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeDefined();
+      expect(caught.code).toBe('CONFIG_ERROR');
+      const codes = caught.issues.map((i: any) => i.code);
+      expect(codes).toContain('MISSING_FIREBASE_PROJECT_ID');
+      expect(codes).toContain('MISSING_FIREBASE_CLIENT_EMAIL');
+      expect(codes).toContain('MISSING_FIREBASE_PRIVATE_KEY');
+      expect(caught.issues.length).toBe(3);
+    } finally {
+      const restore = (k: string, v: string | undefined) => {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      };
+      restore('FIREBASE_PROJECT_ID', prev.projectId);
+      restore('FIREBASE_CLIENT_EMAIL', prev.clientEmail);
+      restore('FIREBASE_PRIVATE_KEY', prev.privateKey);
+    }
+  });
+
+  it('rejects a private key that is not a PEM block', async () => {
+    const prev = process.env.FIREBASE_PRIVATE_KEY;
+    process.env.FIREBASE_PRIVATE_KEY = 'not-a-pem-block';
+    try {
+      let caught: any;
+      try {
+        firebaseApp();
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught.code).toBe('CONFIG_ERROR');
+      expect(caught.issues.map((i: any) => i.code)).toContain('INVALID_FIREBASE_PRIVATE_KEY');
+    } finally {
+      if (prev === undefined) delete process.env.FIREBASE_PRIVATE_KEY;
+      else process.env.FIREBASE_PRIVATE_KEY = prev;
+    }
   });
 });
 

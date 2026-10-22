@@ -1,5 +1,5 @@
-import type { PatchSet, PatchFile } from '../../shared/types.js';
-import { AppError } from '../errors.js';
+import type { PatchSet, PatchFile, Issue } from '../../shared/types.js';
+import { AppError, issue, summarizeIssues } from '../errors.js';
 
 export const MAX_FILES = 12;
 export const MAX_FILE_BYTES = 256 * 1024;
@@ -11,53 +11,86 @@ const FORBIDDEN_PREFIXES = [
 const FORBIDDEN_EXACT = new Set(['.env', '.env.local', '.env.production', '.env.development']);
 const FORBIDDEN_SUFFIXES = ['.pem', '.key', '.p12', '.pfx', '.cer'];
 
-export function assertSafePath(path: string): void {
-  if (!path) throw new AppError('AI_OUTPUT_INVALID', 'empty file path');
-  if (path.startsWith('/')) throw new AppError('AI_OUTPUT_INVALID', `absolute path forbidden: ${path}`);
-  if (path.includes('..')) throw new AppError('AI_OUTPUT_INVALID', `path traversal forbidden: ${path}`);
-  if (path.includes('\0')) throw new AppError('AI_OUTPUT_INVALID', 'null byte in path');
+// Non-throwing path check: returns every rule the path breaks, so a model
+// that violates several rules at once gets told about all of them.
+export function checkSafePath(path: string): Issue[] {
+  const issues: Issue[] = [];
+  if (!path) {
+    issues.push(issue('EMPTY_PATH', 'empty file path', { path }));
+    return issues;
+  }
+  if (path.startsWith('/')) {
+    issues.push(issue('ABSOLUTE_PATH', `absolute path forbidden: ${path}`, { path }));
+  }
+  if (path.includes('..')) {
+    issues.push(issue('PATH_TRAVERSAL', `path traversal forbidden: ${path}`, { path }));
+  }
+  if (path.includes('\0')) {
+    issues.push(issue('NULL_BYTE', 'null byte in path', { path }));
+  }
   const norm = path.replace(/\\/g, '/');
   if (FORBIDDEN_PREFIXES.some((p) => norm.startsWith(p))) {
-    throw new AppError('AI_OUTPUT_INVALID', `path forbidden by policy: ${path}`);
+    issues.push(issue('FORBIDDEN_PATH', `path forbidden by policy: ${path}`, { path }));
   }
   const base = norm.split('/').pop()!;
   if (FORBIDDEN_EXACT.has(base) || base.startsWith('.env')) {
-    throw new AppError('AI_OUTPUT_INVALID', `env/secret file forbidden: ${path}`);
+    issues.push(issue('SECRET_FILE', `env/secret file forbidden: ${path}`, { path }));
   }
   if (FORBIDDEN_SUFFIXES.some((s) => base.endsWith(s))) {
-    throw new AppError('AI_OUTPUT_INVALID', `key/cert file forbidden: ${path}`);
+    issues.push(issue('KEY_FILE', `key/cert file forbidden: ${path}`, { path }));
+  }
+  return issues;
+}
+
+export function assertSafePath(path: string): void {
+  const issues = checkSafePath(path);
+  if (issues.length) {
+    throw new AppError('AI_OUTPUT_INVALID', summarizeIssues(issues), {
+      details: { issues },
+    });
   }
 }
 
 // Validate a model-produced patch set against policy.
 // - only create/update ops (deletions are not representable in the schema)
 // - safe paths, size caps, file-count cap
+// Every violation is collected, so a model that breaks five rules learns all
+// five at once instead of one per attempt.
 export function validatePatchSet(patch: PatchSet): void {
   if (!patch || !Array.isArray(patch.files)) {
     throw new AppError('AI_OUTPUT_INVALID', 'patch set missing files array');
   }
+  const issues: Issue[] = [];
   if (patch.files.length === 0) {
-    throw new AppError('AI_OUTPUT_INVALID', 'patch set is empty');
+    issues.push(issue('EMPTY_PATCH', 'patch set is empty'));
   }
   if (patch.files.length > MAX_FILES) {
-    throw new AppError('AI_OUTPUT_INVALID', `too many files (${patch.files.length} > ${MAX_FILES})`);
+    issues.push(
+      issue('TOO_MANY_FILES', `too many files (${patch.files.length} > ${MAX_FILES})`),
+    );
   }
   const seen = new Set<string>();
   for (const f of patch.files) {
-    if (f.op !== 'create' && f.op !== 'update') {
-      throw new AppError('AI_OUTPUT_INVALID', `illegal op: ${f.op}`);
+    const path = typeof f?.path === 'string' ? f.path : '';
+    if (f?.op !== 'create' && f?.op !== 'update') {
+      issues.push(issue('ILLEGAL_OP', `illegal op: ${String(f?.op)}`, { path }));
     }
-    assertSafePath(f.path);
-    if (seen.has(f.path)) {
-      throw new AppError('AI_OUTPUT_INVALID', `duplicate path: ${f.path}`);
+    issues.push(...checkSafePath(path));
+    if (seen.has(path)) {
+      issues.push(issue('DUPLICATE_PATH', `duplicate path: ${path}`, { path }));
     }
-    seen.add(f.path);
-    if (typeof f.content !== 'string') {
-      throw new AppError('AI_OUTPUT_INVALID', `non-string content for ${f.path}`);
+    seen.add(path);
+    if (typeof f?.content !== 'string') {
+      issues.push(issue('INVALID_CONTENT', `non-string content for ${path}`, { path }));
+    } else if (Buffer.byteLength(f.content, 'utf8') > MAX_FILE_BYTES) {
+      issues.push(issue('FILE_TOO_LARGE', `file too large: ${path}`, { path }));
     }
-    if (Buffer.byteLength(f.content, 'utf8') > MAX_FILE_BYTES) {
-      throw new AppError('AI_OUTPUT_INVALID', `file too large: ${f.path}`);
-    }
+  }
+  if (issues.length) {
+    throw new AppError('AI_OUTPUT_INVALID', summarizeIssues(issues), {
+      details: { issues },
+      retryable: false,
+    });
   }
 }
 
@@ -77,22 +110,41 @@ export function assertPatchTargets(
   snapshotShas: Map<string, string>,
 ): void {
   const byPath = new Map(baseTree.map((e) => [e.path, e]));
+  const issues: Issue[] = [];
   for (const f of patch.files) {
     const existing = byPath.get(f.path);
     if (f.op === 'create') {
       if (existing) {
-        throw new AppError('GITHUB_CONFLICT', `model tried to create existing file: ${f.path}`);
+        issues.push(
+          issue('CREATE_EXISTS', `model tried to create existing file: ${f.path}`, {
+            path: f.path,
+          }),
+        );
       }
     } else {
       // update
       if (!existing) {
-        throw new AppError('GITHUB_CONFLICT', `model tried to update missing file: ${f.path}`);
+        issues.push(
+          issue('UPDATE_MISSING', `model tried to update missing file: ${f.path}`, {
+            path: f.path,
+          }),
+        );
+        continue;
       }
       const expected = snapshotShas.get(f.path);
       if (expected && expected !== existing.sha) {
-        throw new AppError('GITHUB_CONFLICT', `file changed during generation: ${f.path}`);
+        issues.push(
+          issue('FILE_CHANGED', `file changed during generation: ${f.path}`, {
+            path: f.path,
+          }),
+        );
       }
     }
+  }
+  if (issues.length) {
+    throw new AppError('GITHUB_CONFLICT', summarizeIssues(issues), {
+      details: { issues },
+    });
   }
 }
 

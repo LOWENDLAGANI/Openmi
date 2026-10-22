@@ -26,6 +26,23 @@ export type ErrorCode =
   | 'INTERNAL'
   | 'INVALID_INPUT';
 
+// A single machine-readable problem. Errors can carry many of them so the
+// caller sees every problem at once instead of one-per-round-trip.
+export interface Issue {
+  /** Stable machine code, e.g. 'PROMPT_TOO_LONG', 'DUPLICATE_PATH'. */
+  code: string;
+  /** Human-readable description. */
+  message: string;
+  /** File path the issue is about (patch validation). */
+  path?: string;
+  /** Request field the issue is about (input validation). */
+  field?: string;
+  /** Provider/model the issue came from (model fallback chain). */
+  source?: string;
+  /** HTTP status, when the issue came from a remote call. */
+  status?: number;
+}
+
 export interface PatchFile {
   path: string;
   /** 'create' | 'update' — deletions are never representable. */
@@ -74,6 +91,8 @@ export interface Task {
   pullRequestUrl?: string;
   errorCode?: ErrorCode;
   errorMessage?: string;
+  /** Every problem found with the task, not just the first. */
+  errorIssues?: Issue[];
   tokenUsage?: { prompt: number; completion: number; total: number };
   leaseExpiresAt?: number;
   runCount: number;
