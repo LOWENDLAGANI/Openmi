@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost, ApiError } from '../lib/api';
-import { linkGithub, getConfig } from '../lib/firebase';
+import { linkGithub, getConfig, firebaseAuth } from '../lib/firebase';
 import ErrorList, { toErrorState, type ErrorState } from '../components/ErrorList';
 import type { Project, QuotaInfo, Profile, PublicConfig } from '../../shared/types';
-import { getAuth } from 'firebase/auth';
 
 export default function Home({ onOpenProject }: { onOpenProject: (id: string) => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -65,7 +64,7 @@ export default function Home({ onOpenProject }: { onOpenProject: (id: string) =>
     }
   };
 
-  const signOut = () => getAuth().signOut();
+  const signOut = () => firebaseAuth().signOut();
 
   const ghConnected = profile?.githubLinked || profile?.githubAppInstalled;
 

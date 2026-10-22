@@ -1,8 +1,8 @@
-import { getAuth } from 'firebase/auth';
+import { firebaseAuth } from './firebase';
 import type { Task, RepoFile, Issue } from '../../shared/types';
 
 async function token(): Promise<string> {
-  const user = getAuth().currentUser;
+  const user = firebaseAuth().currentUser;
   if (!user) throw new Error('not signed in');
   return user.getIdToken();
 }

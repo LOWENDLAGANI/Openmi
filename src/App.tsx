@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { getAuth, onAuthStateChanged, type User } from 'firebase/auth';
-import { initFirebase } from './lib/firebase';
+import { useEffect, useRef, useState } from 'react';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { initFirebase, firebaseAuth } from './lib/firebase';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import ProjectView from './pages/ProjectView';
@@ -22,7 +22,9 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [route, setRoute] = useState<Route>(parseHash());
+  const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,11 +38,10 @@ export default function App() {
       .then(() => {
         if (cancelled) return;
         clearTimeout(timeout);
-        const unsub = onAuthStateChanged(getAuth(), (u) => {
+        unsubRef.current = onAuthStateChanged(firebaseAuth(), (u) => {
           setUser(u);
           setReady(true);
         });
-        return () => unsub();
       })
       .catch((e: any) => {
         if (cancelled) return;
@@ -53,9 +54,32 @@ export default function App() {
     return () => {
       cancelled = true;
       clearTimeout(timeout);
+      unsubRef.current?.();
+      unsubRef.current = null;
       window.removeEventListener('hashchange', onHash);
     };
   }, []);
+
+  // The startup banner explains what went wrong; this retries the same
+  // initialisation without a full page reload.
+  const retryInit = async () => {
+    setRetrying(true);
+    setInitError(null);
+    try {
+      await initFirebase();
+      unsubRef.current?.();
+      unsubRef.current = onAuthStateChanged(firebaseAuth(), (u) => {
+        setUser(u);
+        setReady(true);
+      });
+      setReady(true);
+    } catch (e: any) {
+      setInitError(e?.message ?? 'Failed to initialise');
+      setReady(true);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const go = (hash: string) => {
     window.location.hash = hash;
@@ -74,7 +98,16 @@ export default function App() {
       <>
         {initError && (
           <div className="fixed top-0 inset-x-0 z-50 bg-amber-500/15 border-b border-amber-500/40 text-amber-300 text-xs px-4 py-2 safe-top">
-            {initError}
+            <div className="max-w-lg mx-auto flex items-start gap-3">
+              <div className="flex-1 break-words">{initError}</div>
+              <button
+                onClick={retryInit}
+                disabled={retrying}
+                className="shrink-0 underline underline-offset-2 disabled:opacity-50"
+              >
+                {retrying ? 'Retrying…' : 'Retry'}
+              </button>
+            </div>
           </div>
         )}
         <Login />
