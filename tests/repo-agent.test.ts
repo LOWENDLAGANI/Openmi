@@ -44,7 +44,19 @@ import {
   turnExhausted,
 } from "../lib/agent/turns";
 import { isSameOriginRequest } from "../lib/serverControl";
-import type { GithubTreeEntry } from "../lib/github/client";
+import { GithubError, type GithubTreeEntry } from "../lib/github/client";
+import { commitChanges } from "../lib/github/commit";
+import {
+  branchFor,
+  buildChangeSet,
+  changeSetHash,
+  commitGate,
+  messageFor,
+  normalizeApproval,
+  normalizeChangeSet,
+  signApproval,
+  type ChangeSet,
+} from "../lib/changesets";
 
 let failures = 0;
 let passes = 0;
@@ -851,6 +863,345 @@ test("an unparseable origin is refused", () => {
   assert.equal(isSameOriginRequest(headers({ host: "example.com", origin: "not a url" })), false);
 });
 
+// ── change sets and the commit invariant ────────────────────────────────────
+console.log("\nchangesets");
+
+const repo = {
+  id: "abc123abc123",
+  repoFullName: "owner/repo",
+  defaultBranch: "main",
+  baseSha: "f".repeat(40),
+};
+
+const DEW_AFTER = DEW_FILE.replace("0.5", "0.25");
+const DEW_DIFF = "--- a/src/lib/dew.ts\n+++ b/src/lib/dew.ts\n@@ -1 +1 @@\n-export const DEW = 0.5;\n+export const DEW = 0.25;";
+
+function builtChangeSet(now = Date.now()): ChangeSet {
+  const changeSet = buildChangeSet({
+    project: repo,
+    proposals: [
+      {
+        path: "src/lib/dew.ts",
+        kind: "modified",
+        added: 1,
+        removed: 1,
+        diff: DEW_DIFF,
+        after: DEW_AFTER,
+        bytes: Buffer.byteLength(DEW_AFTER, "utf8"),
+      },
+    ],
+    now,
+  });
+  assert.ok(changeSet, "a proposal with a diff must produce a change set");
+  return changeSet;
+}
+
+test("the hash covers the contents, not the order they were proposed in", () => {
+  const a = changeSetHash([{ path: "a.ts", after: "one" }, { path: "b.ts", after: "two" }]);
+  const b = changeSetHash([{ path: "b.ts", after: "two" }, { path: "a.ts", after: "one" }]);
+  const changed = changeSetHash([{ path: "a.ts", after: "one!" }, { path: "b.ts", after: "two" }]);
+  assert.equal(a, b);
+  assert.notEqual(a, changed);
+});
+
+test("a branch is derived, name-safe and cannot be the default branch", () => {
+  assert.equal(branchFor("owner/repo", "0123456789abcdef0123"), "agent/repo-012345");
+  assert.equal(branchFor("owner/My Cool Repo", "0123456789abcdef0123"), "agent/my-cool-repo-012345");
+  assert.equal(branchFor("owner/---", "0123456789abcdef0123"), "agent/repo-012345");
+  for (const name of ["main", "master", "", "feature/x"]) {
+    assert.equal(branchFor(`owner/${name}`, "0123456789abcdef0123").startsWith("agent/"), true);
+  }
+});
+
+test("a proposed change set is signed and starts as proposed", () => {
+  const changeSet = builtChangeSet();
+  assert.equal(changeSet.status, "proposed");
+  assert.equal(changeSet.v, 1);
+  assert.match(changeSet.id, /^[0-9a-f]{20}$/);
+  assert.equal(changeSet.hash, changeSetHash(changeSet.files));
+  assert.equal(changeSet.branch, branchFor("owner/repo", changeSet.id));
+  assert.equal(changeSet.exp, changeSet.createdAt + 6 * 60 * 60_000);
+  assert.ok(changeSet.sig.includes("."), "the signature is a signed payload");
+  assert.equal(messageFor([{ path: "src/lib/dew.ts" }]), "Openmi: update src/lib/dew.ts");
+  assert.match(messageFor([{ path: "a" }, { path: "b" }]), /update 2 files/);
+});
+
+test("a stored change set round-trips through the database's JSON", () => {
+  const changeSet = builtChangeSet();
+  const reread = normalizeChangeSet(JSON.parse(JSON.stringify(changeSet)));
+  assert.deepEqual(reread, changeSet);
+});
+
+test("one changed byte in the row invalidates the hash and the change", () => {
+  const row = JSON.parse(JSON.stringify(builtChangeSet())) as ChangeSet;
+  row.files[0]!.after = row.files[0]!.after.replace("0.25", "9.99");
+  assert.equal(normalizeChangeSet(row), null, "a rewritten file must not verify");
+});
+
+test("edited signed fields are refused, even with the signature intact", () => {
+  for (const edit of [
+    (row: ChangeSet) => {
+      row.branch = "agent/elsewhere-abcdef";
+    },
+    (row: ChangeSet) => {
+      row.baseSha = "e".repeat(40);
+    },
+    (row: ChangeSet) => {
+      row.exp += 86_400_000;
+    },
+    (row: ChangeSet) => {
+      row.message = "Openmi: something else";
+    },
+  ]) {
+    const row = JSON.parse(JSON.stringify(builtChangeSet())) as ChangeSet;
+    edit(row);
+    assert.equal(normalizeChangeSet(row), null);
+  }
+});
+
+const withStatus = (changeSet: ChangeSet, status: ChangeSet["status"]): ChangeSet => ({ ...changeSet, status });
+
+test("status alone is never enough to commit anything", () => {
+  // Status is a label, not a signature: a row claiming `approved` with no
+  // approval record is refused, which is the whole point of signing one.
+  const approvedRow = withStatus(builtChangeSet(), "approved");
+  assert.ok(normalizeChangeSet(JSON.parse(JSON.stringify(approvedRow))), "the row still verifies");
+  const gate = commitGate({ changeSet: approvedRow, approval: null, existingCommit: null });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.ok ? "" : gate.detail, "no-approval");
+});
+
+test("an unapproved change cannot be committed", () => {
+  const gate = commitGate({ changeSet: builtChangeSet(), approval: null, existingCommit: null });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.ok ? 0 : gate.status, 403);
+  assert.equal(gate.ok ? "" : gate.detail, "not-approved");
+});
+
+test("an approval is signed and round-trips", () => {
+  const changeSet = builtChangeSet();
+  const approval = signApproval(changeSet, changeSet.createdAt + 5_000);
+  assert.deepEqual(normalizeApproval(JSON.parse(JSON.stringify(approval))), approval);
+  assert.equal(approval.changeSetId, changeSet.id);
+  assert.equal(approval.hash, changeSet.hash);
+});
+
+test("an approval cannot be edited after the fact", () => {
+  const changeSet = builtChangeSet();
+  const row = JSON.parse(JSON.stringify(signApproval(changeSet))) as Record<string, unknown>;
+  row.at = Number(row.at) + 1;
+  assert.equal(normalizeApproval(row), null);
+});
+
+test("an approval for another change is refused", () => {
+  const changeSet = builtChangeSet();
+  const approval = signApproval(changeSet);
+  const other = withStatus({ ...changeSet, hash: changeSetHash([{ path: "other.ts", after: "x" }]) }, "approved");
+  const gate = commitGate({ changeSet: other, approval, existingCommit: null });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.ok ? "" : gate.detail, "approval-mismatch");
+});
+
+test("an approved change with its own approval may commit", () => {
+  const changeSet = withStatus(builtChangeSet(), "approved");
+  const approval = signApproval(changeSet);
+  assert.deepEqual(commitGate({ changeSet, approval, existingCommit: null }), {
+    ok: true,
+    alreadyCommitted: null,
+  });
+});
+
+test("an expired approval is refused with the reason", () => {
+  const changeSet = withStatus(builtChangeSet(), "approved");
+  const approval = signApproval(changeSet);
+  const gate = commitGate({
+    changeSet,
+    approval,
+    existingCommit: null,
+    now: changeSet.exp,
+  });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.ok ? "" : gate.detail, "expired");
+});
+
+test("a repeat submit answers with the commit that already exists", () => {
+  const changeSet = withStatus(builtChangeSet(), "committed");
+  const record = {
+    changeSetId: changeSet.id,
+    sha: "a".repeat(40),
+    branch: changeSet.branch,
+    prUrl: "https://github.com/owner/repo/pull/1",
+    at: changeSet.createdAt + 10_000,
+  };
+  const gate = commitGate({ changeSet, approval: null, existingCommit: record });
+  assert.equal(gate.ok, true);
+  assert.deepEqual(gate.ok ? gate.alreadyCommitted : null, record);
+});
+
+test("a change whose branch is not an agent branch is refused", () => {
+  const changeSet = withStatus({ ...builtChangeSet(), branch: "main" }, "approved");
+  const gate = commitGate({ changeSet, approval: signApproval(builtChangeSet()), existingCommit: null });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.ok ? "" : gate.detail, "branch");
+});
+
+later("a commit writes blobs, then a tree on the base tree, then the commit, then the ref", async () => {
+  const calls: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [];
+  const realFetch = globalThis.fetch;
+  const sha = (letter: string) => letter.repeat(40);
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const path = new URL(url).pathname.replace("/repos/owner/repo", "");
+    calls.push({
+      method: init?.method ?? "GET",
+      path,
+      body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null,
+    });
+    const respond = (value: unknown) =>
+      new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+    if (path.startsWith("/git/commits/")) return respond({ tree: { sha: sha("1") } });
+    if (path === "/git/blobs") return respond({ sha: sha("2") });
+    if (path === "/git/trees") return respond({ sha: sha("3") });
+    if (path === "/git/commits") return respond({ sha: sha("4") });
+    if (path === "/git/refs") return respond({ ref: "refs/heads/agent/repo-012345" });
+    if (path === "/pulls") return respond({ html_url: "https://github.com/owner/repo/pull/7" });
+    return new Response("unexpected", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const outcome = await commitChanges({
+      token: "gho_test",
+      repoFullName: "owner/repo",
+      baseSha: "f".repeat(40),
+      branch: "agent/repo-012345",
+      message: "Openmi: update src/lib/dew.ts",
+      files: [{ path: "src/lib/dew.ts", content: DEW_AFTER }],
+      defaultBranch: "main",
+    });
+
+    assert.deepEqual(
+      calls.map((call) => `${call.method} ${call.path}`),
+      [
+        "GET /git/commits/ffffffffffffffffffffffffffffffffffffffff",
+        "POST /git/blobs",
+        "POST /git/trees",
+        "POST /git/commits",
+        "POST /git/refs",
+        "POST /pulls",
+      ]
+    );
+
+    const tree = calls.find((call) => call.path === "/git/trees")!.body!;
+    assert.equal(tree.base_tree, sha("1"), "the new tree must be based on the base commit's tree");
+    assert.deepEqual(tree.tree, [{ path: "src/lib/dew.ts", mode: "100644", type: "blob", sha: sha("2") }]);
+
+    const commit = calls.find((call) => call.path === "/git/commits")!.body!;
+    assert.deepEqual(commit.parents, ["f".repeat(40)], "the change is committed onto the commit it was based on");
+    assert.equal(commit.tree, sha("3"));
+
+    const ref = calls.find((call) => call.path === "/git/refs")!.body!;
+    assert.equal(ref.ref, "refs/heads/agent/repo-012345");
+    assert.equal(ref.sha, sha("4"));
+
+    const pull = calls.find((call) => call.path === "/pulls")!.body!;
+    assert.equal(pull.head, "agent/repo-012345");
+    assert.equal(pull.base, "main");
+
+    const blob = calls.find((call) => call.path === "/git/blobs")!.body!;
+    assert.equal(Buffer.from(String(blob.content), "base64").toString("utf8"), DEW_AFTER);
+
+    assert.equal(outcome.sha, sha("4"));
+    assert.equal(outcome.prUrl, "https://github.com/owner/repo/pull/7");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+later("a failed pull request still reports the commit that landed", async () => {
+  const realFetch = globalThis.fetch;
+  const sha = (letter: string) => letter.repeat(40);
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const path = new URL(String(input)).pathname;
+    const respond = (value: unknown) =>
+      new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+    if (path.includes("/git/commits/")) return respond({ tree: { sha: sha("1") } });
+    if (path.endsWith("/git/blobs")) return respond({ sha: sha("2") });
+    if (path.endsWith("/git/trees")) return respond({ sha: sha("3") });
+    if (path.endsWith("/git/commits")) return respond({ sha: sha("4") });
+    if (path.endsWith("/git/refs")) return respond({});
+    return new Response("no pull requests here", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const outcome = await commitChanges({
+      token: "gho_test",
+      repoFullName: "owner/repo",
+      baseSha: "f".repeat(40),
+      branch: "agent/repo-012345",
+      message: "Openmi: update one file",
+      files: [{ path: "a.ts", content: "x\n" }],
+      defaultBranch: "main",
+    });
+    assert.equal(outcome.sha, sha("4"), "the commit is real even when the PR is not");
+    assert.equal(outcome.prUrl, null);
+    assert.ok(outcome.prError);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+later("a commit to a non-agent branch is refused before GitHub is called", async () => {
+  let called = false;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    called = true;
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(
+      commitChanges({
+        token: "gho_test",
+        repoFullName: "owner/repo",
+        baseSha: "f".repeat(40),
+        branch: "main",
+        message: "Openmi: push straight to main",
+        files: [{ path: "a.ts", content: "x\n" }],
+        defaultBranch: "main",
+      }),
+      (error: unknown) => error instanceof GithubError && error.status === 403
+    );
+    assert.equal(called, false, "the refusal must not reach GitHub");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+later("a path that escapes the repository is refused before anything is written", async () => {
+  let called = false;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    called = true;
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(
+      commitChanges({
+        token: "gho_test",
+        repoFullName: "owner/repo",
+        baseSha: "f".repeat(40),
+        branch: "agent/repo-012345",
+        message: "Openmi: escape",
+        files: [{ path: "../outside.ts", content: "x\n" }],
+        defaultBranch: "main",
+      })
+    );
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // ── source contracts ────────────────────────────────────────────────────────
 console.log("\nsource contracts");
 
@@ -890,6 +1241,57 @@ test("the step route returns proposals and contains no GitHub write", () => {
   const source = read("app/api/agent/step/route.ts");
   assert.match(source, /proposals: result\.proposals/);
   assert.doesNotMatch(source, /git\/blobs|git\/trees|git\/commits|git\/refs|\/pulls/);
+});
+
+test("only one module can write to GitHub, and it names the branch it may write", () => {
+  const commit = read("lib/github/commit.ts");
+  assert.match(commit, /git\/blobs/);
+  assert.match(commit, /git\/trees/);
+  assert.match(commit, /git\/commits/);
+  assert.match(commit, /git\/refs/);
+  assert.match(commit, /\^agent\\\//, "the branch policy is enforced in the write module");
+
+  // The read client stays read-only, and the agent's step route stays unable to
+  // write. A proposal is persisted, not published.
+  assert.doesNotMatch(read("lib/github/client.ts"), /method:\s*["'`](POST|PUT|PATCH|DELETE)/i);
+  const step = read("app/api/agent/step/route.ts");
+  assert.doesNotMatch(step, /git\/blobs|git\/trees|git\/commits|git\/refs|\/pulls/);
+  assert.doesNotMatch(read("lib/agent/edits.ts"), /commitChanges|from "@\/lib\/github\/commit"/);
+});
+
+test("the commit route checks caller, origin, approval and the branch head", () => {
+  const source = read("app/api/changesets/[id]/commit/route.ts");
+  assert.match(source, /isSameOriginRequest/);
+  assert.match(source, /verifyCaller/);
+  assert.match(source, /commitGate\(/);
+  assert.match(source, /getBranchHead\(/);
+  assert.match(source, /permissions\?\.push/);
+  assert.match(source, /readApproval\(/);
+  assert.match(source, /readCommit\(/);
+  // The stale refusal must mark the change and say which commit moved it.
+  assert.match(source, /detail: "stale"/);
+  assert.match(source, /"stale"/);
+});
+
+test("the approval route checks the same branch and permission before signing", () => {
+  const source = read("app/api/changesets/[id]/approve/route.ts");
+  assert.match(source, /isSameOriginRequest/);
+  assert.match(source, /getBranchHead\(/);
+  assert.match(source, /signApproval\(/);
+  assert.match(source, /permissions\?\.push/);
+  // Approving is not committing: this route must not reach the write module.
+  assert.doesNotMatch(source, /commitChanges|git\/refs|\/pulls/);
+});
+
+test("change sets, approvals and commits are owner-scoped in the rules", () => {
+  const rules = JSON.parse(read("database.rules.json")) as { rules: Record<string, Record<string, unknown>> };
+  for (const node of ["changesets", "approvals", "commits"]) {
+    const entry = rules.rules[node];
+    assert.ok(entry, `${node} must exist in the rules`);
+    assert.equal(entry[".read"], false, `${node} must not be world-readable`);
+    assert.match(JSON.stringify(entry.$uid), /auth\.uid === \$uid/);
+    assert.match(JSON.stringify(entry.$uid), /\$changeSetId/);
+  }
 });
 
 test("the connection and the project are owner-scoped in the rules", () => {

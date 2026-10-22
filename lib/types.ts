@@ -51,6 +51,43 @@ export interface AgentStep {
   ok: boolean;
 }
 
+/**
+ * One file of a proposed change, as the review screen sees it.
+ *
+ * Deliberately without the resulting file contents: a reviewer is judging a
+ * diff, and shipping the whole new file to the browser would let the screen
+ * show something other than what would be committed.
+ */
+export interface ChangeSetFileView {
+  path: string;
+  kind: "modified" | "created";
+  added: number;
+  removed: number;
+  /** Unified diff, computed on the server from the base commit's own bytes. */
+  diff: string;
+}
+
+export interface ChangeSetView {
+  id: string;
+  repoFullName: string;
+  baseSha: string;
+  branch: string;
+  message: string;
+  status: "proposed" | "approved" | "committed" | "stale";
+  createdAt: number;
+  files: ChangeSetFileView[];
+}
+
+/** The answer to a successful commit: branch, sha, and where to review it. */
+export interface CommitResult {
+  sha: string;
+  branch: string;
+  prUrl: string | null;
+  at: number;
+  /** True for a repeat submit that found the first commit already made. */
+  alreadyCommitted: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   chatId: string;
@@ -58,6 +95,13 @@ export interface ChatMessage {
   content: string;
   /** Read-only work the repository agent did for this answer. */
   steps?: AgentStep[];
+  /**
+   * The change set this answer proposed, if any. The review card is rendered
+   * from it, which is why it is stored on the message rather than kept in
+   * memory: closing the tab must not orphan a proposal the user can no longer
+   * find, review or commit.
+   */
+  changesetId?: string;
   images?: ImageAttachment[];
   /** set when the message was produced by the image model rather than chat */
   generatedImages?: GeneratedImage[];

@@ -3,13 +3,14 @@
 An agent that reads a GitHub repository and proposes changes. **It commits only
 when you say so**, on a branch of its own.
 
-> **Status: Phase 2 in progress.** Connect GitHub from the sidebar, pick a
-> repository, then ask about the code: the agent calls `list_files`,
-> `read_file` and `search_code` and cites real paths and lines. It can also call
-> `propose_edits`, which stages a change and returns a unified diff the server
-> computed from the base commit — nothing is written to GitHub. The review
-> screen, the approval record and the commit endpoint are still to come; see
-> [docs/OVERHAUL_SPEC.md](docs/OVERHAUL_SPEC.md).
+> **Status: Phase 2 complete — the shippable MVP.** Connect GitHub from the
+> sidebar, pick a repository, then ask about the code: the agent calls
+> `list_files`, `read_file` and `search_code` and cites real paths and lines. It
+> can also call `propose_edits`, which stages a change and returns a unified
+> diff the server computed from the base commit. That change is saved for
+> review; nothing reaches GitHub until you press **Approve & commit**, which
+> opens a pull request from an `agent/` branch. Phase 3 (execution) is deferred —
+> see [docs/OVERHAUL_SPEC.md](docs/OVERHAUL_SPEC.md).
 
 ## What works today
 
@@ -39,15 +40,21 @@ when you say so**, on a branch of its own.
   model never supplies one — and the tool has no token, no client and no fetch,
   so a proposal cannot reach GitHub. A replacement that matches zero or several
   places is refused rather than guessed at.
+- **Review, approval and one commit.** A proposal is stored as a signed change
+  set and rendered under the answer as diff cards with per-file collapse and
+  add/remove counts. **Approve & commit** writes a signed approval, then the one
+  endpoint in the product that writes to GitHub: blobs → tree based on the base
+  commit → commit → `agent/<repo>-<id>` branch → pull request. A moved default
+  branch is refused with a re-diff, a double submit returns the first commit,
+  and another account's change set cannot be read or committed.
 
 ## What is not here yet
 
-- The review screen and the commit path. A proposal is staged in memory for the
-  step that produced it and returned to the browser; it is not persisted, there
-  is no approval record, and no route writes to GitHub. That is the rest of
-  Phase 2.
 - Any code execution, test run or preview. The agent cannot run what it writes,
-  and the prompt tells it to say so rather than imply otherwise.
+  and the prompt tells it to say so rather than imply otherwise. That is Phase 3,
+  deferred on purpose.
+- Committing to the default branch. The branch policy is a setting in the spec
+  and, for now, an unconditional refusal in code.
 
 ## Getting started
 
@@ -111,6 +118,9 @@ lib/github/          client.ts (REST, read-only), tree.ts (filtering),
 lib/agent/           tools.ts (the four tools), edits.ts (staging and unified
                      diffs), model.ts (one decision), turns.ts (signed turn
                      budget), run.ts (one step)
+lib/changesets.ts    change-set ids, hashes, branch naming, signed change sets
+                     and approvals, the commit gate, the stored records
+components/ChangeReview.tsx  the diff cards and Approve & commit
 docs/OVERHAUL_SPEC.md  the contract for the repo agent
 docs/legacy/         the previous Openmi product docs, kept for reference
 ```
@@ -118,9 +128,10 @@ docs/legacy/         the previous Openmi product docs, kept for reference
 ## Non-negotiable rules
 
 1. **Nothing is committed without an approval record.** The model has no write
-   tool — `lib/github/client.ts` contains only GETs. The only route that will
-   write to GitHub requires a record bound to the user, repository, base SHA and
-   change-set hash.
+   tool — `lib/github/client.ts` contains only GETs, and every write lives in
+   `lib/github/commit.ts`. The only route that writes to GitHub requires an
+   HMAC approval bound to the user, repository, base SHA and change-set hash,
+   refuses a branch that has moved, and only ever creates an `agent/` branch.
 2. **Property names never reach the browser.** `lib/providers.ts` and
    `lib/modelEngines.ts` are server-only; `lib/models.ts` is what the client sees.
 3. **A balance is never read from the request.** Dew is read with the caller's

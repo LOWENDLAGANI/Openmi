@@ -1,9 +1,9 @@
 # Openmi Repo Agent — overhaul specification
 
-Status: **Phase 2 in progress** — Phase 1 complete, and the `propose_edits`
-tool plus server-computed unified diffs have shipped (this document is the
-contract for Phases 1–3; §7.4 records where the implementation deliberately
-differs).
+Status: **Phase 2 complete** — the shippable MVP is built: proposals, derived
+diffs, the review screen, the approval record and the single commit endpoint
+that opens a pull request. Phase 3 is deferred. This document is the contract for
+Phases 1–3; §7.4 and §8.1 record where the implementation deliberately differs.
 Working name: **Openmi**. The name lives in `lib/brand.ts`; renaming is a one-line
 change plus a storage-key migration.
 
@@ -209,13 +209,13 @@ Read caps are per call and server-side: 200 KB per file, 200 paths per
 exactly one endpoint, `POST /api/changesets/:id/commit`, which requires:
 
 1. A verified caller (`verifyCaller`) and the same UID that created the change set.
-2. An approval record created by the UI, bound to
+2. A signed approval, bound to
    `(uid, repo, base_sha, changeset_hash, branch, message, created_at)`.
 3. A re-check that the branch still points at `base_sha`. If it moved, the commit
    is refused with a re-diff, never merged blindly.
 4. A server-side permission check (`push` on the repo) at commit time.
-5. An idempotency key, so a double-click or a retried request cannot make two
-   commits.
+5. A commit record for the change set, so a double-click or a retried request
+   cannot make two commits.
 
 Change set lifecycle:
 
@@ -226,6 +226,36 @@ proposed → reviewed → approved → committed (sha) | rejected | stale
 `approved` is written by the approve endpoint after a same-origin check. A typed
 "yes, commit it" may *request* approval, but the UI always shows a final confirm
 button; the model cannot approve its own proposal.
+
+### 8.1 Signatures, because the rows cannot be trusted alone
+
+The planned rules gave `turns`, `changesets`, `approvals` and `commits`
+`.write: false` for the client and assumed a privileged server could still write
+them. This deployment has no service account, so every write goes through the
+caller's own token and the rules cannot distinguish the server's request from
+the browser's. A rules-only store therefore cannot make a row mean "the server
+approved this". The implementation says so and moves the authority to a
+signature, in the same way §7.4 moved turn state out of a table:
+
+- A change set is signed when it is proposed, over the id, repository, project,
+  default branch, base commit, branch, message, file contents, creation time and
+  expiry. `status` is deliberately outside the signature: it is the lifecycle
+  label the endpoints move through, and a signed status would make every one of
+  those writes invalidate the change. It grants nothing on its own.
+- Reading a change set re-derives its hash from the stored files and compares it
+  with the signed hash, so one changed byte in the row fails verification. The
+  branch is re-derived from the id and repository for the same reason.
+- The approval is signed over the change-set hash, base commit, branch,
+  repository and id. `commitGate` requires that exact signature; a row claiming
+  `approved` with no approval is refused (`no-approval`), and an approval that
+  names a different hash is refused (`approval-mismatch`).
+- The rows are the audit trail and what the review screen reads. They are not
+  the permission.
+
+Idempotency is a commit record plus a derived branch name rather than a separate
+key: a repeat submit returns the recorded sha, and two racing requests can only
+create one ref, because the second `POST /git/refs` is refused by GitHub (409)
+and the route returns that refusal rather than a second commit.
 
 Commit mechanics (Git Data API):
 
@@ -262,8 +292,12 @@ approvals/{uid}/{id}        { changesetId, repoFullName, baseSha, hash, branch, 
 commits/{uid}/{id}          { changesetId, sha, branch, prUrl, at }
 ```
 
-`turns`, `changesets`, `approvals` and `commits` are server-written only;
-`database.rules.json` grants `.write: false` to the client for those paths.
+`changesets`, `approvals` and `commits` are written by the server through the
+caller's token, so the rules scope them to `auth.uid === $uid` and validate
+their shape rather than forbidding the write outright — the deployment has no
+service account to write them any other way. The signature in each record, not
+the row, is what the approve and commit endpoints believe; see §8.1. `turns`
+remains a signed blob rather than a table (§7.4).
 
 ## 10. API surface
 
@@ -340,21 +374,34 @@ Acceptance:
 Deliverables: `propose_edits`, diff computation, review UI, approval record,
 commit + PR, commit history, audit rows.
 
-Shipped so far: `propose_edits` (`lib/agent/edits.ts`), server-computed unified
-diffs, per-step staging returned by `/api/agent/step`, and tests covering the
-refusals (ambiguous match, ignored path, size caps, a model-supplied diff being
-ignored). Still open: persisting a change set, the review UI, the approval
-record, and the commit endpoint. Staging is in memory for one step, so the
-review screen must be built on a persisted change set rather than on the step
-response alone.
+Delivered:
+
+- `propose_edits` (`lib/agent/edits.ts`), server-computed unified diffs, and the
+  per-step staging returned by `/api/agent/step`.
+- `lib/changesets.ts`: ids, hashes, `agent/` branch naming, signed change sets,
+  signed approvals, the commit gate, and the stored records.
+- `/api/agent/step` saves a signed change set when a step proposes one and
+  returns its id; the id is stored on the message, so the review card survives a
+  reload.
+- `GET /api/changesets/:id`, `POST /api/changesets/:id/approve` and
+  `POST /api/changesets/:id/commit`.
+- `components/ChangeReview.tsx`: diff cards, per-file collapse, add/remove
+  counts, **Approve & commit**, and the commit result (branch, sha, PR link).
+- `lib/github/commit.ts`: blobs → tree on the base tree → commit → ref → PR, the
+  only module in the product that writes to GitHub.
+- Rules for `changesets/{uid}`, `approvals/{uid}` and `commits/{uid}` in
+  `database.rules.json`.
 
 Acceptance:
-- The agent proposes a change; the user sees a correct unified diff.
+- The agent proposes a change; the user sees a correct unified diff. ✅
 - Nothing is written until Approve; the commit endpoint refuses without an
-  approval row, and refuses when `base_sha` moved.
-- The commit lands on `agent/<slug>` and a PR opens against the default branch.
-- A double submit produces one commit.
-- An approved change set from another user's turn cannot be committed.
+  approval, and refuses when `base_sha` moved. ✅
+- The commit lands on `agent/<slug>` and a PR opens against the default branch. ✅
+- A double submit produces one commit. ✅ (recorded sha returned; the ref itself
+  is the race barrier)
+- An approved change set from another user's turn cannot be committed. ✅ (the
+  row is read under the caller's uid; ids are content-derived and not enumerable
+  across accounts)
 
 ### Phase 3 — execution (deferred)
 Sandbox workspace: clone, install, test, build, dev-server preview. The tool

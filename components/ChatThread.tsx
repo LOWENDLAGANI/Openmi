@@ -5,6 +5,7 @@ import { getModelDisplayName } from "@/lib/models";
 import { displayedContent, variantCount, variantPosition } from "@/lib/variants";
 import Markdown from "./Markdown";
 import OpenmiMark from "./OpenmiMark";
+import ChangeReview from "./ChangeReview";
 import { useSmoothText } from "@/lib/useSmoothText";
 import { useEffect, useRef, useState } from "react";
 
@@ -310,6 +311,12 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
           <Markdown content={shownContent} />
         </div>
       )}
+
+      {/* A proposal is the answer's subject, not an appendix, so the review sits
+          directly under the text that explains it. It reads the stored change
+          set rather than the step response, so a reload keeps a reviewable
+          change instead of losing the only diff the browser ever held. */}
+      {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} />}
 
       {msg.sources && <SearchSources sources={msg.sources} />}
 

@@ -874,7 +874,9 @@ export default function HomePage() {
         if (!previous) return;
         assistantId = previous.id;
         await branchAnswer(previous);
-        await patchMessage(assistantId, { content: "", steps: undefined, error: undefined });
+        // A regenerated answer proposes a new change, so the review card of the
+        // previous answer must go with the text it described.
+        await patchMessage(assistantId, { content: "", steps: undefined, error: undefined, changesetId: undefined });
       } else {
         await appendMessage({ chatId, role: "user", content: text });
         if (!temporary) await maybeAutoTitle(chatId, text);
@@ -917,6 +919,8 @@ export default function HomePage() {
                 done?: boolean;
                 model?: string;
                 usage?: { prompt: number; completion: number };
+                changesetId?: string | null;
+                changesetWarning?: string | null;
                 error?: string;
               }
             | null;
@@ -936,10 +940,14 @@ export default function HomePage() {
           turnToken = payload.turnToken ?? turnToken;
           if (payload.steps?.length) steps.push(...payload.steps);
           if (payload.content) content = content ? `${content}\n\n${payload.content}` : payload.content;
+          // The id follows the answer, so the review card survives a reload and
+          // still points at the change the server signed.
+          if (payload.changesetWarning) setModelNotice(payload.changesetWarning);
           await patchMessage(assistantId, {
             content,
             steps: [...steps],
             ...(payload.model ? { model: payload.model } : {}),
+            ...(payload.changesetId ? { changesetId: payload.changesetId } : {}),
           });
           if (payload.usage) {
             await writeUsage(assistantId, {

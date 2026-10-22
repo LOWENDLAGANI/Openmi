@@ -12,6 +12,7 @@ import { readProject } from "@/lib/projects";
 import { readGithubLink } from "@/lib/github/store";
 import { GithubError } from "@/lib/github/client";
 import { runAgentStep, type RepoChatMessage } from "@/lib/agent/run";
+import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
 import type { AgentMessage } from "@/lib/agent/model";
 import { canAfford, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, type DewState } from "@/lib/serverDew";
@@ -251,6 +252,24 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     }
 
+    // ── The proposal, made reviewable ─────────────────────────────────────
+    // Staging lives in memory for the length of this request, so a proposal
+    // that is not written down here is a diff the user can read once and can
+    // never commit. The row is signed by the server; the signature — not the
+    // row — is what the approve and commit endpoints will check.
+    let changesetId: string | null = null;
+    let changesetWarning: string | null = null;
+    if (result.proposals.length > 0) {
+      const changeSet = buildChangeSet({ project, proposals: result.proposals });
+      if (changeSet) {
+        const stored = await saveChangeSet(authorization, identity.uid, changeSet).catch(() => false);
+        if (stored) changesetId = changeSet.id;
+        else
+          changesetWarning =
+            "This change could not be saved for review, so it cannot be committed from here. Check the database rules for `changesets/{uid}`.";
+      }
+    }
+
     return Response.json(
       {
         content: result.content,
@@ -263,9 +282,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         usage: { prompt: result.usage.prompt, completion: result.usage.completion },
         charged: result.chargedNow,
         // Staged changes, with diffs the server computed. They are returned for
-        // review only: this route has no path to a GitHub write, and a change
-        // set is committed by the approval endpoint once it exists.
+        // display only: this route has no path to a GitHub write, and the
+        // change set is committed only by the commit endpoint, after approval.
         proposals: result.proposals,
+        changesetId,
+        changesetWarning,
       },
       { headers: { "Cache-Control": "no-store" } }
     );
