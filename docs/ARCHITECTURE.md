@@ -191,6 +191,15 @@ usage_daily          (userId, day) counters; the quota ledger
 and increment in one atomic operation; a separate doc-per-day key makes the "resets at midnight
 UTC" promise trivial and keeps historical usage for future analytics.
 
+### The environment contract is one catalogue
+
+`server/config-catalogue.ts` describes every environment variable once: its purpose, where to get
+it, how to set it, an example, whether it is secret, and whether the app can run without it.
+`missingConfigKeys()` and the `checks` array on `/api/health` are both derived from it, so the
+"which variables are missing" answer and the setup checklist the SPA renders can never disagree.
+The catalogue reports *presence* only — values never cross the wire, and the SPA is not a second
+source of truth about the environment.
+
 ## Frontend
 
 - No router dependency: ~30 lines of `history` handling for a handful of screens.

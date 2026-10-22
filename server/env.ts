@@ -1,5 +1,6 @@
 // Centralised environment access. Every secret is read through here so the
 // health endpoint can report which keys are missing (never their values).
+import { configChecks } from './config-catalogue.js';
 
 function str(name: string): string | undefined {
   const v = process.env[name];
@@ -100,17 +101,12 @@ export const env = {
     str('GITHUB_APP_STATE_SECRET') ?? str('GITHUB_APP_WEBHOOK_SECRET'),
 };
 
+// The required set is defined once, in the catalogue, so this list and the
+// setup checklist the SPA renders can never drift apart.
 export function missingConfigKeys(): string[] {
-  const required: Array<[string, string | undefined]> = [
-    ['FIREBASE_PROJECT_ID', env.firebaseProjectId()],
-    ['FIREBASE_API_KEY', env.firebaseApiKey()],
-    ['FIREBASE_CLIENT_EMAIL', env.firebaseClientEmail()],
-    ['FIREBASE_PRIVATE_KEY', env.firebasePrivateKey()],
-    ['GITHUB_TOKEN_ENC_KEY', env.githubTokenEncKey()],
-    ['INTERNAL_TASK_TOKEN', env.internalTaskToken()],
-    ['CRON_SECRET', env.cronSecret()],
-  ];
-  return required.filter(([, v]) => v === undefined).map(([k]) => k);
+  return configChecks()
+    .filter((c) => c.required && !c.present)
+    .map((c) => c.name);
 }
 
 export function firebaseConfigured(): boolean {

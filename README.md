@@ -150,6 +150,19 @@ Production. Cron jobs are exempt from protection.
 **Local Vercel emulation:** `vercel dev` works too; it serves the SPA and `/api/*` from
 `.env.local`. Do not run it on port 8787 at the same time as `npm run dev:api`.
 
+## Setup checklist
+
+The SPA asks the API which environment variables are set and renders a checklist when a required
+one is missing: every variable with its purpose, where to get it, how to set it, and an example
+value. The catalogue lives on the server (`server/config-catalogue.ts`) and is served by
+`GET /api/health` as `checks` — names, purposes and presence only, never values. The same
+catalogue drives `missingConfig`, so the list and the checklist can never drift apart.
+
+The checklist is grouped into **Required** (the app cannot start without them), **Recommended**
+(a model provider and GitHub App access) and **Optional** (tuning knobs that all have a working
+default). Each row expands to show the exact instructions; "Re-check" re-reads `/api/health", and
+"Continue to the app" lets the user through anyway. The startup banner links to the same screen.
+
 ## Environment variables
 
 | Name | Where | Purpose |
@@ -335,6 +348,10 @@ and the regression that a wildcard auth middleware must not guard the runner, cr
 
 Local end-to-end checks against the Node API server: `/api/health`, `/api/config`, 401s for
 missing/bad-signature/wrong-issuer JWTs, `/api/*` 404 JSON, and runner/cron 401 and 422 responses.
+
+The SPA is covered by unit tests too: the client Firebase bootstrap (no raw `app/no-app` error,
+idempotent initialisation) and the setup checklist screen (every variable rendered, missing ones
+marked, no secret value ever rendered).
 
 Not covered without live credentials: real Firestore reads/writes and index deployment, a full
 GitHub OAuth round trip, a real App installation + token mint, webhook-driven DB writes, and an actual

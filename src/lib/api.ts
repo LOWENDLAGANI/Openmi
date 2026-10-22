@@ -1,5 +1,5 @@
 import { firebaseAuth } from './firebase';
-import type { Task, RepoFile, Issue } from '../../shared/types';
+import type { Task, RepoFile, Issue, HealthResponse } from '../../shared/types';
 
 async function token(): Promise<string> {
   const user = firebaseAuth().currentUser;
@@ -27,6 +27,20 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     throw new ApiError(res.status, b.error?.code, b.error?.message, b.error?.issues);
   }
   return res.json();
+}
+
+// Public endpoints (health, config) need no Firebase session.
+export async function publicGet<T>(path: string): Promise<T> {
+  const res = await fetch(path);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.error?.code, body.error?.message, body.error?.issues);
+  }
+  return res.json();
+}
+
+export function getHealth(): Promise<HealthResponse> {
+  return publicGet<HealthResponse>('/api/health');
 }
 
 export class ApiError extends Error {

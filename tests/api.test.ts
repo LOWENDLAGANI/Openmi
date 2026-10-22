@@ -25,6 +25,23 @@ describe('API routing', () => {
     expect(JSON.stringify(body)).not.toContain('cron-secret');
   });
 
+  it('GET /api/health lists the setup checklist without leaking values', async () => {
+    const res = await app.request('/api/health');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.checks)).toBe(true);
+    expect(body.checks.length).toBeGreaterThan(10);
+    const entry = body.checks.find((c: any) => c.name === 'FIREBASE_PROJECT_ID');
+    expect(entry).toBeDefined();
+    expect(entry.required).toBe(true);
+    expect(typeof entry.present).toBe('boolean');
+    expect(entry.purpose.length).toBeGreaterThan(10);
+    expect(entry.howToSet.length).toBeGreaterThan(10);
+    // Names and purposes only — never a value.
+    expect(JSON.stringify(body)).not.toContain('test-api-key');
+    expect(JSON.stringify(body)).not.toContain('test@test.iam.gserviceaccount.com');
+  });
+
   it('GET /api/config returns public config', async () => {
     const res = await app.request('/api/config');
     expect(res.status).toBe(200);

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { env, missingConfigKeys, firebaseConfigured, githubAppConfigured } from '../env.js';
+import { configChecks } from '../config-catalogue.js';
 import type { HealthResponse, PublicConfig } from '../../shared/types.js';
 
 const app = new Hono();
@@ -12,6 +13,8 @@ app.get('/health', (c) => {
     firebaseConfigured: firebaseConfigured(),
     githubAppConfigured: githubAppConfigured(),
     openRouterConfigured: env.openRouterApiKey() !== undefined,
+    // Names, purposes and presence only — never values.
+    checks: configChecks(),
   };
   return c.json(body);
 });

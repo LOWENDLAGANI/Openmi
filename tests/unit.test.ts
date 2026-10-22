@@ -17,6 +17,8 @@ import { refundsQuota } from '../server/errors.js';
 import { runSteps, type Step } from '../server/agent/step-runner.js';
 import { DeadlineExceededError } from '../server/errors.js';
 import { firebaseApp } from '../server/firebase.js';
+import { configChecks, CONFIG_CATALOGUE } from '../server/config-catalogue.js';
+import { missingConfigKeys } from '../server/env.js';
 
 beforeAll(() => {
   process.env.GITHUB_TOKEN_ENC_KEY = Buffer.alloc(32, 1).toString('base64');
@@ -374,6 +376,85 @@ describe('configuration errors', () => {
     } finally {
       if (prev === undefined) delete process.env.FIREBASE_PRIVATE_KEY;
       else process.env.FIREBASE_PRIVATE_KEY = prev;
+    }
+  });
+});
+
+describe('setup checklist catalogue', () => {
+  it('describes every variable with a purpose and instructions', () => {
+    expect(CONFIG_CATALOGUE.length).toBeGreaterThan(10);
+    for (const entry of CONFIG_CATALOGUE) {
+      expect(entry.name).toMatch(/^[A-Z][A-Z0-9_]*$/);
+      expect(entry.purpose.length).toBeGreaterThan(10);
+      expect(entry.howToSet.length).toBeGreaterThan(10);
+      expect(['required', 'recommended', 'optional']).toContain(entry.group);
+    }
+  });
+
+  it('never exposes a value, only presence', () => {
+    const checks = configChecks();
+    for (const c of checks) {
+      expect(typeof c.present).toBe('boolean');
+      expect(Object.keys(c)).not.toContain('value');
+      // The serialised form must not contain the secret itself.
+      expect(JSON.stringify(c)).not.toContain('internal-token-123456789012345678901234567890');
+    }
+  });
+
+  it('reports the required variables that are not set', () => {
+    const prev = {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY,
+      encKey: process.env.GITHUB_TOKEN_ENC_KEY,
+      internal: process.env.INTERNAL_TASK_TOKEN,
+      cron: process.env.CRON_SECRET,
+      apiKey: process.env.FIREBASE_API_KEY,
+    };
+    delete process.env.FIREBASE_PROJECT_ID;
+    delete process.env.FIREBASE_CLIENT_EMAIL;
+    delete process.env.FIREBASE_PRIVATE_KEY;
+    delete process.env.GITHUB_TOKEN_ENC_KEY;
+    delete process.env.INTERNAL_TASK_TOKEN;
+    delete process.env.CRON_SECRET;
+    delete process.env.FIREBASE_API_KEY;
+    try {
+      const missing = missingConfigKeys();
+      expect(missing).toContain('FIREBASE_PROJECT_ID');
+      expect(missing).toContain('FIREBASE_API_KEY');
+      expect(missing).toContain('FIREBASE_CLIENT_EMAIL');
+      expect(missing).toContain('FIREBASE_PRIVATE_KEY');
+      expect(missing).toContain('GITHUB_TOKEN_ENC_KEY');
+      expect(missing).toContain('INTERNAL_TASK_TOKEN');
+      expect(missing).toContain('CRON_SECRET');
+      // The catalogue and the missing list cannot drift apart.
+      const required = configChecks().filter((c) => c.required);
+      expect(missing.sort()).toEqual(required.filter((c) => !c.present).map((c) => c.name).sort());
+    } finally {
+      const restore = (k: string, v: string | undefined) => {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      };
+      restore('FIREBASE_PROJECT_ID', prev.projectId);
+      restore('FIREBASE_CLIENT_EMAIL', prev.clientEmail);
+      restore('FIREBASE_PRIVATE_KEY', prev.privateKey);
+      restore('GITHUB_TOKEN_ENC_KEY', prev.encKey);
+      restore('INTERNAL_TASK_TOKEN', prev.internal);
+      restore('CRON_SECRET', prev.cron);
+      restore('FIREBASE_API_KEY', prev.apiKey);
+    }
+  });
+
+  it('marks a variable with a default as not set when it is only defaulted', () => {
+    const prev = process.env.OPENMI_MODEL;
+    delete process.env.OPENMI_MODEL;
+    try {
+      const check = configChecks().find((c) => c.name === 'OPENMI_MODEL')!;
+      expect(check.present).toBe(false);
+      expect(check.defaultValue).toBe('qwen/qwen3-coder-next');
+    } finally {
+      if (prev === undefined) delete process.env.OPENMI_MODEL;
+      else process.env.OPENMI_MODEL = prev;
     }
   });
 });

@@ -151,6 +151,22 @@ export interface PublicConfig {
   model: string;
 }
 
+export type ConfigGroup = 'required' | 'recommended' | 'optional';
+
+// One environment variable, described for the setup checklist. Presence only:
+// values never cross the wire.
+export interface ConfigCheck {
+  name: string;
+  group: ConfigGroup;
+  required: boolean;
+  present: boolean;
+  secret: boolean;
+  purpose: string;
+  howToSet: string;
+  example?: string;
+  defaultValue?: string;
+}
+
 export interface HealthResponse {
   ok: boolean;
   time: number;
@@ -158,4 +174,6 @@ export interface HealthResponse {
   firebaseConfigured: boolean;
   githubAppConfigured: boolean;
   openRouterConfigured: boolean;
+  /** Every environment variable, with its purpose and whether it is set. */
+  checks: ConfigCheck[];
 }
