@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
-    "@hono/vercel": "^1.0.1",
     "@octokit/rest": "^22.0.1",
     "firebase": "^13.1.0",
     "firebase-admin": "^14.5.0",
