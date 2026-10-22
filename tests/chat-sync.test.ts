@@ -112,6 +112,84 @@ test("keeps the attachments the upload never carried", () => {
   assert.equal(changes.documents, undefined);
 });
 
+console.log("\nthe parts of an answer that are not its text");
+
+test("the agent's reads, review card, variants and truncation survive a pull", () => {
+  // These are the difference between an answer another device can act on and
+  // one that merely reads well: a proposal with no review card can never be
+  // committed, and a cut-off answer shown clean looks finished.
+  const parsed = parseRemoteChat({
+    id: "c1",
+    messages: {
+      a: {
+        id: "m1",
+        role: "assistant",
+        content: "done",
+        createdAt: 1,
+        steps: [{ tool: "read_file", label: "Read src/a.ts", ok: true }],
+        changesetId: "0123456789abcdefabcd",
+        truncated: true,
+        variants: ["the earlier answer"],
+        variantIndex: 1,
+      },
+    },
+  });
+  assert.ok(parsed);
+  const stored = parsed.messages[0]!;
+  assert.deepEqual(stored.steps, [{ tool: "read_file", label: "Read src/a.ts", ok: true }]);
+  assert.equal(stored.changesetId, "0123456789abcdefabcd");
+  assert.equal(stored.truncated, true);
+  assert.deepEqual(stored.variants, ["the earlier answer"]);
+  assert.equal(stored.variantIndex, 1);
+});
+
+test("a malformed step, change-set id or variant index is dropped", () => {
+  const parsed = parseRemoteChat({
+    id: "c1",
+    messages: {
+      a: {
+        id: "m1",
+        role: "assistant",
+        content: "done",
+        createdAt: 1,
+        steps: [
+          { tool: "steal_token", label: "pretend", ok: true },
+          { tool: "read_file", label: 42, ok: true },
+          { tool: "read_file", label: "Read src/a.ts", ok: false },
+        ],
+        changesetId: "not-an-id",
+        variants: ["only one", 42],
+        variantIndex: 5,
+      },
+    },
+  });
+  assert.ok(parsed);
+  const stored = parsed.messages[0]!;
+  assert.deepEqual(stored.steps, [{ tool: "read_file", label: "Read src/a.ts", ok: false }]);
+  assert.equal(stored.changesetId, undefined);
+  assert.deepEqual(stored.variants, ["only one"]);
+  assert.equal(stored.variantIndex, undefined, "an index past the variants is refused");
+});
+
+test("a newer copy without those fields does not erase the local ones", () => {
+  // A message uploaded by an older client carries none of them; writing
+  // `undefined` would delete this browser's review card and step timeline.
+  const local = message({
+    content: "old",
+    updatedAt: 100,
+    steps: [{ tool: "read_file", label: "Read src/a.ts", ok: true }],
+    changesetId: "0123456789abcdefabcd",
+    variants: ["earlier"],
+  });
+  const remote = { chat: chat({ updatedAt: 500 }), messages: [message({ content: "new", updatedAt: 800 })] };
+  const merge = planChatMerge(remote, chat({ updatedAt: 500 }), [local]);
+  const changes = merge.updateMessages[0]!.changes;
+  assert.equal(changes.content, "new");
+  assert.equal(changes.steps, undefined);
+  assert.equal(changes.changesetId, undefined);
+  assert.equal(changes.variants, undefined);
+});
+
 console.log("\nchat metadata");
 
 test("a rename made elsewhere is adopted", () => {

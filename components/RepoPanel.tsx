@@ -160,6 +160,10 @@ function reasonMessage(reason: string | null): string {
 export default function RepoPanel({ open, onClose, project, onSelectProject }: RepoPanelProps) {
   const [statusState, setStatusState] = useState<StatusState>({ phase: "checking" });
   const [repos, setRepos] = useState<RepoItem[]>([]);
+  // The empty-list sentence must not appear while the list is still on its way:
+  // "No repositories to show. Reconnect GitHub." sent people to disconnect a
+  // connection that was working perfectly well.
+  const [reposLoading, setReposLoading] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -218,12 +222,15 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   }, []);
 
   const loadRepos = useCallback(async () => {
+    setReposLoading(true);
     try {
       const data = await api<{ repos: RepoItem[] }>("/api/github/repos");
       setRepos(data.repos ?? []);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not list repositories.");
+    } finally {
+      setReposLoading(false);
     }
   }, []);
 
@@ -691,7 +698,9 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                   placeholder="Filter repositories…"
                   className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
                 />
-                {filteredRepos.length === 0 ? (
+                {reposLoading && filteredRepos.length === 0 ? (
+                  <p className="px-1 py-2 text-[11px] text-white/35">Reading your repositories…</p>
+                ) : filteredRepos.length === 0 ? (
                   <p className="px-1 py-2 text-[11px] text-white/35">No repositories to show. If this is unexpected, reconnect GitHub.</p>
                 ) : (
                   <div className="space-y-1">

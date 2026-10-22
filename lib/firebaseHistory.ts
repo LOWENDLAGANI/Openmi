@@ -17,6 +17,7 @@ import {
 } from "firebase/database";
 import { db } from "./db";
 import { parseRemoteChat, planChatMerge } from "./chatSync";
+import { localStorageOrNull, markDeleted, readDeletedIds, unmarkDeleted } from "./deletedChats";
 import { firstSeen } from "./visitorName";
 import type { Chat, ChatMessage, Memory } from "./types";
 
@@ -205,6 +206,16 @@ function serializableMessage(message: ChatMessage) {
     sources: message.sources,
     usage: message.usage,
     error: message.error,
+    // These three make the answer whole on another device. Without them a pull
+    // shows the text but loses the agent's reads, the review card for a change
+    // the person can still commit, and the warning that an answer was cut off.
+    steps: message.steps,
+    changesetId: message.changesetId,
+    truncated: message.truncated,
+    // Earlier answers travel too, so the variant stepper means the same thing
+    // on a phone as it did on the computer the retry happened on.
+    variants: message.variants,
+    variantIndex: message.variantIndex,
     createdAt: message.createdAt,
     updatedAt: message.updatedAt ?? message.createdAt,
   })) as Record<string, unknown>;
@@ -255,30 +266,27 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
 // the honest answer for two devices editing one thread.
 
 // A pull must never resurrect something this device deleted, so deletions are
-// recorded here and honoured on the way in. Kept in localStorage rather than
-// Dexie because it must survive the very database it is guarding.
-const DELETED_KEY = "openmi:deleted-chats";
-
+// recorded here and honoured on the way in. The bookkeeping lives in
+// lib/deletedChats.ts so the restore path can undo it and both directions can
+// be tested without a browser.
 function deletedChatIds(): Set<string> {
-  try {
-    const raw = window.localStorage.getItem(DELETED_KEY);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []);
-  } catch {
-    return new Set();
-  }
+  return readDeletedIds(localStorageOrNull());
 }
 
 export function markChatDeleted(chatId: string): void {
-  try {
-    const ids = deletedChatIds();
-    ids.add(chatId);
-    // Bounded so the list cannot grow without limit on a long-lived device.
-    const trimmed = [...ids].slice(-500);
-    window.localStorage.setItem(DELETED_KEY, JSON.stringify(trimmed));
-  } catch {
-    // localStorage unavailable: the delete is still local and still correct.
-  }
+  markDeleted(localStorageOrNull(), chatId);
+}
+
+/**
+ * Forgets a deletion, for a chat put back from the trash.
+ *
+ * Without this the restored chat stays on the deleted list for ever: it is
+ * visible in this browser, excluded from every upload, and missing on every
+ * other device the person signs into. Restoring something must mean restoring
+ * it everywhere it can be restored.
+ */
+export function unmarkChatDeleted(chatId: string): void {
+  unmarkDeleted(localStorageOrNull(), chatId);
 }
 
 

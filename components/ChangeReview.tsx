@@ -165,7 +165,24 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
     }
   };
 
-  if (dismissed) return null;
+  // Dismissing hides the diff, not the change: the proposal is still on the
+  // message and still committable, so dropping the card entirely left the
+  // reader with nothing to press until they reloaded the page. The way back is
+  // one small line in its place.
+  if (dismissed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setDismissed(false)}
+        className="mt-3 flex w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-left text-[11px] text-white/45 transition-colors hover:border-white/[0.14] hover:text-white/80"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M4 6h16M4 12h10M4 18h7" />
+        </svg>
+        {commit ? "Show the committed change" : "Show the proposed change again"}
+      </button>
+    );
+  }
 
   const added = changeSet?.files.reduce((total, file) => total + file.added, 0) ?? 0;
   const removed = changeSet?.files.reduce((total, file) => total + file.removed, 0) ?? 0;

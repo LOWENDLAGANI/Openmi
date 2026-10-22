@@ -8,6 +8,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/db";
+import { syncFirebaseHistory, unmarkChatDeleted } from "@/lib/firebaseHistory";
 import { deleteForever, restoreFromTrash, TRASH_RETENTION_MS, type TrashEntry } from "@/lib/trash";
 
 interface TrashOverlayProps {
@@ -101,7 +102,15 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
                     <button
                       type="button"
                       onClick={() => {
-                        void restoreFromTrash(entry.id).then(() => onRestored(entry.id));
+                        void restoreFromTrash(entry.id).then(() => {
+                          // Restoring is the opposite of deleting, so the id has
+                          // to leave the deleted list before this chat is
+                          // uploaded — otherwise it is back on this browser but
+                          // silently excluded from the account for ever.
+                          unmarkChatDeleted(entry.id);
+                          void syncFirebaseHistory().catch(() => undefined);
+                          onRestored(entry.id);
+                        });
                       }}
                       className="shrink-0 rounded-lg bg-[#2f6b48]/30 px-2.5 py-1 text-[10px] font-semibold text-[#c9e6d4] transition-colors hover:bg-[#2f6b48]/45"
                     >

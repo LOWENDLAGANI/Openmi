@@ -11,6 +11,7 @@
 
 import assert from "node:assert/strict";
 import { TempThread } from "../lib/tempChat";
+import { nextMessageTime } from "../lib/db";
 
 let failures = 0;
 let passes = 0;
@@ -28,6 +29,20 @@ function test(name: string, fn: () => void): void {
 }
 
 console.log("temporary chat");
+
+test("a stored message never shares a millisecond with the one before it", () => {
+  // The edit and regenerate paths cut a thread by time. Two rows in the same
+  // millisecond make that cut ambiguous: an old answer can survive the edit
+  // that meant to replace it, or the question can go with the retry.
+  assert.equal(nextMessageTime(1_000, 1_000), 1_001);
+  assert.equal(nextMessageTime(0, 5_000), 5_000);
+  let previous = 0;
+  const times = Array.from({ length: 5 }, () => {
+    previous = nextMessageTime(previous, 7_000);
+    return previous;
+  });
+  assert.deepEqual(times, [7_000, 7_001, 7_002, 7_003, 7_004]);
+});
 
 test("a message appended to the thread comes back with an id and a time", () => {
   const thread = new TempThread();

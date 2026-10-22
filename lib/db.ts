@@ -116,8 +116,29 @@ export async function clearAllData(): Promise<void> {
 
 // ── Message operations ───────────────────────────────────────────────────────
 
+/**
+ * A timestamp strictly after the previous message in the same chat.
+ *
+ * `Date.now()` has millisecond resolution, and the send path appends a user
+ * message and its empty answer back to back, so the two can share a timestamp.
+ * Editing or regenerating cuts the thread by time, and a shared timestamp makes
+ * that cut ambiguous: the old answer can survive an edit that meant to replace
+ * it, or the question can be deleted along with the answer being retried. One
+ * extra millisecond removes the ambiguity for good.
+ */
+export function nextMessageTime(previous: number, now = Date.now()): number {
+  return Math.max(now, previous + 1);
+}
+
+/** The last timestamp this browser handed to a chat, so a reload mid-burst
+ *  cannot regress. Kept in memory only: persisted rows are always older than
+ *  `Date.now()` by the time anything is appended again. */
+const lastMessageAt = new Map<string, number>();
+
 export async function addMessage(msg: Omit<ChatMessage, "id" | "createdAt">): Promise<ChatMessage> {
-  const full: ChatMessage = { ...msg, id: uid(), createdAt: Date.now(), updatedAt: Date.now() };
+  const createdAt = nextMessageTime(lastMessageAt.get(msg.chatId) ?? 0);
+  lastMessageAt.set(msg.chatId, createdAt);
+  const full: ChatMessage = { ...msg, id: uid(), createdAt, updatedAt: createdAt };
   await db.messages.add(full);
   await touchChat(full.chatId);
   return full;
@@ -159,7 +180,12 @@ export async function exportBackup(): Promise<BackupPayload> {
   };
 }
 
-/** A restore is a whole-file replace, so a hostile or accidental huge file has a bound. */
+/**
+ * A restore is a union, not a replace: rows from the file are put back and
+ * anything this browser already holds is kept, so importing a backup into a
+ * browser with newer conversations cannot delete them. The bound below is
+ * therefore about a hostile or accidental huge file, not about overwriting.
+ */
 const MAX_IMPORT_CHATS = 2000;
 const MAX_IMPORT_MESSAGES = 50000;
 

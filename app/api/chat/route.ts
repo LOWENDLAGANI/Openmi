@@ -336,7 +336,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   let dewState: DewState | null = null;
 
   if (!isCallerAdmin) {
-    if (!identity) return errorStream(outOfDewMessage());
+    if (!identity) {
+      // "You're out of Dew" is the wrong sentence for a browser whose identity
+      // could not be checked: it sends somebody to the top-up page for a problem
+      // no amount of Dew can fix. Say what actually happened.
+      return errorStream(
+        "**Openmi could not verify this browser.** Reload the page and try again — a message is only answered for a session the server can identify."
+      );
+    }
     dewState = await resolveDew(authorization, identity.uid);
     if (!canAfford(dewState.balance, price)) return errorStream(outOfDewMessage());
   }

@@ -453,8 +453,12 @@ export default function HomePage() {
     // is missing so the site owner can add the key.
     if (!available.includes(mode)) {
       const name = getMode(mode).display;
+      // Each mode is served by its own key. Telling somebody who picked Code
+      // to add an OpenRouter key sends them after the wrong value entirely.
+      const key = mode === "code" ? "GEMINI_API_KEY" : "OPENROUTER_API_KEY";
+      const needs = mode === "code" ? "a Gemini API key" : "an OpenRouter API key";
       setModelNotice(
-        `${name} isn't available on this deployment yet. It needs an OpenRouter API key (OPENROUTER_API_KEY) configured by the site owner. Once added, it becomes selectable automatically.`
+        `${name} isn't available on this deployment yet. It needs ${needs} (${key}) configured by the site owner. Once added, it becomes selectable automatically.`
       );
       return;
     }
@@ -864,31 +868,23 @@ export default function HomePage() {
   // second charge. The client drives the loop so Stop cancels the request in
   // flight, and each read is written into the message as it happens.
   const sendAgentMessage = useCallback(
-    async (text: string, options?: { regenerateAssistantId?: string }) => {
+    async (text: string, options?: { regenerateAssistantId?: string; editMessageId?: string }) => {
       if (!project || streamingId) return;
       let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
-      if (!chatId) {
-        const chat = await createChat();
-        chatId = chat.id;
-        setActiveChatId(chatId);
-      }
-      if (!chatId) return;
-
-      // Regenerating re-runs the existing answer row instead of appending a new
-      // question: the old text is retired into its variants first, so the answer
-      // being judged is still readable behind the switch control.
       let assistantId: string;
-      if (options?.regenerateAssistantId) {
-        const previous = await readMessage(options.regenerateAssistantId);
-        if (!previous) return;
-        assistantId = previous.id;
-        await branchAnswer(previous);
-        // A regenerated answer proposes a new change, so the review card of the
-        // previous answer must go with the text it described.
-        await patchMessage(assistantId, { content: "", steps: undefined, error: undefined, changesetId: undefined });
-      } else {
-        await appendMessage({ chatId, role: "user", content: text });
-        if (!temporary) await maybeAutoTitle(chatId, text);
+
+      // Editing a question with a repository attached has to go through the
+      // agent. Sending it to ordinary chat would answer the same wording with no
+      // repository access at all — and look exactly like a normal answer, which
+      // is the worst way for the two to differ.
+      if (options?.editMessageId) {
+        const original = await readMessage(options.editMessageId);
+        if (!original || original.role !== "user") return;
+        chatId = original.chatId;
+        await patchMessage(original.id, { content: text, error: undefined });
+        // Everything after the edited question belonged to the answer it is
+        // replacing, so it goes with it.
+        await dropFromMessage(chatId, original.id, original.createdAt, false);
         const assistant = await appendMessage({
           chatId,
           role: "assistant",
@@ -896,7 +892,40 @@ export default function HomePage() {
           model: getMode("code").display,
         });
         assistantId = assistant.id;
+        if (!temporary) setActiveChatId(chatId);
+      } else {
+        if (!chatId) {
+          const chat = await createChat();
+          chatId = chat.id;
+          setActiveChatId(chatId);
+        }
+        if (!chatId) return;
+
+        // Regenerating re-runs the existing answer row instead of appending a new
+        // question: the old text is retired into its variants first, so the answer
+        // being judged is still readable behind the switch control.
+        assistantId = "";
+        if (options?.regenerateAssistantId) {
+          const previous = await readMessage(options.regenerateAssistantId);
+          if (!previous) return;
+          assistantId = previous.id;
+          await branchAnswer(previous);
+          // A regenerated answer proposes a new change, so the review card of the
+          // previous answer must go with the text it described.
+          await patchMessage(assistantId, { content: "", steps: undefined, error: undefined, changesetId: undefined });
+        } else {
+          await appendMessage({ chatId, role: "user", content: text });
+          if (!temporary) await maybeAutoTitle(chatId, text);
+          const assistant = await appendMessage({
+            chatId,
+            role: "assistant",
+            content: "",
+            model: getMode("code").display,
+          });
+          assistantId = assistant.id;
+        }
       }
+
       setStreamingId(assistantId);
       setModelNotice(null);
 
@@ -993,7 +1022,7 @@ export default function HomePage() {
         void refreshDew();
       }
     },
-    [activeChatId, appendMessage, branchAnswer, markError, noteRateLimit, patchMessage, project, publishTemp, readMessage, streamingId, temporary, threadHistory, writeUsage]
+    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, project, publishTemp, readMessage, streamingId, temporary, threadHistory, writeUsage]
   );
 
   const handleSend = useCallback(
@@ -1029,9 +1058,19 @@ export default function HomePage() {
     [project, sendAgentMessage, sendMessage]
   );
 
-  const handleEditMessage = useCallback((messageId: string, content: string) => {
-    void sendMessage(content, [], [], { editMessageId: messageId });
-  }, [sendMessage]);
+  const handleEditMessage = useCallback(
+    (messageId: string, content: string) => {
+      // Same rule as regenerating: with a repository attached, the answer has to
+      // come from the agent, because only it can actually read the files the
+      // question is about.
+      if (project) {
+        void sendAgentMessage(content, { editMessageId: messageId });
+        return;
+      }
+      void sendMessage(content, [], [], { editMessageId: messageId });
+    },
+    [project, sendAgentMessage, sendMessage]
+  );
 
   /** Which answer is on screen for a message that has more than one. */
   const handleSwitchVariant = useCallback(
@@ -1062,12 +1101,11 @@ export default function HomePage() {
   const isStreaming = streamingId !== null;
   // The message being drawn has no content yet, so it is kept explicitly to
   // show the drawing placeholder.
-  // A check result is a message with no content at all — the output lives on
-  // `verification` — so it has to be admitted here explicitly. Without this the
-  // panel renders correctly but is filtered out of the thread before it is ever
-  // reached, which is exactly the kind of bug that survives a code review.
+  // A question made only of an attachment has no text at all; images were
+  // already admitted, and documents have to be too, or a file-only question
+  // disappears from the thread the moment it is sent.
   const visibleMessages = threadMessages.filter(
-    (m) => m.content || m.images || m.error || (m.steps && m.steps.length > 0)
+    (m) => m.content || m.images || m.documents?.length || m.error || (m.steps && m.steps.length > 0)
   );
 
   // Nothing is rendered until localStorage has been read, so a returning

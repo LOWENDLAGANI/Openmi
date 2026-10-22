@@ -22,7 +22,7 @@ import {
   type TreeFile,
 } from "../lib/github/tree";
 import { formatHits, pickSearchCandidates, searchFiles } from "../lib/github/search";
-import { clearRepoCache } from "../lib/github/cache";
+import { clearRepoCache, loadBlob, loadTree } from "../lib/github/cache";
 import { runAgentStep } from "../lib/agent/run";
 import { AGENT_TOOL_SCHEMAS, READ_ONLY_TOOLS, runTool, type ToolContext } from "../lib/agent/tools";
 import {
@@ -1136,6 +1136,60 @@ later("a commit writes blobs, then a tree on the base tree, then the commit, the
   }
 });
 
+later("a cached repository read is never served to another connection", async () => {
+  // The cache is keyed by repository and commit. Without the connection in the
+  // key, a private file one account read could be handed to another account
+  // before GitHub is ever asked whether it may see it.
+  clearRepoCache();
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response(
+      JSON.stringify({
+        tree: [{ path: "secret/config.ts", type: "blob", sha: "blob1", size: 20 }],
+        truncated: false,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const sha = "f".repeat(40);
+    await loadTree("token-a", "owner/private", sha);
+    await loadTree("token-a", "owner/private", sha);
+    assert.equal(calls, 1, "one connection reuses its own read");
+
+    await loadTree("token-b", "owner/private", sha);
+    assert.equal(calls, 2, "a different connection must not inherit the bytes");
+  } finally {
+    globalThis.fetch = realFetch;
+    clearRepoCache();
+  }
+});
+
+later("a blob cached for one connection is fetched again for another", async () => {
+  clearRepoCache();
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response(
+      JSON.stringify({ content: Buffer.from("const x = 1;\n", "utf8").toString("base64"), encoding: "base64" }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    await loadBlob("token-a", "owner/private", "blob1");
+    await loadBlob("token-b", "owner/private", "blob1");
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+    clearRepoCache();
+  }
+});
+
 later("a failed pull request still reports the commit that landed", async () => {
   const realFetch = globalThis.fetch;
   const sha = (letter: string) => letter.repeat(40);
@@ -1506,6 +1560,9 @@ test("the repository panel cannot stay on a bare \"checking\" forever", () => {
   assert.match(source, /github\/oauth\/start/);
   // The old rendering keyed on a null status rendered the spinner forever.
   assert.doesNotMatch(source, /!status \?/);
+  // And an empty repository list says it is still loading, not that it is empty.
+  assert.match(source, /setReposLoading\(true\)/);
+  assert.match(source, /Reading your repositories/);
 });
 
 test("the OAuth start route requires a verified account", () => {
@@ -1514,6 +1571,15 @@ test("the OAuth start route requires a verified account", () => {
   assert.match(source, /verifyCaller/);
   assert.match(source, /createOAuthState\(identity\.uid/);
   assert.doesNotMatch(source, /clientSecret\s*:/, "the secret must not be echoed to the browser");
+});
+
+test("editing a message in a repository chat goes through the agent", () => {
+  // Ordinary chat has no repository access. An edit routed there would answer
+  // the same words with a different, worse capability and no sign of it.
+  const source = read("app/page.tsx");
+  assert.match(source, /sendAgentMessage\(content, \{ editMessageId: messageId \}\)/);
+  assert.match(source, /editMessageId\?: string/);
+  assert.match(source, /options\?\.editMessageId/);
 });
 
 test("the proposal module cannot reach GitHub", () => {

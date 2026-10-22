@@ -65,6 +65,7 @@ export default function ChatInput({
   }, [rateLimitUntil]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const textRef = useRef(text);
 
   useEffect(() => {
     if (!showTools) return;
@@ -154,7 +155,11 @@ export default function ChatInput({
     recognition.lang = navigator.language || "en-US";
     recognition.onresult = (event) => {
       const transcript = event.results[0]?.[0]?.transcript;
-      if (transcript) handleTextChange(`${text}${text ? " " : ""}${transcript}`);
+      if (!transcript) return;
+      // Append to whatever is in the box *now*: dictation can run for a while,
+      // and the draft captured when listening started may be stale.
+      const current = textRef.current;
+      handleTextChange(current ? `${current} ${transcript}` : transcript);
     };
     recognition.onend = () => setIsListening(false);
     recognition.onerror = () => {
@@ -178,6 +183,7 @@ export default function ChatInput({
   };
 
   const clearComposer = () => {
+    textRef.current = "";
     setText("");
     setAttachments([]);
     setDocuments([]);
@@ -186,30 +192,41 @@ export default function ChatInput({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key !== "Enter" || e.shiftKey) return;
+    e.preventDefault();
+    // Enter while an answer streams belongs to the draft, not to the Stop
+    // button: people type their follow-up during the answer, and pressing
+    // Enter there used to cancel the very answer they were reading.
+    if (disabled) return;
+    if (canSend) handleSend();
+  };
+
+  // Images and documents are handled by different pipelines; passing the same
+  // list to both made a pasted screenshot raise "text and code files are
+  // supported" from the document reader that had nothing it could read.
+  const addFilesByKind = (files: File[]) => {
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    const documents = files.filter((file) => !file.type.startsWith("image/"));
+    if (images.length > 0) void addFiles(images);
+    if (documents.length > 0) void addDocuments(documents);
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    void addFiles(files);
-    void addDocuments(files);
+    addFilesByKind(Array.from(e.dataTransfer.files));
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData.files);
     if (files.length > 0) {
       e.preventDefault();
-      void addFiles(files);
-      void addDocuments(files);
+      addFilesByKind(files);
     }
   };
 
   const handleTextChange = (value: string) => {
+    textRef.current = value;
     setText(value);
     const el = textareaRef.current;
     if (el) {

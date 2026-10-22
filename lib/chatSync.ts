@@ -12,7 +12,40 @@
 // visit. So every merge here adds what is missing and overwrites only what is
 // demonstrably newer.
 
-import type { Chat, ChatMessage } from "./types";
+import type { AgentStep, Chat, ChatMessage } from "./types";
+
+/** The tools a stored step may name. Anything else is not one of ours. */
+const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "propose_edits"]);
+/** A change-set id, as lib/changesets.ts mints it — checked without importing
+ *  that server module into a client bundle. */
+const CHANGESET_ID = /^[0-9a-f]{20}$/;
+
+/**
+ * Parses the agent's step timeline from a remote message.
+ *
+ * Another device wrote this and the network carried it here, so it is checked
+ * field by field: a label is rendered as text, and a tool name the interface
+ * cannot interpret would render a blank row that claims nothing.
+ */
+function parseSteps(value: unknown): AgentStep[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const steps: AgentStep[] = [];
+  for (const raw of value.slice(0, 80)) {
+    if (!raw || typeof raw !== "object") continue;
+    const step = raw as Record<string, unknown>;
+    if (typeof step.label !== "string" || !step.label) continue;
+    if (typeof step.tool !== "string" || !STEP_TOOLS.has(step.tool as AgentStep["tool"])) continue;
+    steps.push({ tool: step.tool as AgentStep["tool"], label: step.label.slice(0, 400), ok: step.ok === true });
+  }
+  return steps.length > 0 ? steps : undefined;
+}
+
+/** Earlier answers, checked as strings and capped like the app writes them. */
+function parseVariants(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const variants = value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0).slice(0, 8);
+  return variants.length > 0 ? variants : undefined;
+}
 
 /** A chat as it comes back from the account, parsed and validated. */
 export interface RemoteChat {
@@ -54,6 +87,16 @@ export function parseRemoteChat(value: unknown): RemoteChat | null {
       const message = raw as Partial<ChatMessage> | null;
       if (!message || typeof message.id !== "string") continue;
       if (message.role !== "user" && message.role !== "assistant") continue;
+      const variants = parseVariants(message.variants);
+      const variantIndex =
+        typeof message.variantIndex === "number" &&
+        Number.isInteger(message.variantIndex) &&
+        message.variantIndex >= 1 &&
+        variants &&
+        message.variantIndex <= variants.length
+          ? message.variantIndex
+          : undefined;
+
       messages.push({
         id: message.id,
         chatId: chat.id,
@@ -64,7 +107,18 @@ export function parseRemoteChat(value: unknown): RemoteChat | null {
         sources: Array.isArray(message.sources) ? message.sources : undefined,
         usage: message.usage,
         error: typeof message.error === "string" ? message.error : undefined,
-        truncated: Boolean(message.truncated),
+        // "Whether an answer was cut off" and "which reads produced it" are
+        // part of the answer, not decoration: dropping them on the way to
+        // another device shows an unfinished answer as a finished one and a
+        // proposal with no way to review it.
+        steps: parseSteps(message.steps),
+        changesetId:
+          typeof message.changesetId === "string" && CHANGESET_ID.test(message.changesetId)
+            ? message.changesetId
+            : undefined,
+        truncated: message.truncated === true ? true : undefined,
+        variants,
+        variantIndex,
         createdAt: typeof message.createdAt === "number" ? message.createdAt : 0,
         updatedAt: typeof message.updatedAt === "number" ? message.updatedAt : undefined,
       });
@@ -123,7 +177,15 @@ export function planChatMerge(remote: RemoteChat, localChat: Chat | undefined, l
         sources: message.sources,
         usage: message.usage,
         error: message.error,
-        truncated: message.truncated,
+        // Only fields the remote copy actually carries. Writing `undefined`
+        // here deletes the local value, and a message uploaded by a client
+        // that predates these fields must not erase the review card or the
+        // truncation warning this browser already has.
+        ...(message.steps ? { steps: message.steps } : {}),
+        ...(message.changesetId ? { changesetId: message.changesetId } : {}),
+        ...(message.truncated ? { truncated: true } : {}),
+        ...(message.variants ? { variants: message.variants } : {}),
+        ...(message.variantIndex !== undefined ? { variantIndex: message.variantIndex } : {}),
         updatedAt: timeOf(message),
       },
     });

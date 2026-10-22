@@ -236,7 +236,7 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
           {editing ? (
             <div className="w-full rounded-2xl border border-[#3f7d5c]/40 bg-black/20 p-2">
               <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} className="w-full resize-none bg-transparent p-1 text-[14px] text-white outline-none" autoFocus />
-              <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-white/40">Cancel</button><button type="button" onClick={() => onEditMessage(draft.trim())} className="rounded-lg bg-[#2a6142] px-2.5 py-1 text-white">Edit & send</button></div>
+              <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-white/40">Cancel</button><button type="button" onClick={() => { const next = draft.trim(); if (!next) return; setEditing(false); onEditMessage(next); }} className="rounded-lg bg-[#2a6142] px-2.5 py-1 text-white">Edit &amp; send</button></div>
             </div>
           ) : (
             <button type="button" onClick={() => setEditing(true)} className="mt-1 self-end text-[10px] text-white/25 opacity-100 transition-opacity hover:text-white/70 md:opacity-0 md:group-hover:opacity-100">Edit</button>
