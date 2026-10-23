@@ -483,7 +483,8 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                 Openmi could not identify this browser, so GitHub cannot be attached to an account yet.
               </p>
               <p className="text-[11px] leading-relaxed text-white/35">{statusState.message}</p>
-              {firebaseConfigured ? (
+              {/* Hidden: Google login is not used — own approach handles sign-in. */}
+              {false && firebaseConfigured ? (
                 <button
                   type="button"
                   onClick={() => void signIn()}
@@ -540,34 +541,39 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                 Connect GitHub to let the agent read a repository. Google stays your account — GitHub is added to it, so
                 your chats and Dew do not move.
               </p>
-              <button
-                type="button"
-                onClick={() => void connect()}
-                disabled={busy === "connect"}
-                className="w-full rounded-xl px-4 py-2.5 text-[13px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
-                style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
-              >
-                {busy === "connect" ? "Waiting for GitHub…" : "Connect GitHub"}
-              </button>
-              {statusState.status.oauth ? (
-                <p className="text-[11px] leading-relaxed text-white/35">
-                  You will be sent to GitHub to approve read access, then brought straight back here.
-                </p>
-              ) : (
-                <p className="text-[11px] leading-relaxed text-white/35">
-                  The agent gets read access to the repositories you choose. It cannot change anything without your
-                  approval.
-                </p>
-              )}
-              {firebaseConfigured && (
+              {/* Hidden: GitHub login is not used — own approach handles repo access. */}
+              {false && (
+                <>
                 <button
                   type="button"
-                  onClick={() => void signIn()}
-                  disabled={busy === "google"}
-                  className="w-full rounded-xl border border-white/[0.09] px-4 py-2 text-[12px] font-medium text-white/60 transition hover:bg-white/[0.06] disabled:opacity-50"
+                  onClick={() => void connect()}
+                  disabled={busy === "connect"}
+                  className="w-full rounded-xl px-4 py-2.5 text-[13px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
+                  style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
                 >
-                  {busy === "google" ? "Opening Google…" : "Sign in with Google first"}
+                  {busy === "connect" ? "Waiting for GitHub…" : "Connect GitHub"}
                 </button>
+                {statusState.status.oauth ? (
+                  <p className="text-[11px] leading-relaxed text-white/35">
+                    You will be sent to GitHub to approve read access, then brought straight back here.
+                  </p>
+                ) : (
+                  <p className="text-[11px] leading-relaxed text-white/35">
+                    The agent gets read access to the repositories you choose. It cannot change anything without your
+                    approval.
+                  </p>
+                )}
+                {firebaseConfigured && (
+                  <button
+                    type="button"
+                    onClick={() => void signIn()}
+                    disabled={busy === "google"}
+                    className="w-full rounded-xl border border-white/[0.09] px-4 py-2 text-[12px] font-medium text-white/60 transition hover:bg-white/[0.06] disabled:opacity-50"
+                  >
+                    {busy === "google" ? "Opening Google…" : "Sign in with Google first"}
+                  </button>
+                )}
+                </>
               )}
             </div>
           ) : (

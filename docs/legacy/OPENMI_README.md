@@ -243,7 +243,7 @@ Note that `admin/registry` is readable by the administrator through the console;
 
 **Using Openmi requires no account, and that has not changed.** A name and a chat history in your own browser is a complete Openmi. Google sign-in is a second door, never a condition of entry.
 
-**Where to use it.** The welcome screen offers “Continue with Google” under the name field, and **Settings → Account** has the same action at any time. A deployment with no `NEXT_PUBLIC_FIREBASE_*` values hides both — a button that cannot work is worse than an absence nobody misses.
+**Where to use it.** The welcome screen offers “Continue with Google” under the name field, and **Settings → Account** has the same action at any time — unless the owner has hidden it, which is the case here. A deployment with no `NEXT_PUBLIC_FIREBASE_*` values hides both — a button that cannot work is worse than an absence nobody misses. When Google login is hidden, account linking follows the owner's own approach instead.
 
 **Binding is a migration, not a copy.** Openmi signs every first-time visitor in anonymously, which creates a real Firebase account with a UID. Binding calls `linkWithPopup`, which attaches the Google credential to *that* account rather than creating a new one, so **the UID does not change**. Everything already logged under it — the chats, the registry entry — stays exactly where it is. No chat is moved, re-uploaded, or duplicated, and the migration cannot half-finish, because there is no transfer to interrupt.
 

@@ -94,7 +94,8 @@ export default function NamePrompt({
           </button>
         </form>
 
-        {googleAvailable && (
+        {/* Hidden: Google login is not used — own approach handles sign-in. */}
+        {false && googleAvailable && (
           <>
             <div className="my-4 flex items-center gap-3" aria-hidden>
               <span className="h-px flex-1 bg-white/[0.08]" />

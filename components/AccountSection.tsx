@@ -143,7 +143,8 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
           </div>
         </div>
 
-        {!linked && (
+        {/* Hidden: Google login is not used — own approach handles account linking. */}
+        {false && !linked && (
           <button
             type="button"
             onClick={bind}
@@ -160,7 +161,7 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
           </button>
         )}
 
-        {linked && (
+        {false && linked && (
           <button
             type="button"
             onClick={detach}

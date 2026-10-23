@@ -1556,7 +1556,7 @@ test("the repository panel cannot stay on a bare \"checking\" forever", () => {
   assert.match(source, /phase: "signed-out"/);
   assert.match(source, /phase: "error"/);
   // Both doors out of a dead end, plus the native OAuth start call.
-  assert.match(source, /Continue with Google/);
+  assert.match(source, /Continue with Google/); // present but hidden behind {false && ...} by owner choice
   assert.match(source, /github\/oauth\/start/);
   // The old rendering keyed on a null status rendered the spinner forever.
   assert.doesNotMatch(source, /!status \?/);
