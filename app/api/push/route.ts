@@ -1,17 +1,17 @@
 import { NextRequest } from "next/server";
 import webpush from "web-push";
-import { requireAdmin, verifyCaller, writeAsCaller } from "@/lib/serverControl";
+import { requireAdmin, verifyCaller } from "@/lib/serverControl";
+import { clientForToken } from "@/lib/supabase";
 
 // ── Web Push, server side ────────────────────────────────────────────────────
 // Holds this deployment's push subscriptions and sends notifications to them.
 //
-// Subscriptions are persisted under `push/subscriptions/{uid}` with the
-// subscriber's own token, so a restart no longer forgets who subscribed — the
-// in-process map below is kept only as the fallback for a deployment whose
-// database rules predate that node, and as the test-send cache. Writing the
-// node needs no new rules grant in spirit: an owner may always write their own
-// subtree, and `database.rules.json` names that path explicitly so the admin
-// broadcast can read them all.
+// Subscriptions are persisted in `push_subscriptions` with the subscriber's own
+// token, so a restart no longer forgets who subscribed — the in-process map below
+// is kept only as the fallback for a deployment whose migrations have not been
+// applied, and as the test-send cache. Writing the row needs no special grant: an
+// owner may always write their own row, and the policies let the administrator
+// read them all so the broadcast can reach everybody.
 //
 // Sending requires three keys, all set by the owner:
 //   NEXT_PUBLIC_VAPID_PUBLIC_KEY  public half (also read by the browser)
@@ -51,23 +51,27 @@ function vapidDetails(): { publicKey: string; privateKey: string; subject: strin
   return null;
 }
 
-function restBase(): string | null {
-  const url = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL?.trim();
-  return url ? url.replace(/\/+$/, "") : null;
+function callerClient(authorization: string | null) {
+  const token = authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  return token ? clientForToken(token) : null;
 }
 
 async function readPersisted(authorization: string, uid: string): Promise<PushEndpoint | null> {
-  const base = restBase();
-  const token = authorization.replace(/^Bearer\s+/i, "").trim();
-  if (!base || !token) return null;
+  const client = callerClient(authorization);
+  if (!client || !uid) return null;
   try {
-    const response = await fetch(
-      `${base}/push/subscriptions/${uid}.json?auth=${encodeURIComponent(token)}`,
-      { headers: { Accept: "application/json" }, cache: "no-store" }
-    );
-    if (!response.ok) return null;
-    const value = (await response.json()) as PushEndpoint | null;
-    return value?.endpoint && value?.keys ? value : null;
+    const { data, error } = await client
+      .from("push_subscriptions")
+      .select("endpoint, keys")
+      .eq("owner", uid)
+      .maybeSingle();
+    if (error || !data) return null;
+    const keys = data.keys as { p256dh?: string; auth?: string } | null;
+    if (typeof data.endpoint !== "string" || !keys?.p256dh || !keys?.auth) return null;
+    return {
+      endpoint: data.endpoint,
+      keys: { p256dh: keys.p256dh, auth: keys.auth },
+    };
   } catch {
     return null;
   }
@@ -77,30 +81,33 @@ async function readPersisted(authorization: string, uid: string): Promise<PushEn
 async function readAllPersisted(
   authorization: string
 ): Promise<Array<{ uid: string; subscription: PushEndpoint }>> {
-  const base = restBase();
-  const token = authorization.replace(/^Bearer\s+/i, "").trim();
-  if (!base || !token) return [];
+  const client = callerClient(authorization);
+  if (!client) return [];
   try {
-    const response = await fetch(`${base}/push/subscriptions.json?auth=${encodeURIComponent(token)}`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!response.ok) return [];
-    const value = (await response.json()) as Record<
-      string,
-      { endpoint?: string; keys?: { p256dh: string; auth: string } } | null
-    > | null;
-    if (!value) return [];
-    return Object.entries(value)
-      .filter(([, entry]) => Boolean(entry?.endpoint && entry?.keys))
-      .map(([uid, entry]) => ({ uid, subscription: entry as unknown as PushEndpoint }));
+    const { data, error } = await client.from("push_subscriptions").select("owner, endpoint, keys");
+    if (error || !data) return [];
+    return (data as Record<string, unknown>[])
+      .map((row) => {
+        const keys = row.keys as { p256dh?: string; auth?: string } | null;
+        if (typeof row.endpoint !== "string" || !keys?.p256dh || !keys?.auth) return null;
+        return {
+          uid: String(row.owner ?? ""),
+          subscription: {
+            endpoint: row.endpoint,
+            keys: { p256dh: keys.p256dh, auth: keys.auth },
+          } satisfies PushEndpoint,
+        };
+      })
+      .filter((entry): entry is { uid: string; subscription: PushEndpoint } => entry !== null);
   } catch {
     return [];
   }
 }
 
 async function forgetPersisted(authorization: string, uid: string): Promise<void> {
-  await writeAsCaller(authorization, `push/subscriptions/${uid}`, null);
+  const client = callerClient(authorization);
+  if (!client || !uid) return;
+  await client.from("push_subscriptions").delete().eq("owner", uid);
 }
 
 function sendOptions(vapid: { publicKey: string; privateKey: string; subject: string }) {
@@ -150,12 +157,19 @@ export async function POST(req: NextRequest): Promise<Response> {
     // republished) leaves the fallback map as the store, exactly as before.
     const identity = await verifyCaller(authorization);
     let persisted = false;
-    if (identity) {
-      persisted = await writeAsCaller(authorization, `push/subscriptions/${identity.uid}`, {
-        ...body.subscription,
-        deviceId,
-        updatedAt: Date.now(),
-      });
+    const client = callerClient(authorization);
+    if (identity && client) {
+      const { error } = await client.from("push_subscriptions").upsert(
+        {
+          owner: identity.uid,
+          endpoint: body.subscription.endpoint,
+          keys: body.subscription.keys,
+          device_id: deviceId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "owner" }
+      );
+      persisted = !error;
     }
     return Response.json({ ok: true, persisted });
   }

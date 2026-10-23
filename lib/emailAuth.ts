@@ -1,46 +1,38 @@
 // ── Signing in with an email address and a password ──────────────────────────
 //
-// Firebase Auth owns the credential: the password is hashed and stored by the
-// project, never by this app, and the result is an ordinary Firebase ID token.
-// That is the whole reason this door was added rather than a bespoke user table:
+// Supabase Auth owns the credential: the password is hashed and stored by the
+// project, never by this app, and the result is an ordinary Supabase session.
+// That is the whole reason this door exists rather than a bespoke user table:
 // `verifyCaller` in lib/serverControl.ts already turns that token into a uid,
-// the rules already scope every node to that uid, and the Dew wallet and the
-// chat history already hang off it. An email account is therefore the *same
-// kind of account* as a Google one — only the credential differs.
+// the policies already scope every row to that uid, and the Dew wallet and the
+// chat history already hang off it. An email account is therefore the *same kind
+// of account* as a Google one — only the credential differs.
 //
-// ── Why registering links instead of creating ────────────────────────────────
+// ── Why registering upgrades instead of creating ────────────────────────────
 // The app signs every first-time visitor in anonymously, so they already have a
-// uid and possibly chats under it. `linkWithCredential` attaches the new
-// email/password credential to that *existing* account, which leaves the uid
-// alone — so registering is an upgrade, not a migration. Creating a fresh user
-// with `createUserWithEmailAndPassword` would hand back a different uid and
-// orphan everything written so far, which is exactly the failure the Google
-// door in lib/account.ts was written to avoid.
+// uid and possibly chats under it. Supabase's documented way to keep that is
+// `updateUser({ email, password })` on the anonymous user: the address and the
+// password are added to the account already in use, and the uid does not move.
+// Registering is therefore an upgrade, not a migration. Creating a fresh user
+// would hand back a different uid and orphan everything written so far, which is
+// exactly the failure the Google door in lib/account.ts avoids too.
 //
-// If the address already belongs to an account, the link is refused and the
+// If the address already belongs to an account, the update is refused and the
 // right move is the opposite one: sign into that account, and let the caller
 // re-sync this device's chats onto it. Both paths end in the same outcome type,
 // so the interface can tell them apart without knowing why.
 //
 // ── Verification ─────────────────────────────────────────────────────────────
-// Registering sends a confirmation mail. Nothing is gated on it: an
-// unconfirmed account can still chat, and the interface offers a resend rather
-// than a wall. That is deliberate — a person who cannot receive mail at that
-// address yet must not lose access to a product they are already using.
+// Registering sends a confirmation mail when the project has confirmation on.
+// Nothing is gated on it: an unconfirmed account can still chat, and the
+// interface offers a resend rather than a wall. A person who cannot receive mail
+// at that address yet must not lose access to a product they are already using.
+// A project with confirmation switched off signs the person in immediately, and
+// `needsVerification` answers false.
 
-import {
-  EmailAuthProvider,
-  linkWithCredential,
-  reload,
-  sendEmailVerification,
-  sendPasswordResetEmail,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  type User,
-} from "firebase/auth";
-import { accountViewOf, saveAccountName } from "./account";
-import { firebaseConfigured, getServices } from "./firebaseHistory";
+import type { User } from "@supabase/supabase-js";
+import { accountViewOf, isAnonymousUser, saveAccountName } from "./account";
+import { ensureUser, getSupabase } from "./supabase";
 import type { AccountView } from "./accountState";
 
 /** What an email sign-in or registration actually did. */
@@ -58,38 +50,38 @@ export interface EmailAuthResult {
 
 /** Whether this deployment can offer the door at all. */
 export function emailAuthAvailable(): boolean {
-  return firebaseConfigured;
+  return getSupabase() !== null;
 }
 
 const UNCONFIGURED =
-  "This deployment has no Firebase project configured, so accounts are not available.";
+  "This deployment has no Supabase project configured, so accounts are not available.";
 
 function codeOf(cause: unknown): string {
   return (cause as { code?: string } | null)?.code ?? "";
 }
 
 /**
- * The account services, or a thrown error carrying a code the interface can
- * describe. `auth/unconfigured` has its own sentence in accountState.ts, so the
- * form renders a real explanation instead of "unconfigured".
+ * The client, or a thrown error carrying a code the interface can describe.
+ * `auth/unconfigured` has its own sentence in accountState.ts, so the form
+ * renders a real explanation instead of "unconfigured".
  */
-async function services() {
-  const current = await getServices();
-  if (!current) {
+function client() {
+  const supabase = getSupabase();
+  if (!supabase) {
     throw Object.assign(new Error(UNCONFIGURED), { code: "auth/unconfigured" });
   }
-  return current;
+  return supabase;
 }
 
-/** Writes the name onto the credential and remembers it for other browsers. */
-async function applyName(user: User, name?: string): Promise<void> {
+/** Writes the name onto the user's metadata and remembers it for other browsers. */
+async function applyName(name?: string): Promise<void> {
   const trimmed = (name ?? "").trim();
   if (!trimmed) {
     await saveAccountName(null);
     return;
   }
   try {
-    await updateProfile(user, { displayName: trimmed.slice(0, 40) });
+    await client().auth.updateUser({ data: { name: trimmed.slice(0, 40) } });
   } catch {
     // A display name is a convenience; the account is already signed in.
   }
@@ -97,26 +89,23 @@ async function applyName(user: User, name?: string): Promise<void> {
 }
 
 /**
- * Sends the confirmation mail, best effort.
+ * True while a confirmation mail has been sent but not acted on.
  *
- * Some projects have email verification switched off entirely, and some
- * environments refuse the request outright. Neither is a reason to fail a
- * registration that already succeeded, so the caller is told to offer a resend
- * rather than shown an error.
+ * `new_email` is how Supabase reports "this address is waiting for its link" —
+ * it happens only when confirmation is enabled for the project, and the user is
+ * still the anonymous one until the link is followed.
  */
-async function requestVerification(user: User): Promise<boolean> {
-  try {
-    await sendEmailVerification(user);
-    return true;
-  } catch {
-    return false;
-  }
+function needsVerification(user: User | null): boolean {
+  if (!user) return false;
+  if (user.new_email) return true;
+  if (isAnonymousUser(user)) return false;
+  return !user.email_confirmed_at;
 }
 
 /**
  * Creates an account for an address, or signs into the one that already exists.
  *
- * The anonymous account is upgraded in place when it can be, which is what keeps
+ * The anonymous user is upgraded in place when it can be, which is what keeps
  * the chats already written under this browser's uid exactly where they are.
  */
 export async function registerWithEmail(
@@ -124,39 +113,43 @@ export async function registerWithEmail(
   password: string,
   name?: string
 ): Promise<EmailAuthResult> {
-  const current = await services();
-  const existing = current.user ?? (await current.ensureUser());
+  const supabase = client();
+  const existing = await ensureUser();
+  const address = email.trim();
 
-  if (existing.isAnonymous) {
-    try {
-      const credential = EmailAuthProvider.credential(email, password);
-      const result = await linkWithCredential(existing, credential);
-      await applyName(result.user, name);
-      const sent = await requestVerification(result.user);
+  if (existing && isAnonymousUser(existing)) {
+    const { data, error } = await supabase.auth.updateUser({
+      email: address,
+      password,
+      data: name ? { name: name.trim().slice(0, 40) } : undefined,
+    });
+
+    if (!error) {
+      const user = data.user ?? existing;
+      if (name) await saveAccountName(name);
       return {
         outcome: "linked",
-        view: accountViewOf(result.user),
-        needsVerification: sent && !result.user.emailVerified,
+        view: accountViewOf(user),
+        needsVerification: needsVerification(user),
       };
-    } catch (cause) {
-      const code = codeOf(cause);
-      // The address already has an account. That is not a dead end: it is the
-      // signal to sign into it, which the block below does.
-      const alreadyExists =
-        code === "auth/email-already-in-use" ||
-        code === "auth/credential-already-in-use" ||
-        code === "auth/provider-already-linked";
-      if (!alreadyExists) throw cause;
     }
+
+    // The address already has an account. That is not a dead end: it is the
+    // signal to sign into it, which the block below does.
+    const alreadyExists =
+      codeOf(error) === "email_exists" ||
+      codeOf(error) === "user_already_exists" ||
+      /already (registered|exists)/i.test(error.message ?? "");
+    if (!alreadyExists) throw error;
   }
 
-  const credential = await signInWithEmailAndPassword(current.auth, email, password);
-  await applyName(credential.user, name);
-  const sent = credential.user.emailVerified ? false : await requestVerification(credential.user);
+  const signIn = await supabase.auth.signInWithPassword({ email: address, password });
+  if (signIn.error) throw signIn.error;
+  await applyName(name);
   return {
-    outcome: credential.user.uid === existing.uid ? "linked" : "adopted",
-    view: accountViewOf(credential.user),
-    needsVerification: sent && !credential.user.emailVerified,
+    outcome: signIn.data.user?.id === existing?.id ? "linked" : "adopted",
+    view: accountViewOf(signIn.data.user),
+    needsVerification: needsVerification(signIn.data.user),
   };
 }
 
@@ -166,14 +159,18 @@ export async function signInWithEmail(
   password: string,
   name?: string
 ): Promise<EmailAuthResult> {
-  const current = await services();
-  const before = current.user?.uid ?? "";
-  const credential = await signInWithEmailAndPassword(current.auth, email, password);
-  await applyName(credential.user, name);
+  const supabase = client();
+  const before = (await ensureUser())?.id ?? "";
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+  if (error) throw error;
+  await applyName(name);
   return {
-    outcome: credential.user.uid === before ? "linked" : "adopted",
-    view: accountViewOf(credential.user),
-    needsVerification: !credential.user.emailVerified,
+    outcome: data.user?.id === before ? "linked" : "adopted",
+    view: accountViewOf(data.user),
+    needsVerification: needsVerification(data.user),
   };
 }
 
@@ -181,14 +178,14 @@ export async function signInWithEmail(
  * Returns this device to an anonymous guest.
  *
  * Signing out and immediately signing in anonymously is the same move
- * `detachGoogleAccount` makes, and for the same reason: Firebase deletes an
- * account that has no credential left, so removing the provider would throw the
- * history away. The account stays; this browser simply stops being it.
+ * `detachGoogleAccount` makes, and for the same reason: the account keeps its
+ * history, and this browser simply stops being it. The account is not deleted —
+ * nothing here deletes a user.
  */
 export async function signOutToGuest(): Promise<AccountView> {
-  const current = await services();
-  await signOut(current.auth);
-  return accountViewOf(await current.ensureUser());
+  const supabase = client();
+  await supabase.auth.signOut();
+  return accountViewOf(await ensureUser());
 }
 
 /**
@@ -200,34 +197,45 @@ export async function refreshVerification(): Promise<{
   verified: boolean;
   view: AccountView | null;
 }> {
-  const current = await services();
-  const user = current.user;
-  if (!user) return { verified: false, view: null };
-  try {
-    await reload(user);
-  } catch {
-    // A failed reload leaves the last known state in place.
+  const supabase = client();
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) {
+    // A failed refresh leaves the last known state in place.
+    const { data: session } = await supabase.auth.getSession();
+    return { verified: Boolean(session.session?.user?.email_confirmed_at), view: null };
   }
-  return { verified: user.emailVerified, view: accountViewOf(user) };
+  return {
+    verified: Boolean(data.user.email_confirmed_at),
+    view: accountViewOf(data.user),
+  };
 }
 
 /** Sends the confirmation mail again. False when it could not be sent. */
 export async function resendVerificationEmail(): Promise<boolean> {
-  const current = await services();
-  const user = current.user;
+  const supabase = client();
+  const user = (await supabase.auth.getUser()).data.user;
   if (!user) return false;
-  if (user.emailVerified) return true;
-  return requestVerification(user);
+  if (user.email_confirmed_at) return true;
+  const address = user.new_email ?? user.email;
+  if (!address) return false;
+  try {
+    const { error } = await supabase.auth.resend({ type: "signup", email: address });
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Sends a password-reset mail.
  *
- * The address is not disclosed: Firebase answers the same way whether or not an
+ * The address is not disclosed: Supabase answers the same way whether or not an
  * account exists, which is why the interface says "if that address has an
  * account" rather than "sent".
  */
 export async function requestPasswordReset(email: string): Promise<void> {
-  const current = await services();
-  await sendPasswordResetEmail(current.auth, email.trim());
+  const supabase = client();
+  const redirectTo = typeof window === "undefined" ? undefined : window.location.origin;
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+  if (error) throw error;
 }

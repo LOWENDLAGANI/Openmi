@@ -1,17 +1,12 @@
-// ── GitHub OAuth, without Firebase in the way ────────────────────────────────
+// ── GitHub OAuth, on the app's own OAuth App ─────────────────────────────────
 //
-// Firebase can host a GitHub credential, and `lib/githubLink.ts` uses that when
-// the deployment has enabled the provider in the Firebase console. That is a
-// console step nobody can perform from the app, so a deployment that skipped it
-// had no way at all to give the agent a repository: the connect button failed
-// with a configuration message, and the panel sat on "Checking the connection".
-//
-// This module is the other door. A GitHub OAuth App is created once by the
-// deployment owner — `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` — and then
-// every visitor can connect GitHub from the app itself, with no Firebase
-// provider and no second identity. GitHub stays authorisation: the account is
-// still the Firebase user, and the access token is sealed with the deployment
-// key before it is written anywhere.
+// A GitHub OAuth App is created once by the deployment owner —
+// `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` — and then every visitor can
+// connect GitHub from the app itself, with no identity provider and no second
+// account. GitHub stays authorisation: the account is still the Supabase user,
+// and the access token is sealed with the deployment key before it is written
+// anywhere. The token-paste door in the repository panel is the fallback for a
+// deployment that has not created the app.
 //
 // The flow is a full-page round trip rather than a popup:
 //

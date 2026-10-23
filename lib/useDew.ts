@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import { authHeader } from "./firebaseHistory";
+import { authHeader } from "./supabase";
 import { LOW_BALANCE_THRESHOLD, roundDew } from "./dew";
 
 // ── The balance, as the interface sees it ────────────────────────────────────

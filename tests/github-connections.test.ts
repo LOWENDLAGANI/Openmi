@@ -1,12 +1,15 @@
 // ── Openmi — the GitHub connection collection ────────────────────────────────
 //
-// The storage module reads its database address and its sealing key from the
+// The storage module reads its project address and its sealing key from the
 // environment *when it is imported*, so this file sets both before the first
 // dynamic import. That is why it lives in its own suite: the rest of the tests
 // deliberately run with no deployment configured.
 //
-// The only thing stubbed is the Realtime Database itself. Sealing, unsealing,
-// the default pointer and replacement-on-reconnect are the real code.
+// The only thing stubbed is Postgres. The fake below speaks the slice of
+// PostgREST this module actually uses — filter by `eq`, order, upsert on
+// conflict, update, delete, and the single-object `Accept` header — so the real
+// query builder and the real requests are exercised, and sealing, unsealing, the
+// default pointer and replacement-on-reconnect are the real code.
 //
 //   bun run test
 
@@ -14,46 +17,114 @@ import assert from "node:assert/strict";
 
 const OAUTH_KEY = "9f".repeat(32);
 process.env.GITHUB_TOKEN_KEY = OAUTH_KEY;
-process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL = "https://openmi.test";
+process.env.NEXT_PUBLIC_SUPABASE_URL = "https://openmi.test";
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 
-/** An in-memory stand-in for the REST endpoints `writeAsCaller` uses. */
-function installDatabaseStub(): { rows: Map<string, string>; restore: () => void } {
-  const rows = new Map<string, string>();
+type Row = Record<string, unknown>;
+
+/**
+ * A very small PostgREST stand-in.
+ *
+ * Every row lives in a per-table array. The supported query surface is exactly
+ * what lib/github/connections.ts issues: `eq` filters, one `order`, `on_conflict`
+ * for upserts, and the `application/vnd.pgrst.object+json` accept header that
+ * `.maybeSingle()` sends. Anything else is answered as an empty result rather
+ * than guessed at.
+ */
+function installPostgrestStub(): {
+  tables: Map<string, Row[]>;
+  restore: () => void;
+} {
+  const tables = new Map<string, Row[]>();
+  const rowsFor = (table: string) => {
+    const existing = tables.get(table);
+    if (existing) return existing;
+    const created: Row[] = [];
+    tables.set(table, created);
+    return created;
+  };
+
   const realFetch = globalThis.fetch;
+
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    const path = url.pathname.replace(/\.json$/, "").replace(/^\//, "");
+    const table = url.pathname.replace(/^\/rest\/v1\//, "");
     const method = (init?.method ?? "GET").toUpperCase();
-    if (method === "PUT") {
-      rows.set(path, String(init?.body ?? "null"));
-      return new Response("null", { status: 200 });
-    }
-    if (method === "DELETE") {
-      rows.delete(path);
-      return new Response("null", { status: 200 });
-    }
-    const exact = rows.get(path);
-    if (exact !== undefined) return new Response(exact, { status: 200 });
+    const headers = new Headers(init?.headers as HeadersInit | undefined);
+    const wantsSingle = (headers.get("accept") ?? "").includes("pgrst.object");
+    const rows = rowsFor(table);
 
-    // A real database answers a parent read with its children nested, which is
-    // exactly what listing the collection relies on.
-    const descendants = [...rows.entries()].filter(([key]) => key.startsWith(`${path}/`));
-    if (descendants.length === 0) return new Response("null", { status: 200 });
-    const root: Record<string, unknown> = {};
-    for (const [key, body] of descendants) {
-      const segments = key.slice(path.length + 1).split("/");
-      let node: Record<string, unknown> = root;
-      for (const segment of segments.slice(0, -1)) {
-        const next = node[segment];
-        if (!next || typeof next !== "object") node[segment] = {};
-        node = node[segment] as Record<string, unknown>;
+    const filters: Array<[string, string]> = [];
+    const onConflict = url.searchParams.get("on_conflict");
+    let order: { column: string; ascending: boolean } | null = null;
+    for (const [key, value] of url.searchParams.entries()) {
+      if (key === "select") continue;
+      if (key === "on_conflict") continue;
+      if (key === "order") {
+        const [column, direction] = value.split(".");
+        order = { column: column!, ascending: direction !== "desc" };
+        continue;
       }
-      node[segments[segments.length - 1]!] = JSON.parse(body);
+      if (value.startsWith("eq.")) filters.push([key, value.slice(3)]);
     }
-    return new Response(JSON.stringify(root), { status: 200 });
+
+    const matches = (row: Row) => filters.every(([column, expected]) => String(row[column]) === expected);
+
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+    const single = (row: Row | undefined) => {
+      if (!row) {
+        return json(
+          { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" },
+          406
+        );
+      }
+      return json(row);
+    };
+
+    if (method === "POST") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Row | Row[];
+      const incoming = Array.isArray(body) ? body : [body];
+      const keys = (onConflict ?? "").split(",").filter(Boolean);
+      for (const entry of incoming) {
+        const existing = keys.length
+          ? rows.find((row) => keys.every((key) => String(row[key]) === String(entry[key])))
+          : undefined;
+        if (existing) Object.assign(existing, entry);
+        else rows.push({ ...entry });
+      }
+      return new Response(null, { status: 201 });
+    }
+
+    if (method === "PATCH") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Row;
+      for (const row of rows.filter(matches)) Object.assign(row, body);
+      return new Response(null, { status: 204 });
+    }
+
+    if (method === "DELETE") {
+      const kept = rows.filter((row) => !matches(row));
+      rows.splice(0, rows.length, ...kept);
+      return new Response(null, { status: 204 });
+    }
+
+    const found = rows.filter(matches);
+    if (order) {
+      const { column, ascending } = order;
+      found.sort((a, b) => {
+        const left = String(a[column] ?? "");
+        const right = String(b[column] ?? "");
+        const compared = left.localeCompare(right);
+        return ascending ? compared : -compared;
+      });
+    }
+    if (wantsSingle) return single(found[0]);
+    return json(found);
   }) as typeof fetch;
+
   return {
-    rows,
+    tables,
     restore: () => {
       globalThis.fetch = realFetch;
     },
@@ -71,7 +142,7 @@ function installDatabaseStub(): { rows: Map<string, string>; restore: () => void
     setDefaultConnection,
   } = await import("../lib/github/connections");
 
-  const stub = installDatabaseStub();
+  const stub = installPostgrestStub();
 
   const auth = "Bearer test-token";
   const uid = "uid-1";
@@ -128,8 +199,11 @@ function installDatabaseStub(): { rows: Map<string, string>; restore: () => void
 
     await check("a summary never carries the token", () => {
       for (const entry of list) assert.equal("token" in entry, false);
-      assert.equal(stub.rows.size >= 3, true, "the token is stored somewhere, sealed");
-      for (const value of stub.rows.values()) assert.equal(value.includes(octocatToken), false);
+      const stored = [...stub.tables.values()].flat();
+      assert.ok(stored.length >= 2, "the connections are stored somewhere");
+      for (const row of stored) {
+        assert.equal(JSON.stringify(row).includes(octocatToken), false, "a raw token reached the database");
+      }
     });
 
     await check("adding a second connection does not steal the default", async () => {

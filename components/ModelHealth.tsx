@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { authHeader } from "@/lib/firebaseHistory";
+import { authHeader } from "@/lib/supabase";
 
 // ── Admin: model health ──────────────────────────────────────────────────────
 // One row per model the deployment can reach, each with its own Test button.

@@ -1,16 +1,15 @@
-import { onValue, ref } from "firebase/database";
-import { getServices } from "./firebaseHistory";
+import { getSupabase } from "./supabase";
 
 // ── Runtime controls, read by the server on every request ───────────────────
-// The administrator sets these from the admin console. They live in Realtime
-// Database at `config/` with a public read, which is what lets the server-side
-// route handlers enforce them without holding any credential of its own: an
-// unauthenticated read is exactly what the rules grant, so no service account
-// had to be introduced to keep the deployment secret-free.
+// The administrator sets these from the admin console. They live in the
+// `app_config` table with a public read policy, which is what lets the
+// server-side route handlers enforce them without holding any credential of
+// their own: an unauthenticated read is exactly what the policy grants, so no
+// service key had to be introduced to keep the deployment secret-free.
 //
-// Every default is permissive. A missing or unreadable `config` node must
-// never take the app down, so anything absent is treated as "no restriction
-// configured" rather than as a denial.
+// Every default is permissive. A missing or unreadable row must never take the
+// app down, so anything absent is treated as "no restriction configured" rather
+// than as a denial.
 
 /**
  * One ban, with everything the console and the visitor need to know about it.
@@ -144,26 +143,72 @@ export function normalizeConfig(raw: unknown): AppConfig {
   };
 }
 
+/** The stored row, in the shape `normalizeConfig` understands. */
+function rowToStored(row: Record<string, unknown>) {
+  return {
+    chatEnabled: row.chat_enabled,
+    searchEnabled: row.search_enabled,
+    announcement: row.announcement,
+    dailyChatCap: row.daily_chat_cap,
+    bans: row.bans,
+    maintenanceEnabled: row.maintenance_enabled,
+    maintenanceMessage: row.maintenance_message,
+    updatedAt:
+      typeof row.updated_at === "string" ? new Date(row.updated_at).getTime() : row.updated_at,
+  };
+}
+
 /**
  * Subscribes to the administrator's settings. Used for the announcement banner
  * and to grey out controls, never for enforcement — a client that lies about
  * the config gains nothing, because the server decides.
+ *
+ * This is the one live listener the app has. It is a Postgres `postgres_changes`
+ * subscription on the single config row rather than a poll: an administrator
+ * switching chat off should reach every open tab in the time a database
+ * notification takes, and the row changes a handful of times a month, so the
+ * socket costs nothing between those events. The initial read is separate
+ * because a subscription only reports changes from the moment it starts.
+ *
+ * Every failure is silent. A missing config, a dropped socket, a browser with
+ * realtime blocked — all of them leave the permissive defaults in place, which
+ * is exactly what an unreachable config has always meant.
  */
 export function subscribeAppConfig(onChange: (config: AppConfig) => void): () => void {
-  let unsubscribe = () => {};
+  const client = getSupabase();
+  if (!client) {
+    onChange(DEFAULT_CONFIG);
+    return () => {};
+  }
+
   let cancelled = false;
 
-  void getServices()
-    .then((services) => {
-      if (!services || cancelled) return;
-      unsubscribe = onValue(ref(services.database, "config"), (snapshot) => {
-        onChange(normalizeConfig(snapshot.val()));
-      });
-    })
-    .catch(() => undefined);
+  void client
+    .from("app_config")
+    .select(
+      "chat_enabled, search_enabled, announcement, daily_chat_cap, bans, maintenance_enabled, maintenance_message, updated_at"
+    )
+    .eq("id", 1)
+    .maybeSingle()
+    .then(({ data }) => {
+      if (!cancelled && data) onChange(normalizeConfig(rowToStored(data)));
+    });
+
+  const channel = client
+    .channel("openmi:app-config")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "app_config" },
+      (payload) => {
+        if (cancelled) return;
+        const row = (payload.new ?? null) as Record<string, unknown> | null;
+        if (row) onChange(normalizeConfig(rowToStored(row)));
+      }
+    )
+    .subscribe();
 
   return () => {
     cancelled = true;
-    unsubscribe();
+    void client.removeChannel(channel);
   };
 }

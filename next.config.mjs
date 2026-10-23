@@ -7,19 +7,19 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 // The CSP is deliberately the permissive-but-bounded kind rather than a
 // nonce-based one. Openmi's own markup ships from 'self'; the restrictions that
 // buy real safety here are the *boundaries*: nothing may be framed by a third
-// party, no form may post anywhere unexpected, and the app may only talk to
-// the two services it actually uses (its own origin, Firebase auth, and
-// Firebase's database). An injected script from another origin is blocked
-// outright; an injected inline script is not, which is the accepted trade
-// until the artifact preview — an <iframe srcdoc> that inherits this policy and
-// would break under 'strict-dynamic' — is served from a separate origin.
+// party, no form may post anywhere unexpected, and the app may only talk to the
+// one service it actually uses — its own origin and the Supabase project (Auth
+// over https, PostgREST over https, realtime over wss). An injected script from
+// another origin is blocked outright; an injected inline script is not, which
+// is the accepted trade until the artifact preview — an <iframe srcdoc> that
+// inherits this policy and would break under 'strict-dynamic' — is served from
+// a separate origin.
 //
-// Firebase's Realtime Database is reached over both https and wss, and newer
-// projects use *.firebasedatabase.app rather than *.firebaseio.com, so both
-// hosts are named. The Google sign-in popup needs accounts.google.com in
-// frame-src and googleapis.com in script-src. Dropping any of these turns into
-// a silent auth failure, which is exactly the kind of breakage that survives a
-// code review.
+// The wildcard is what makes this survive a project move: a Supabase project URL
+// is https://<ref>.supabase.co, and Auth, PostgREST and Realtime all live under
+// it. A custom domain in front of the project would need naming here too.
+// Dropping any of these turns into a silent auth failure, which is exactly the
+// kind of breakage that survives a code review.
 const isDev = process.env.NODE_ENV !== "production";
 const devEval = isDev ? " 'unsafe-eval'" : "";
 
@@ -27,22 +27,17 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   // 'unsafe-inline' for scripts is required by Next's hydration bootstrap, and
   // for styles because the app sets inline style attributes from React.
-  // googleapis.com is required for Google Sign-In and Google Tools (Calendar, Tasks, etc.)
   // 'unsafe-eval' is added below for `next dev` only. React Refresh — the hot
   // reload runtime — evaluates a string to register each component, and without
   // it every page of the development site renders as an empty black screen with
   // an EvalError in the console. Production never gets the directive.
-  `script-src 'self' 'unsafe-inline'${devEval} https://apis.google.com https://accounts.google.com`,
+  `script-src 'self' 'unsafe-inline'${devEval}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app https://apis.google.com https://accounts.google.com",
-  // Google sign-in needs two frames: accounts.google.com, and the Firebase auth
-  // helper page the SDK opens at the project's hosting domain. Firebase Hosting
-  // serves a project at both *.firebaseapp.com and *.web.app, so both are named
-  // — if the authDomain is ever the .web.app one, a missing entry here breaks
-  // sign-in for every visitor with a frame-src violation that is easy to miss.
-  "frame-src 'self' https://accounts.google.com https://*.firebaseapp.com https://*.web.app",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  // Nothing is framed but the app's own artifact preview.
+  "frame-src 'self'",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
@@ -61,7 +56,9 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
     key: "Cross-Origin-Opener-Policy",
-    value: "same-origin-allow-popups", // Added to allow the Google auth popup to talk to your app
+    // Supabase Auth is a full-page round trip, not a popup, so nothing needs to
+    // keep a cross-origin window handle alive.
+    value: "same-origin",
   },
   {
     key: "Permissions-Policy",

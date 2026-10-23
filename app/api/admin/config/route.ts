@@ -1,26 +1,24 @@
 import { NextRequest } from "next/server";
 import { normalizeConfig, type AppConfig } from "@/lib/appConfig";
-import { invalidateConfig, isAdmin, requireAdmin, serverControlsConfigured, verifyCaller, writeAsCaller } from "@/lib/serverControl";
+import { invalidateConfig, isAdmin, requireAdmin, serverControlsConfigured, verifyCaller, writeAppConfig } from "@/lib/serverControl";
 
 // ── Administrator-only control surface ──────────────────────────────────────
-// Read by anyone, because the public rules allow it and the server needs it to
-// enforce. Written only by the administrator: the request must carry a Firebase
-// ID token, the token is verified with Google, and the write is then performed
-// with that same token so `database.rules.json` makes the final decision rather
-// than this file.
+// Read by anyone, because the public policy allows it and the server needs it to
+// enforce. Written only by the administrator: the request must carry a Supabase
+// access token, the token is verified against the project, and the write is then
+// performed with that same token so the row-level security policies make the
+// final decision rather than this file.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CONFIG_PATH = "config";
-
 /**
  * The administrator's address, as the server sees it.
  *
- * `database.rules.json` remains the source of truth: the write below is made
- * with the caller's own token, so Firebase compares the address itself. This
- * value only lets the route refuse early with a clear message, and a mismatch
- * between the two shows up as a refused write rather than a silent success.
+ * The policies remain the source of truth: the write below is made with the
+ * caller's own token, so Postgres compares the address itself. This value only
+ * lets the route refuse early with a clear message, and a mismatch between the
+ * two shows up as a refused write rather than a silent success.
  */
 function configuredAdminEmail(): string {
   return process.env.OPENMI_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
@@ -73,10 +71,13 @@ export async function PUT(req: NextRequest): Promise<Response> {
     bannedAt: ban.bannedAt > 0 ? ban.bannedAt : now,
     bannedBy: ban.bannedBy || admin.identity.email || "unknown",
   }));
-  const written = await writeAsCaller(authorization, CONFIG_PATH, next);
+  const written = await writeAppConfig(authorization, next);
   if (!written) {
     return Response.json(
-      { error: "The database refused the write. Check that the address in the rules matches `OPENMI_ADMIN_EMAIL`." },
+      {
+        error:
+          "The database refused the write. Check that the address seeded in `app_admin` matches `OPENMI_ADMIN_EMAIL`.",
+      },
       { status: 403 }
     );
   }

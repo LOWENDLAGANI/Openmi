@@ -7,7 +7,7 @@ import RedeemCodeBox from "@/components/RedeemCodeBox";
 import DewQrDialog from "@/components/DewQrDialog";
 import { bindGoogleAccount, watchAccount } from "@/lib/account";
 import { describeLinkError, isDismissed, type AccountView } from "@/lib/accountState";
-import { firebaseConfigured } from "@/lib/firebaseHistory";
+import { supabaseConfigured } from "@/lib/supabase";
 import { useDew } from "@/lib/useDew";
 import {
   DEW_PACKS,
@@ -21,7 +21,7 @@ function DewPanel() {
   useEffect(() => {
     void (async () => {
       try {
-        const { authHeader } = await import("@/lib/firebaseHistory");
+        const { authHeader } = await import("@/lib/supabase");
         await fetch("/api/dew", { method: "POST", headers: await authHeader(), cache: "no-store" });
         await refresh();
       } catch {
@@ -111,7 +111,7 @@ export default function OpenmiPlusPage() {
                 Sign in to see your balance and top up. A balance belongs to an account, so Openmi needs
                 to know who it is before it can show one.
               </p>
-              {firebaseConfigured ? (
+              {supabaseConfigured ? (
                 <button
                   type="button"
                   onClick={() => void signIn()}

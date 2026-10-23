@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_CONFIG, isBanActive, subscribeAppConfig, type AppConfig, type BanRecord } from "@/lib/appConfig";
-import { endAdminSession, listUsage, saveAppConfig, type AdminUsage, type AdminUser } from "@/lib/firebaseAdmin";
-import { getServices } from "@/lib/firebaseHistory";
+import { endAdminSession, listUsage, saveAppConfig, type AdminUsage, type AdminUser } from "@/lib/cloudAdmin";
+import { authHeader } from "@/lib/supabase";
 import { broadcastPush } from "@/lib/push";
 
 // ── Runtime controls ────────────────────────────────────────────────────────
@@ -185,15 +185,14 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
     onError(null);
     setPushNotice(null);
     try {
-      const current = await getServices();
-      const token = await current?.auth.currentUser?.getIdToken(true);
-      if (!token) throw new Error("Sign in with Google again, then send the push.");
+      const headers = await authHeader();
+      if (!headers.Authorization) throw new Error("Sign in again, then send the push.");
       const result = await broadcastPush({ title: "Openmi", body: text });
       if (!result.ok) {
         throw new Error(
           result.error === "missing-keys"
             ? "This deployment has no push keys — see Settings → Notifications for the three names."
-            : "Could not send the push. Check that database.rules.json has been republished with the push/subscriptions rules."
+            : "Could not send the push. Check that the Supabase migrations have been applied."
         );
       }
       const count = result.sent ?? 0;

@@ -3,9 +3,9 @@
 // ── "Why can't I sign in?" ──────────────────────────────────────────────────
 //
 // A collapsed row in Settings, not a permanent part of the interface. It exists
-// because the error the SDK shows (`auth/admin-restricted-operation`) names no
+// because the error the SDK shows (`anonymous_provider_disabled`) names no
 // cause and no fix, and the four possible causes live in four different places
-// in the Firebase console. Opening this and pressing one button replaces that
+// in the Supabase dashboard. Opening this and pressing one button replaces that
 // guessing with the backend's own answer.
 //
 // Nothing here decides access. It reports which project this build talks to and
@@ -92,8 +92,8 @@ export default function AuthDiagnostics() {
             </div>
 
             <p className="text-[9.5px] leading-relaxed text-white/25">
-              These values are embedded when the site is built. If the project id does not match the
-              Firebase project you have been changing, that is the whole answer: the deployed build
+              These values are embedded when the site is built. If the project URL does not match the
+              Supabase project you have been changing, that is the whole answer: the deployed build
               is talking to a different project.
             </p>
           </div>

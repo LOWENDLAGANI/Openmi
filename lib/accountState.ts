@@ -1,22 +1,23 @@
 // ── Visitor account state ────────────────────────────────────────────────────
-// Pure logic only. Nothing here imports Firebase, so the rules that decide what
+// Pure logic only. Nothing here imports Supabase, so the rules that decide what
 // a visitor is shown — and what happens to their name when they bind — can be
 // tested without a browser, a network, or a project.
 //
 // This is the user-facing account, and it is deliberately not the administrator's
-// one. Binding a Google account grants exactly what the database rules grant
-// `auth != null`, and nothing else: elevation is decided by `database.rules.json`
-// naming one address, so there is no code path here by which signing in could
-// reach the console. See the note on bindGoogleAccount in lib/account.ts.
+// one. Binding a Google identity grants exactly what the row-level security
+// policies grant `authenticated`, and nothing else: elevation is decided by the
+// policies in `supabase/migrations` comparing one address, so there is no code
+// path here by which signing in could reach the console. See the note on
+// bindGoogleAccount in lib/account.ts.
 
 /** Which credential the account signed in with. Null for a guest. */
 export type AccountProvider = "google" | "email" | null;
 
 /** What Openmi knows about who is using it right now. */
 export type AccountStatus =
-  /** No NEXT_PUBLIC_FIREBASE_* values, so there is no account to have. */
+  /** No NEXT_PUBLIC_SUPABASE_* values, so there is no account to have. */
   | "unconfigured"
-  /** Firebase is configured but not answering, so the state is unknown. */
+  /** Supabase is configured but not answering, so the state is unknown. */
   | "unreachable"
   /** Signed in with no provider: a name and a local database, nothing portable. */
   | "guest"
@@ -54,7 +55,7 @@ export interface AccountView {
 
 export interface AccountInput {
   configured: boolean;
-  /** False when Firebase could not be reached at all. */
+  /** False when Supabase could not be reached at all. */
   reachable?: boolean;
   /** null when no one is signed in yet. */
   signedIn: boolean;
@@ -66,8 +67,8 @@ export interface AccountInput {
 }
 
 /**
- * Reduces what Firebase reports to the one thing the interface needs: is this
- * person a guest, or has an account?
+ * Reduces what the auth server reports to the one thing the interface needs: is
+ * this person a guest, or has an account?
  *
  * The distinction is drawn from `isAnonymous` rather than from whether an email
  * exists, because a Google account always has one and an anonymous account
@@ -108,8 +109,8 @@ export function describeAccount(input: AccountInput): AccountView {
     };
   }
   if (!input.signedIn) {
-    // Firebase is fine and simply has not signed anyone in yet. The app signs a
-    // first-time visitor in anonymously, so this is brief and not an error.
+    // The project is fine and simply has not signed anyone in yet. The app signs
+    // a first-time visitor in anonymously, so this is brief and not an error.
     return GUEST_VIEW;
   }
 
@@ -146,7 +147,7 @@ export function accountHeadline(view: AccountView, displayName: string): string 
 export function accountExplanation(view: AccountView): string {
   switch (view.status) {
     case "unconfigured":
-      return "Add the NEXT_PUBLIC_FIREBASE_* values and redeploy to turn this on. Everything else about Openmi keeps working without it.";
+      return "Add the NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY values and redeploy to turn this on. Everything else about Openmi keeps working without it.";
     case "unreachable":
       return "Nothing has changed. Your chats and your name are still on this device — check the connection and try again in a moment.";
     case "linked":
@@ -158,50 +159,60 @@ export function accountExplanation(view: AccountView): string {
 }
 
 /**
- * Firebase's error codes, turned into something worth reading on a phone.
+ * Supabase's error codes, turned into something worth reading on a phone.
  *
  * These are the failures that are actually reachable here, and each one has a
  * concrete cause the person can act on. Anything unrecognised keeps its own
- * message rather than being replaced with a guess.
+ * message rather than being replaced with a guess — Supabase's own text is often
+ * more specific than the code the SDK exposes.
  */
 const LINK_ERRORS: Record<string, string> = {
-  "auth/popup-closed-by-user": "Sign-in was cancelled.",
-  "auth/cancelled-popup-request":
-    "Another sign-in window is already open. Close it and try again.",
-  "auth/operation-not-allowed":
-    "Google sign-in is switched off. In Firebase → Authentication → Sign-in method, turn on Google.",
-  "auth/unauthorized-domain":
-    "This site is not authorised. In Firebase → Authentication → Settings → Authorized domains, add the address you are visiting from.",
-  "auth/network-request-failed":
-    "The request to Google never completed. Check your connection, and whether an extension is blocking googleapis.com.",
-  "auth/popup-blocked":
-    "The browser blocked the sign-in window. Allow pop-ups for this site and try again.",
-  "auth/too-many-requests": "Too many attempts. Wait a minute and try again.",
-  "auth/credential-already-in-use":
-    "That Google account is already linked to Openmi on another browser. Sign in to it there instead — your existing chats are waiting.",
-  "auth/account-exists-with-different-credential":
-    "That Google account already has a Openmi history. Sign in to it from the browser that has it, and your chats will come with you.",
-  "auth/requires-recent-login":
+  // ── OAuth ─────────────────────────────────────────────────────────────────
+  "access_denied": "Sign-in was cancelled.",
+  "provider_disabled":
+    "Google sign-in is switched off. In the Supabase dashboard → Authentication → Sign In / Providers, turn on Google.",
+  "oauth_provider_not_supported":
+    "That provider is not enabled for this project. Turn it on in Auth → Sign In / Providers.",
+  "anonymous_provider_disabled":
+    "Anonymous sign-ins are switched off, so Openmi cannot start a guest session. In the Supabase dashboard → Authentication → Sign In / Providers, turn on Anonymous sign-ins.",
+  "manual_linking_disabled":
+    "This project cannot attach a second sign-in method to an account. In Auth → Settings, turn on manual linking.",
+  "identity_already_exists":
+    "That Google account is already linked elsewhere. Sign in to it there instead — your existing chats are waiting.",
+  "bad_oauth_state": "The sign-in link expired. Start again from this page.",
+  "bad_oauth_callback": "The sign-in came back in a shape this project does not accept. Start again from this page.",
+  "over_request_rate_limit": "Too many attempts. Wait a minute and try again.",
+  "over_email_send_rate_limit":
+    "Too many emails have been sent. Wait a few minutes before trying again.",
+  "signup_disabled":
+    "Sign-ups are switched off for this project. In the Supabase dashboard → Authentication → Sign In / Providers, turn on Allow new users to sign up.",
+  "email_not_confirmed":
+    "That address has not been confirmed yet. Check your inbox for the link, then try again.",
+  "user_banned": "That account has been disabled.",
+  "session_not_found": "That session has expired. Sign in again.",
+  "session_expired": "That session has expired. Sign in again.",
+  "reauthentication_needed":
     "For safety, sign in again before changing what is linked to this account.",
-  "auth/user-disabled": "That account has been disabled.",
 
   // ── email and password ────────────────────────────────────────────────────
   // Reachable from the register and sign-in forms. Each says what to do next
   // rather than restating the code, because the code is not the useful part.
-  "auth/invalid-email": "That is not a valid email address.",
-  "auth/missing-email": "Enter your email address.",
-  "auth/missing-password": "Enter your password.",
-  "auth/weak-password": "Use at least six characters for your password.",
-  "auth/email-already-in-use":
+  "email_address_invalid": "That is not a valid email address.",
+  "validation_failed": "That email address is not one this project accepts.",
+  "email_address_not_authorized": "This project cannot send mail to that address.",
+  "weak_password": "Use at least six characters for your password.",
+  "email_exists":
     "An account already exists for that address. Sign in instead — your chats come with you.",
-  "auth/invalid-credential": "That email and password do not match an account.",
-  "auth/invalid-login-credentials": "That email and password do not match an account.",
-  "auth/wrong-password": "That password is not right for this address.",
-  "auth/user-not-found": "There is no account for that address. Create one instead.",
-  "auth/email-change-needs-verification":
+  "user_already_exists":
+    "An account already exists for that address. Sign in instead — your chats come with you.",
+  "invalid_credentials": "That email and password do not match an account.",
+  "user_not_found": "There is no account for that address. Create one instead.",
+  "same_password": "Choose a password you have not used on this account before.",
+  "provider_email_needs_verification":
     "Confirm your current address before changing it. Check your inbox for the link.",
-  "auth/provider-already-linked": "This account already has a password.",
-  "auth/unconfigured": "This deployment has no Firebase project configured, so accounts are unavailable.",
+  "email_provider_disabled":
+    "Email sign-in is switched off. In the Supabase dashboard → Authentication → Sign In / Providers, turn on Email.",
+  "auth/unconfigured": "This deployment has no Supabase project configured, so accounts are unavailable.",
 };
 
 export function describeLinkError(cause: unknown): string {
@@ -213,13 +224,17 @@ export function describeLinkError(cause: unknown): string {
 
 /** True when a failure is the person closing the window, which is not a problem. */
 export function isDismissed(cause: unknown): boolean {
-  const code = (cause as { code?: string })?.code ?? "";
-  return code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request";
+  const error = cause as { code?: string; message?: string } | null;
+  const code = error?.code ?? "";
+  if (code === "access_denied") return true;
+  // A closed tab never reaches a callback, so the only other shape this takes is
+  // the provider's own words in the redirect.
+  return /access_denied|user (cancelled|denied)|cancelled/i.test(error?.message ?? "");
 }
 
 // ── The name ─────────────────────────────────────────────────────────────────
 
-/** Matches the 40-character limit the database rules enforce on a stored name. */
+/** Matches the 40-character limit the database enforces on a stored name. */
 export const NAME_MAX = 40;
 
 export function normalizeName(name: string | null | undefined): string {

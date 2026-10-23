@@ -1,40 +1,37 @@
 // ── Dew on the server ────────────────────────────────────────────────────────
 //
-// The deployment holds no service account, so — exactly like every other
-// privileged thing this app does — the server only ever touches the database
-// with a token it has itself verified, and the rules judge that token. Two
-// consequences shape this file:
+// The deployment holds no service key, so — exactly like every other privileged
+// thing this app does — the server only ever touches the data with a token it has
+// itself verified, and the policies judge that token.
 //
-//   1. `dew/{uid}` lives at a top-level node, not under `users/{uid}`, because
-//      `.write` grants cascade downward and cannot be revoked by a deeper rule.
-//      A balance under `users/` would be writable by the person it describes.
-//   2. REST has no transactions, but it has conditional writes: a GET with
-//      `X-Firebase-ETag: true` returns an ETag, and a PUT carrying
-//      `If-Match: <etag>` is applied only if the node is unchanged, replying
-//      412 otherwise. Spent is deducted under that guard, so two overlapping
-//      requests cannot both write their charge and lose one.
+// Two things changed shape when this moved from the Realtime Database, and both
+// are improvements rather than compromises:
 //
-// A failed conditional write is charged again on the *next* request rather than
-// retried here, because retrying inside a streaming response cannot be made
-// reliable and an over-charge is worse than an under-charge the caller can see.
+//   1. The balance is no longer one writable node. `dew_credits` holds the
+//      credits, `dew_wallets` holds the spend, and the policies let a caller
+//      *read* their own and insert a credit only when the code it names is worth
+//      exactly that. A modified client cannot write itself a balance.
+//   2. `spent` is incremented by `deduct_dew()` in one statement. The old build
+//      needed an ETag dance because REST had no transactions; a conditional write
+//      that lost the race dropped the charge, and a fallback plain write could
+//      fold a concurrent charge in early. Postgres just adds, so two overlapping
+//      requests cannot lose a charge or double one.
+//
+// A failed charge is logged by the caller rather than retried here: retrying
+// inside a streaming response cannot be made reliable, and an over-charge is
+// worse than an under-charge the caller can see.
 
 import {
   DUST_THRESHOLD,
   TRIAL_DEW,
   canAfford as balanceCovers,
   dewBalanceFrom,
-  nextSpent,
   roundDew,
   toMillidew,
   type TokenUsage,
 } from "./dew";
+import { clientForToken } from "./supabase";
 import type { ModeId } from "./models";
-
-const databaseUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL?.trim() ?? "";
-
-function restBase(): string | null {
-  return databaseUrl ? databaseUrl.replace(/\/+$/, "") : null;
-}
 
 export interface DewState {
   /** Credits minus spent, in Dew, floored at zero. */
@@ -45,8 +42,17 @@ export interface DewState {
 
 const EMPTY: DewState = { balance: 0, credits: {}, spent: 0 };
 
+function bearer(authorization: string | null): string {
+  return authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+}
+
+/** Keys are upper-case words and the reserved meta keys. */
+function normalizeCreditKey(key: string): string {
+  return key.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40) || "UNKNOWN";
+}
+
 /**
- * Reads this caller's Dew node with their own token.
+ * Reads this caller's Dew with their own token.
  *
  * A refused or failed read is a zero balance, never an assumption of credit:
  * fail-closed, because the only safe answer to "I could not check" is to grant
@@ -54,36 +60,34 @@ const EMPTY: DewState = { balance: 0, credits: {}, spent: 0 };
  * charged.
  */
 export async function readDewState(authorization: string | null, uid: string): Promise<DewState> {
-  const token = authorization?.replace(/^Bearer\s+/i, "").trim();
-  const base = restBase();
-  if (!token || !base || !uid) return EMPTY;
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return EMPTY;
+
   try {
-    const response = await fetch(`${base}/dew/${encodeURIComponent(uid)}.json?auth=${encodeURIComponent(token)}`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!response.ok) return EMPTY;
-    const raw = (await response.json()) as unknown;
-    if (!raw || typeof raw !== "object") return EMPTY;
-    const value = raw as { credits?: unknown; spent?: unknown };
-    const credits: Record<string, number> = {};
-    if (value.credits && typeof value.credits === "object") {
-      for (const [key, entry] of Object.entries(value.credits as Record<string, unknown>)) {
-        if (typeof entry === "number" && entry > 0 && entry <= 1_000_000) {
-          credits[normalizeCreditKey(key)] = entry;
-        }
+    const [credits, wallet] = await Promise.all([
+      client.from("dew_credits").select("code, amount").eq("owner", uid),
+      client.from("dew_wallets").select("spent").eq("owner", uid).maybeSingle(),
+    ]);
+    if (credits.error || wallet.error) return EMPTY;
+
+    const map: Record<string, number> = {};
+    for (const row of (credits.data ?? []) as Array<{ code?: unknown; amount?: unknown }>) {
+      if (typeof row.code !== "string") continue;
+      const value = Number(row.amount);
+      if (Number.isFinite(value) && value > 0 && value <= 1_000_000) {
+        map[normalizeCreditKey(row.code)] = value;
       }
     }
-    const spent = typeof value.spent === "number" && Number.isFinite(value.spent) && value.spent > 0 ? value.spent : 0;
-    return { balance: dewBalanceFrom({ credits, spent }), credits, spent };
+    const spent = Number(wallet.data?.spent ?? 0);
+    return {
+      balance: dewBalanceFrom({ credits: map, spent }),
+      credits: map,
+      spent: Number.isFinite(spent) && spent > 0 ? spent : 0,
+    };
   } catch {
     return EMPTY;
   }
-}
-
-/** Keys are upper-case words and the reserved meta keys. */
-function normalizeCreditKey(key: string): string {
-  return key.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40) || "UNKNOWN";
 }
 
 /** True when this caller has enough Dew to start a request at `floor`. */
@@ -92,8 +96,12 @@ export function canAfford(state: DewState, floor: number = DUST_THRESHOLD): bool
 }
 
 /**
- * Writes one credit with the caller's token. Refused by the rules if the key
- * already exists or the amount is not what the code record carries.
+ * Writes one credit with the caller's token.
+ *
+ * Refused by the policies unless the amount is the trial figure or exactly what a
+ * live code carries, and refused again if the key already exists — a credit is
+ * write-once, which is what stops a replayed claim from stacking. `ignoreDuplicates`
+ * makes the second case a no-op rather than an error, so a retry is safe.
  */
 export async function writeCredit(
   authorization: string | null,
@@ -101,21 +109,19 @@ export async function writeCredit(
   key: string,
   amount: number
 ): Promise<boolean> {
-  const token = authorization?.replace(/^Bearer\s+/i, "").trim();
-  const base = restBase();
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
   const creditKey = normalizeCreditKey(key);
-  if (!token || !base || !uid || creditKey === "UNKNOWN") return false;
+  if (!client || !uid || creditKey === "UNKNOWN") return false;
+
   try {
-    const response = await fetch(
-      `${base}/dew/${encodeURIComponent(uid)}/credits/${encodeURIComponent(creditKey)}.json?auth=${encodeURIComponent(token)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(amount),
-        cache: "no-store",
-      }
-    );
-    return response.ok;
+    const { error } = await client
+      .from("dew_credits")
+      .upsert(
+        { owner: uid, code: creditKey, amount: roundDew(amount) },
+        { onConflict: "owner,code", ignoreDuplicates: true }
+      );
+    return !error;
   } catch {
     return false;
   }
@@ -124,59 +130,51 @@ export async function writeCredit(
 /**
  * Ensures the trial balance exists, exactly once.
  *
- * Called from `/api/dew` on a verified session. The write is refused by the
- * rules if `credits/TRIAL` already exists — the rule compares `data` and
- * `newData` — so a replayed call cannot stack another 25. The value arrives
- * from config when the administrator has tuned it and 25 otherwise, but the
- * rules pin it either way: a modified client cannot mint credits of its own
- * choosing.
+ * Called from `/api/dew` on a verified session. The primary key is what makes it
+ * once: a replayed call collides with the row it already wrote and changes
+ * nothing, where the Realtime Database needed a rule comparing `data` with
+ * `newData`. The amount is pinned by `dew_credit_allowed()` either way, so a
+ * modified client cannot mint credits of its own choosing.
  */
-export async function ensureTrialGrant(authorization: string | null, uid: string): Promise<{ ok: boolean; alreadyGranted: boolean }> {
-  const token = authorization?.replace(/^Bearer\s+/i, "").trim();
-  const base = restBase();
-  if (!token || !base || !uid) return { ok: false, alreadyGranted: false };
+export async function ensureTrialGrant(
+  authorization: string | null,
+  uid: string
+): Promise<{ ok: boolean; alreadyGranted: boolean }> {
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return { ok: false, alreadyGranted: false };
+
   try {
-    const check = await fetch(`${base}/dew/${encodeURIComponent(uid)}/credits/TRIAL.json?auth=${encodeURIComponent(token)}`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (check.ok) {
-      const existing = await check.json();
-      if (typeof existing === "number" && existing > 0) {
-        return { ok: true, alreadyGranted: true };
-      }
-    }
-    const response = await fetch(`${base}/dew/${encodeURIComponent(uid)}/credits/TRIAL.json?auth=${encodeURIComponent(token)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(TRIAL_DEW),
-      cache: "no-store",
-    });
-    if (response.ok) return { ok: true, alreadyGranted: false };
-    return { ok: false, alreadyGranted: false };
+    const existing = await client
+      .from("dew_credits")
+      .select("code")
+      .eq("owner", uid)
+      .eq("code", "TRIAL")
+      .maybeSingle();
+    if (existing.error) return { ok: false, alreadyGranted: false };
+    if (existing.data) return { ok: true, alreadyGranted: true };
+
+    const written = await client
+      .from("dew_credits")
+      .upsert(
+        { owner: uid, code: "TRIAL", amount: TRIAL_DEW },
+        { onConflict: "owner,code", ignoreDuplicates: true }
+      );
+    if (written.error) return { ok: false, alreadyGranted: false };
+    return { ok: true, alreadyGranted: false };
   } catch {
     return { ok: false, alreadyGranted: false };
   }
 }
 
 /**
- * Deducts the cost of one request, conditionally on the spent node.
+ * Deducts the cost of one request and answers the new total.
  *
- * Refused by the rules for a non-owner, and refused by the 412 when someone
- * else's write landed between our read and our write. In both cases the return
- * says so and the caller decides what to tell the user. `newSpent` is the
- * caller's responsibility — the route computes it from the state it read —
- * because only the caller knows which charge belongs to which read.
- *
- * The two conditional attempts exist to keep two simultaneous charges from
- * colliding. But a charge that cannot be written *at all* is the worse mistake
- * for the ledger: a deployment whose conditional-write machinery misbehaves —
- * an ETag capriciously refused, a rules republish mid-release, a transient
- * 500 — would otherwise drop its balances on every request for ever, which is
- * exactly the "Dew never deducts" bug this module exists to prevent. So after
- * the conditional path is exhausted, one plain write computed from a fresh
- * read lands the charge: at worst a concurrent charge's increment is folded
- * in early, at best the money is honest.
+ * `deduct_dew()` adds to the caller's own wallet in one statement; the function
+ * carries the uid, so the only wallet it can touch is the one the token belongs
+ * to. `newSpent` comes back from the database rather than from the value the
+ * route computed, which is what makes the caller's view of the ledger agree with
+ * the stored one even when two requests overlap.
  */
 export async function deductDew(
   authorization: string | null,
@@ -184,99 +182,72 @@ export async function deductDew(
   previousSpent: number,
   charge: number
 ): Promise<{ ok: boolean; newSpent: number; conflict: boolean; fallback?: boolean; reason?: string }> {
-  const token = authorization?.replace(/^Bearer\s+/i, "").trim();
-  const base = restBase();
-  if (!token || !base || !uid) return { ok: false, newSpent: previousSpent, conflict: false, reason: "unconfigured" };
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) {
+    return { ok: false, newSpent: previousSpent, conflict: false, reason: "unconfigured" };
+  }
   if (charge <= 0) return { ok: true, newSpent: previousSpent, conflict: false };
 
-  const target = `${base}/dew/${encodeURIComponent(uid)}/spent.json?auth=${encodeURIComponent(token)}`;
-
-  // Two conditional attempts, no more. The first fails only on a 412 —
-  // somebody else's charge landed between our read and our write — and the
-  // second simply re-reads and lands this one behind theirs.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      // ── 1. ETag read of the spent node ──
-      const read = await fetch(`${target}&X-Firebase-ETag=true`, {
-        headers: { Accept: "application/json", "X-Firebase-ETag": "true" },
-        cache: "no-store",
-      });
-      if (!read.ok) {
-        // A refused read is unusual: log it and take the plain path below.
-        continue;
-      }
-
-      const etag = read.headers.get("ETag")?.trim() ?? "";
-      const raw = await read.json().catch(() => null);
-      // `null` body means the node has never been written — the state of every
-      // account until its first charge lands.
-      const exists = raw !== null && raw !== undefined;
-      const remoteValue = Number(raw ?? 0);
-      const serverSpent = Number.isFinite(remoteValue) && remoteValue > 0 ? remoteValue : 0;
-
-      // ── 2. The value to condition on ──
-      // A location that does not exist cannot hand back an ETag to echo: the
-      // conditional-write contract names the literal `null_etag` as the value
-      // that matches "still nothing here". Sending an empty If-Match instead —
-      // which is what falling back to the header does on a brand-new account —
-      // is a guaranteed 412, and because nothing was ever written the next
-      // charge fails the same way: the balance never moved, for anyone, for
-      // ever. The second attempt falls back to whatever the re-read returned,
-      // so neither guess can be the only door.
-      const ifMatch = exists ? etag : attempt === 0 || !etag ? "null_etag" : etag;
-      if (!ifMatch) continue;
-
-      // Reconcile: the route read state a moment ago; the server may have moved.
-      const expected = nextSpent(serverSpent, roundDew(charge));
-
-      // ── 3. Conditional PUT: only if unchanged since our ETag ──
-      const write = await fetch(target, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "If-Match": ifMatch },
-        body: JSON.stringify(expected),
-        cache: "no-store",
-      });
-      if (write.ok) return { ok: true, newSpent: expected, conflict: false };
-      // Any failure, of any code, leaves this loop: the second attempt re-reads
-      // first and the plain write below is what actually guarantees the charge
-      // lands. Retrying a request whose outcome is unknown is not attempted
-      // beyond these two — a double charge is worse than an under-charge the
-      // route logs and the next request re-deducts.
-    } catch {
-      // A thrown read or write is the same story: go round once more, then
-      // take the plain path.
-    }
-  }
-
-  // ── The plain write ──
-  // A fresh read (so the value this write carries is the true total), then an
-  // unconditional PUT of that read plus this charge. No ETag, no preconditions.
   try {
-    const read = await fetch(target, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    const raw = read.ok ? await read.json().catch(() => null) : null;
-    const remoteValue = Number(raw ?? 0);
-    const serverSpent = Number.isFinite(remoteValue) && remoteValue > 0 ? remoteValue : 0;
-    const expected = nextSpent(serverSpent, roundDew(charge));
-    const write = await fetch(target, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(expected),
-      cache: "no-store",
-    });
-    if (write.ok) {
-      return { ok: true, newSpent: expected, conflict: false, fallback: true };
+    const { data, error } = await client.rpc("deduct_dew", { p_amount: roundDew(charge) });
+    if (error) {
+      return { ok: false, newSpent: previousSpent, conflict: false, reason: error.message };
     }
-    return { ok: false, newSpent: Math.max(serverSpent, previousSpent), conflict: false, reason: `write-http-${write.status}` };
+    const newSpent = Number(data);
+    return {
+      ok: true,
+      newSpent: Number.isFinite(newSpent) ? newSpent : previousSpent,
+      conflict: false,
+    };
   } catch (error) {
     return {
       ok: false,
       newSpent: previousSpent,
       conflict: false,
-      reason: error instanceof Error ? error.message : "write-threw",
+      reason: error instanceof Error ? error.message : "threw",
     };
+  }
+}
+
+/**
+ * Appends one line to the request ledger.
+ *
+ * Best effort: a refused write costs the history, never the balance. The policy
+ * accepts only `type = 'usage'` rows with a positive charge, so this cannot be
+ * used to write an arbitrary number into somebody's record.
+ */
+export async function recordDewTransaction(
+  authorization: string | null,
+  uid: string,
+  line: {
+    dew: number;
+    model?: string | null;
+    prompt?: number;
+    completion?: number;
+    repo?: string | null;
+    at?: number;
+  }
+): Promise<boolean> {
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  const at = line.at ?? Date.now();
+  try {
+    const { error } = await client.from("dew_transactions").insert({
+      id: `${at}-${Math.random().toString(36).slice(2, 8)}`,
+      owner: uid,
+      type: "usage",
+      at: new Date(at).toISOString(),
+      dew: roundDew(line.dew),
+      model: line.model ?? null,
+      prompt: line.prompt ?? null,
+      completion: line.completion ?? null,
+      repo: line.repo ?? null,
+    });
+    return !error;
+  } catch {
+    return false;
   }
 }
 
@@ -303,4 +274,3 @@ export function creditsTotal(credits: Record<string, number>): number {
   for (const value of Object.values(credits)) total += toMillidew(value);
   return total / 1000;
 }
-

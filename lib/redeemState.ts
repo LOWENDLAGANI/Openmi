@@ -1,5 +1,5 @@
 // ── Redeem codes ─────────────────────────────────────────────────────────────
-// Pure logic only — no Firebase, no fetch — so every rule about what a code is,
+// Pure logic only — no database, no fetch — so every rule about what a code is,
 // what claiming one does, and what happens when it is terminated can be tested
 // without a browser or a network.
 //
@@ -72,7 +72,7 @@ export function parseRedeemCode(raw: unknown): RedeemCode | null {
   if (!isValidCode(code)) return null;
 
   // A Dew amount is read strictly: a number, positive, and at most 100,000 —
-  // the same ceiling `database.rules.json` validates on the write. A string
+  // the same ceiling the database validates on the write. A string
   // that happens to look like a number is refused rather than coerced: the rules
   // only ever store a number, so anything else arrived by some other road.
   const rawDew = value.dew;
@@ -93,6 +93,29 @@ export function parseRedeemCode(raw: unknown): RedeemCode | null {
     createdAt: rawCreatedAt,
     note: String(value.note ?? "").trim().slice(0, 120),
   };
+}
+
+/**
+ * Reads a `redeem_codes` / `lookup_redeem_code()` row as a code record.
+ *
+ * PostgREST answers a `numeric` column as a string and a `timestamptz` as an
+ * ISO date, so the mapping is done here once rather than in each of the three
+ * places that read a code — the console, the claim box, and the server that
+ * resolves a claim into Dew. All three then validate through the same parser,
+ * which is what keeps them from disagreeing about what a code is worth.
+ */
+export function redeemCodeFromRow(raw: unknown): RedeemCode | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const createdAt =
+    typeof row.created_at === "string" ? Date.parse(row.created_at) : row.createdAt;
+  return parseRedeemCode({
+    code: row.code,
+    dew: row.dew === null || row.dew === undefined ? undefined : Number(row.dew),
+    active: row.active,
+    createdAt,
+    note: row.note,
+  });
 }
 
 // ── What a code is worth right now ───────────────────────────────────────────

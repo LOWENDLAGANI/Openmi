@@ -15,7 +15,7 @@ import NotificationNag from "@/components/NotificationNag";
 import NamePrompt from "@/components/NamePrompt";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
-import { syncVisitorProfile } from "@/lib/firebaseHistory";
+import { syncVisitorProfile } from "@/lib/cloudHistory";
 import { bindGoogleAccount, consumeGoogleSignIn, loadAccountName, type BindOutcome } from "@/lib/account";
 import { describeLinkError, greetingName, isDismissed, normalizeName, type AccountView } from "@/lib/accountState";
 import {
@@ -50,13 +50,9 @@ import {
   type ReasoningEffort,
   type ResponseLength,
 } from "@/lib/settings";
-import {
-  authHeader,
-  firebaseConfigured,
-  getServices,
-  loadChatsFromAccount,
-  syncFirebaseHistory,
-} from "@/lib/firebaseHistory";
+import { authHeader, sessionUser, supabaseConfigured } from "@/lib/supabase";
+import { isAnonymousUser } from "@/lib/account";
+import { loadChatsFromAccount, syncCloudHistory } from "@/lib/cloudHistory";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
 import { TempThread, type MessageInput } from "@/lib/tempChat";
@@ -123,7 +119,7 @@ export default function HomePage() {
   const abortRef = useRef<AbortController | null>(null);
   // ── Temporary chat ─────────────────────────────────────────────────────────
   // A conversation that is never written down: not to IndexedDB, and therefore
-  // not to the account either, since everything uploaded to Firebase starts as
+  // not to the account either, since everything uploaded to the account starts as
   // a local row. The thread lives in this component and in this ref — nothing
   // else is allowed to keep a copy.
   const [temporary, setTemporary] = useState(false);
@@ -240,16 +236,16 @@ export default function HomePage() {
         if (!cancelled) setResolvingAccount(false);
       };
 
-      if (!firebaseConfigured) {
+      if (!supabaseConfigured) {
         settle();
         return;
       }
 
       void (async () => {
         try {
-          const services = await getServices();
+          const user = await sessionUser();
           // Nobody, or an anonymous visitor: there is no account to ask.
-          if (cancelled || !services?.user || services.user.isAnonymous) {
+          if (cancelled || !user || isAnonymousUser(user)) {
             settle();
             return;
           }
@@ -295,15 +291,15 @@ export default function HomePage() {
     }, [hydrated]);
 
   useEffect(() => {
-    if (!hydrated || !firebaseConfigured) return;
+    if (!hydrated || !supabaseConfigured) return;
     if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     historyTimerRef.current = setTimeout(() => {
-      void syncFirebaseHistory()
+      void syncCloudHistory()
         .then((result) => {
           if (result.synced) setLoggingError(false);
         })
         .catch((error: unknown) => {
-          console.error("[Openmi] Firebase logging failed", error);
+          console.error("[Openmi] Cloud history logging failed", error);
           setLoggingError(true);
         });
     }, 900);
@@ -385,7 +381,7 @@ export default function HomePage() {
   // Consume it once on mount and run the same tail the popup path runs, so
   // visitors whose browsers block the popup land signed in and named.
   useEffect(() => {
-    if (!firebaseConfigured) return;
+    if (!supabaseConfigured) return;
     let cancelled = false;
     void consumeGoogleSignIn()
       .then(async (redirect) => {
@@ -1147,7 +1143,7 @@ export default function HomePage() {
           open
           onSave={handleSaveName}
           onGoogle={handleGoogleEntry}
-          googleAvailable={firebaseConfigured}
+          googleAvailable={supabaseConfigured}
           googleBusy={googleBusy}
           googleError={googleError}
         />

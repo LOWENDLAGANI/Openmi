@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
-import { deleteAsCaller } from "@/lib/rtdb";
+import { clientForToken } from "@/lib/supabase";
 import { isProjectId, readProject } from "@/lib/projects";
 
 // ── Detaching a project ─────────────────────────────────────────────────────
@@ -42,7 +42,21 @@ export async function DELETE(
     return Response.json({ error: "That project is not attached to this account." }, { status: 404 });
   }
 
-  const removed = await deleteAsCaller(authorization, `projects/${identity.uid}/${id}`);
+  const token = authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  const client = token ? clientForToken(token) : null;
+  let removed = false;
+  if (client) {
+    try {
+      const { error } = await client
+        .from("projects")
+        .delete()
+        .eq("owner", identity.uid)
+        .eq("id", id);
+      removed = !error;
+    } catch {
+      removed = false;
+    }
+  }
   if (!removed) {
     return Response.json({ error: "The project could not be removed." }, { status: 503 });
   }

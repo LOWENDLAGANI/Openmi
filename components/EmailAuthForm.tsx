@@ -7,7 +7,7 @@
 // of these fields would be the kind of duplicate that drifts, and the failure
 // modes below are exactly the ones worth fixing in one place.
 //
-// The form never decides who may sign in. It hands a credential to Firebase and
+// The form never decides who may sign in. It hands a credential to Supabase and
 // reports what came back; `describeLinkError` turns the code into a sentence
 // with a fix in it. Nothing here can reach the administrator's console.
 
@@ -99,7 +99,7 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
   if (!emailAuthAvailable()) {
     return (
       <p className="rounded-xl border border-amber-300/20 bg-amber-400/[0.05] p-3 text-[11px] leading-relaxed text-amber-100/85">
-        This deployment has no Firebase project configured, so an account cannot be created here.
+        This deployment has no Supabase project configured, so an account cannot be created here.
       </p>
     );
   }
@@ -171,7 +171,7 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
         >
           Forgot password?
         </button>
-        <span className="text-[10px] text-white/20">Firebase Auth stores the password</span>
+        <span className="text-[10px] text-white/20">Supabase Auth stores the password</span>
       </div>
 
       {error && <p className="text-[11px] leading-relaxed text-red-200/80">{error}</p>}

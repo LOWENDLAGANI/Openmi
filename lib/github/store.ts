@@ -1,36 +1,27 @@
 // ── Where a GitHub connection lives ─────────────────────────────────────────
 //
-// The access token is written to `users/{uid}/github` sealed with the
-// deployment's key (lib/github/crypto.ts). Two properties matter:
+// The access token is stored in the `github_links` row for the caller, sealed
+// with the deployment's key (lib/github/crypto.ts). Two properties matter:
 //
 //   1. The browser never receives the token again. `github/status` answers with
 //      the login and the date, never the secret.
-//   2. The value is written with the caller's own Firebase token, so the rules
-//      decide whether it may be written — the same pattern as Dew and history.
-//      A user who can write their own node can replace their own connection,
-//      which is theirs to replace. They cannot read anybody else's, and what
-//      they can read of their own is ciphertext.
+//   2. The row is written with the caller's own token, so the policies decide
+//      whether it may be written — the same pattern as Dew and history. A user
+//      who can write their own row can replace their own connection, which is
+//      theirs to replace. They cannot read anybody else's, and what they can read
+//      of their own is ciphertext.
 //
 // A token that cannot be decrypted is treated as "not connected" rather than as
 // an error: that is exactly what happens after the key is rotated, and the
 // remedy is to reconnect.
 
-import { deleteAsCaller, readAsCaller } from "../rtdb";
-import { writeAsCaller } from "../serverControl";
+import { clientForToken } from "../supabase";
 import { defaultGithubConnection } from "./connections";
 import { seal, tokenKey, unseal } from "./crypto";
 import { looksLikeGithubToken } from "./oauth";
 
 export interface GithubLink {
   /** The access token. Server-only; never serialised into a response. */
-  token: string;
-  login: string;
-  scopes: string;
-  linkedAt: number;
-}
-
-interface StoredLink {
-  v: 1;
   token: string;
   login: string;
   scopes: string;
@@ -44,15 +35,26 @@ export interface GithubLinkSummary {
   linkedAt: number;
 }
 
-const pathFor = (uid: string) => `users/${uid}/github`;
+function bearer(authorization: string | null): string {
+  return authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+}
+
+function ms(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
 
 /**
  * Where a connection made through GitHub's own OAuth App lives.
  *
- * The Firebase-hosted flow can write to the database under the caller's uid,
- * because the browser still holds a Firebase token when it posts the result.
+ * The token-paste flow can write to the database under the caller's uid,
+ * because the browser still holds a session token when it posts the result.
  * The OAuth callback is a top-level navigation back from github.com and has no
- * Firebase token at all, so it cannot write there. The token is sealed into an
+ * bearer token at all, so it cannot write there. The token is sealed into an
  * httpOnly cookie instead: still encrypted with the deployment key, still never
  * read by the browser, and bound to one uid inside the sealed payload so a
  * cookie from another account is ignored rather than used.
@@ -185,15 +187,26 @@ export async function saveGithubLink(
   link: Omit<GithubLink, "linkedAt"> & { linkedAt?: number }
 ): Promise<boolean> {
   const key = tokenKey();
-  if (!key) return false;
-  const stored: StoredLink = {
-    v: 1,
-    token: seal(link.token, key),
-    login: link.login,
-    scopes: link.scopes,
-    linkedAt: link.linkedAt ?? Date.now(),
-  };
-  return writeAsCaller(authorization, pathFor(uid), stored);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!key || !client || !uid) return false;
+
+  const linkedAt = link.linkedAt ?? Date.now();
+  try {
+    const { error } = await client.from("github_links").upsert(
+      {
+        owner: uid,
+        token: seal(link.token, key),
+        login: link.login.slice(0, 100),
+        scopes: link.scopes.slice(0, 200),
+        linked_at: new Date(linkedAt).toISOString(),
+      },
+      { onConflict: "owner" }
+    );
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 /** Reads and opens the connection, or null when there is not a usable one. */
@@ -202,19 +215,28 @@ export async function readGithubLink(
   uid: string
 ): Promise<GithubLink | null> {
   const key = tokenKey();
-  if (!key) return null;
-  const stored = await readAsCaller<StoredLink>(authorization, pathFor(uid));
-  if (!stored || typeof stored !== "object" || stored.v !== 1 || typeof stored.token !== "string") {
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!key || !client || !uid) return null;
+  try {
+    const { data, error } = await client
+      .from("github_links")
+      .select("token, login, scopes, linked_at")
+      .eq("owner", uid)
+      .maybeSingle();
+    if (error || !data || typeof data.token !== "string") return null;
+
+    const opened = unseal(data.token, key);
+    if (!opened) return null;
+    return {
+      token: opened,
+      login: typeof data.login === "string" ? data.login.slice(0, 100) : "",
+      scopes: typeof data.scopes === "string" ? data.scopes.slice(0, 200) : "",
+      linkedAt: ms(data.linked_at),
+    };
+  } catch {
     return null;
   }
-  const token = unseal(stored.token, key);
-  if (!token) return null;
-  return {
-    token,
-    login: typeof stored.login === "string" ? stored.login.slice(0, 100) : "",
-    scopes: typeof stored.scopes === "string" ? stored.scopes.slice(0, 200) : "",
-    linkedAt: typeof stored.linkedAt === "number" ? stored.linkedAt : 0,
-  };
 }
 
 /** The summary the browser is allowed to see. Never includes the token. */
@@ -229,5 +251,13 @@ export async function readGithubSummary(
 
 /** Removes the connection. */
 export async function clearGithubLink(authorization: string | null, uid: string): Promise<boolean> {
-  return deleteAsCaller(authorization, pathFor(uid));
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  try {
+    const { error } = await client.from("github_links").delete().eq("owner", uid);
+    return !error;
+  } catch {
+    return false;
+  }
 }

@@ -1,5 +1,5 @@
 // ── Dew — the product's pay-as-you-go currency ────────────────────────────────
-// Pure logic only: no Firebase, no fetch. Everything about what a request costs,
+// Pure logic only: no database, no fetch. Everything about what a request costs,
 // what a balance means, and what a balance looks like on screen is decided here,
 // so the routes, the client and the tests cannot drift apart.
 //

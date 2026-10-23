@@ -6,7 +6,6 @@ import {
   isAdmin,
   readConfig,
   verifyCaller,
-  writeAsCaller,
 } from "@/lib/serverControl";
 import { readProject } from "@/lib/projects";
 import { resolveGithubLink } from "@/lib/github/store";
@@ -15,7 +14,7 @@ import { runAgentStep, type RepoChatMessage } from "@/lib/agent/run";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
 import type { AgentMessage } from "@/lib/agent/model";
 import { canAfford, outOfDewMessage, requestPrice } from "@/lib/dew";
-import { deductDew, type DewState } from "@/lib/serverDew";
+import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 import { resolveDew } from "@/lib/serverRedeem";
 
 // ── One agent step ───────────────────────────────────────────────────────────
@@ -236,19 +235,13 @@ export async function POST(req: NextRequest): Promise<Response> {
           `[dew] agent charge of ${price} not recorded for uid ${identity.uid} (conflict=${deducted.conflict}, reason=${deducted.reason ?? "unknown"})`
         );
       } else {
-        await writeAsCaller(
-          authorization,
-          `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          {
-            type: "usage",
-            at: Date.now(),
-            dew: price,
-            model: "code",
-            prompt: billed.prompt,
-            completion: billed.completion,
-            repo: project.repoFullName,
-          }
-        ).catch(() => undefined);
+        await recordDewTransaction(authorization, identity.uid, {
+          dew: price,
+          model: "code",
+          prompt: billed.prompt,
+          completion: billed.completion,
+          repo: project.repoFullName,
+        }).catch(() => undefined);
       }
     }
 
@@ -266,7 +259,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         if (stored) changesetId = changeSet.id;
         else
           changesetWarning =
-            "This change could not be saved for review, so it cannot be committed from here. Check the database rules for `changesets/{uid}`.";
+            "This change could not be saved for review, so it cannot be committed from here. Check the `change_sets` policies in the Supabase project.";
       }
     }
 

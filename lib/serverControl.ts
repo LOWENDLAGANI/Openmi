@@ -1,37 +1,37 @@
 import { isBanActive, normalizeConfig, DEFAULT_CONFIG, type AppConfig, type BanRecord } from "./appConfig";
+import { clientForToken, publicClient, supabaseConfigured } from "./supabase";
 
 // ── Server-side enforcement of the administrator's controls ─────────────────
-// The deployment holds no service account, so this module does exactly two
-// things with the database:
+// The deployment holds no service key, so this module does exactly two things
+// with the database:
 //
-//   1. Reads `config/` unauthenticated. The rules grant a public read there,
-//      so this is a plain REST GET and needs no credential.
+//   1. Reads `app_config` unauthenticated. That table is readable by `anon` on
+//      purpose — the server has to know whether chat is switched off before it
+//      knows who is asking — and reading it grants nothing: enforcement is here,
+//      not in the browser.
 //   2. Writes on behalf of a caller who has already proved who they are, by
-//      forwarding their own Firebase ID token. The rules then judge that
-//      token, so `database.rules.json` stays the only place access is decided.
+//      forwarding their own JWT. Postgres row-level security then judges that
+//      token, so the policies in `supabase/migrations` stay the only place
+//      access is decided.
+//
+// Nothing in this file can grant what a policy refuses, and nothing in it holds
+// a credential that could read the whole database.
 
-const databaseUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL?.trim() ?? "";
-const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY?.trim() ?? "";
 const adminEmail = process.env.OPENMI_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
 
-/** `https://x.firebaseio.com` -> `https://x.firebaseio.com` (no trailing slash). */
-function restBase(): string | null {
-  if (!databaseUrl) return null;
-  return databaseUrl.replace(/\/+$/, "");
-}
-
-export const serverControlsConfigured = Boolean(restBase());
+/** True when the deployment has a Supabase project configured. */
+export const serverControlsConfigured = supabaseConfigured;
 
 /** Result of authenticating a caller, resolved from the token itself. */
 export interface CallerIdentity {
   uid: string;
-  /** Empty for an anonymous visitor, who has no Google account attached. */
+  /** Empty for an anonymous visitor, who has no account attached. */
   email: string;
   /**
-   * Whether the verified account carries a Google credential (a bound or
-   * signed-up Google account) as opposed to an anonymous guest. Read from the
-   * token itself, so a caller cannot claim it. The Google tools gate on this:
-   * acting on someone's Calendar requires a real account, not a guest session.
+   * Whether the verified account carries a Google identity as opposed to being
+   * an anonymous guest. Read from the token itself, so a caller cannot claim it.
+   * The Google tools gate on this: acting on someone's repositories requires a
+   * real account, not a guest session.
    */
   googleLinked: boolean;
 }
@@ -48,17 +48,21 @@ const CACHE_MS = 5000;
  * everybody out, and a control that cannot be read cannot be enforced anyway.
  */
 export async function readConfig(): Promise<AppConfig> {
-  const base = restBase();
-  if (!base) return DEFAULT_CONFIG;
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.config;
 
+  const client = publicClient();
+  if (!client) return DEFAULT_CONFIG;
+
   try {
-    const response = await fetch(`${base}/config.json`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!response.ok) return DEFAULT_CONFIG;
-    const config = normalizeConfig(await response.json());
+    const { data, error } = await client
+      .from("app_config")
+      .select(
+        "chat_enabled, search_enabled, announcement, daily_chat_cap, bans, maintenance_enabled, maintenance_message, updated_at"
+      )
+      .eq("id", 1)
+      .maybeSingle();
+    if (error || !data) return DEFAULT_CONFIG;
+    const config = normalizeConfig(configRowToStored(data));
     cached = { config, at: Date.now() };
     return config;
   } catch {
@@ -66,21 +70,78 @@ export async function readConfig(): Promise<AppConfig> {
   }
 }
 
+/** The column names, as the config normaliser expects them. */
+function configRowToStored(row: Record<string, unknown>) {
+  return {
+    chatEnabled: row.chat_enabled,
+    searchEnabled: row.search_enabled,
+    announcement: row.announcement,
+    dailyChatCap: row.daily_chat_cap,
+    bans: row.bans,
+    maintenanceEnabled: row.maintenance_enabled,
+    maintenanceMessage: row.maintenance_message,
+    updatedAt:
+      typeof row.updated_at === "string" ? new Date(row.updated_at).getTime() : row.updated_at,
+  };
+}
+
+/** The stored columns for a normalised config. */
+export function storedConfigFrom(config: AppConfig) {
+  return {
+    chat_enabled: config.chatEnabled,
+    search_enabled: config.searchEnabled,
+    announcement: config.announcement,
+    daily_chat_cap: config.dailyChatCap,
+    bans: config.bans,
+    maintenance_enabled: config.maintenanceEnabled,
+    maintenance_message: config.maintenanceMessage,
+    updated_at: new Date(config.updatedAt || Date.now()).toISOString(),
+  };
+}
+
 /** Drops the cache so an admin's change takes effect on the very next request. */
 export function invalidateConfig(): void {
   cached = null;
 }
 
+/** Writes the controls with the caller's own token. RLS decides if they may. */
+export async function writeAppConfig(
+  authorization: string | null,
+  config: AppConfig
+): Promise<boolean> {
+  const token = bearerToken(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client) return false;
+  try {
+    // `.select()` is not decoration: PostgreSQL filters a refused UPDATE rather
+    // than raising, so without reading the row back an administrator's write
+    // could be refused and still be reported as saved. The row comes back empty
+    // when the policies said no.
+    const { data, error } = await client
+      .from("app_config")
+      .upsert({ id: 1, ...storedConfigFrom(config) }, { onConflict: "id" })
+      .select("id");
+    if (error) return false;
+    return Array.isArray(data) && data.length === 1;
+  } catch {
+    return false;
+  }
+}
+
+function bearerToken(authorization: string | null): string {
+  return authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+}
+
 /**
  * Verified identities, keyed by a hash of the token.
  *
- * Without this every request pays for a round trip to Google before it can do
- * anything at all — a chat message waits on an auth lookup it does not need,
- * because the same token arrives with the next message a second later. Five
- * minutes is the ceiling: long enough to remove the latency, short enough that
- * a revoked or newly-signed-in token is forgotten almost immediately. The
- * token itself is never stored as a key, only its hash, so a memory dump of
- * this process does not hand out usable credentials.
+ * Without this every request pays for a round trip to the auth server before it
+ * can do anything at all — a chat message waits on an identity lookup it does not
+ * need, because the same token arrives with the next message a second later.
+ * Five minutes is the ceiling: long enough to remove the latency, short enough
+ * that a revoked or newly-signed-in token is forgotten almost immediately. The
+ * token itself is never stored as a key, only its hash, so a memory dump of this
+ * process does not hand out usable credentials.
  */
 const verified = new Map<string, { identity: CallerIdentity; at: number }>();
 const VERIFY_CACHE_MS = 5 * 60_000;
@@ -101,18 +162,20 @@ async function tokenKey(token: string): Promise<string> {
 }
 
 /**
- * Verifies a Firebase ID token and returns who it belongs to.
+ * Verifies a caller's Supabase access token and returns who it belongs to.
  *
- * The API key below is the project's public web key, which is already in the
- * browser bundle; it identifies the project, not the user. Identity comes from
- * the signed token, so possession of the key grants nothing on its own.
- * Returns null for anything missing, malformed, expired, or revoked.
+ * `auth.getUser(jwt)` has the auth server verify the signature, the expiry and
+ * the revocation state, so a token minted for another project — or one that has
+ * been signed out — answers null here. The anon key used by the client below
+ * identifies the project, not the user; identity comes from the token.
+ *
+ * The `email` claim is the one the administrator policies compare against, so it
+ * is read from the verified user object rather than from the token's payload.
  */
 export async function verifyCaller(authorization: string | null): Promise<CallerIdentity | null> {
-  const token = authorization?.replace(/^Bearer\s+/i, "").trim();
+  const token = bearerToken(authorization);
   if (!token) return fail("no-token");
-  if (!apiKey) return fail("no-api-key");
-  if (!restBase()) return fail("no-database-url");
+  if (!supabaseConfigured) return fail("no-project");
 
   // A repeat of a token seen in the last few minutes is answered locally. This
   // is the common case — one token covers a whole session — so it is checked
@@ -123,53 +186,36 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
     return remembered.identity;
   }
 
-  let response: Response;
+  const client = clientForToken(token);
+  if (!client) return fail("no-client");
+
+  let user;
   try {
-    response = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken: token }),
-        cache: "no-store",
-      }
-    );
+    const { data, error } = await client.auth.getUser(token);
+    if (error) return fail(`lookup-failed: ${error.message}`);
+    user = data.user;
   } catch (error) {
     return fail("lookup-threw", error);
   }
-  if (!response.ok) {
-    const body = (await response.text().catch(() => "")).slice(0, 200);
-    return fail(`lookup-http-${response.status}`, body);
-  }
-  const payload = (await response.json().catch(() => null)) as {
-    users?: Array<{
-      localId?: string;
-      uid?: string;
-      email?: string;
-      providerUserInfo?: Array<{ providerId?: string }>;
-    }>;
-  } | null;
-  const user = payload?.users?.[0];
-  // The Identity Toolkit REST API names the user id `localId`. `uid` is what
-  // the client SDK exposes on a user object, and reading that field here
-  // silently identified nobody.
-  const uid = user?.localId ?? user?.uid;
-  if (!uid) return fail("lookup-returned-no-user", payload);
-  // An anonymous visitor has no email, and that is the normal case: almost
-  // every caller is anonymous. Demanding an email here would identify nobody,
-  // which silently disables the ban list and the daily caps as well. The uid
-  // is what those controls act on; only the admin check needs an address.
-  // `providerUserInfo` lists every credential on the account; the anonymous
-  // provider is implicit and never listed, so the presence of google.com here
-  // is exactly the "signed up with Google" signal the Google tools need.
-  const googleLinked = Array.isArray(user?.providerUserInfo)
-    ? user.providerUserInfo.some((provider) => provider?.providerId === "google.com")
-    : false;
+  if (!user?.id) return fail("lookup-returned-no-user");
+
+  // An anonymous visitor has no email, and that is the normal case: almost every
+  // caller is a guest. Demanding an address here would identify nobody, which
+  // silently disables the ban list and the daily caps as well. The uid is what
+  // those controls act on; only the admin check needs an address.
+  //
+  // `identities` lists every credential on the account, so a google entry is
+  // exactly the "signed up with Google" signal the repository panel needs.
+  const googleLinked = Array.isArray(user.identities)
+    ? user.identities.some((identity) => identity.provider === "google")
+    : user.app_metadata?.provider === "google";
+
   const identity: CallerIdentity = {
-    uid,
-    email: typeof user?.email === "string" ? user.email.toLowerCase() : "",
+    uid: user.id,
+    email: typeof user.email === "string" ? user.email.toLowerCase() : "",
     googleLinked,
   };
+
   // Only a verified identity is cached. A failure is not, because the next
   // request with the same token deserves its own look — and because caching a
   // refusal would mean a token that becomes valid mid-session stays refused.
@@ -178,8 +224,6 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
     for (const [entryKey, entry] of verified) {
       if (entry.at < cutoff) verified.delete(entryKey);
     }
-    // Still full of live entries: drop the oldest rather than grow without
-    // bound. A dropped entry is simply looked up again on its next request.
     if (verified.size >= VERIFY_CACHE_MAX) {
       const oldest = verified.keys().next().value;
       if (oldest !== undefined) verified.delete(oldest);
@@ -200,7 +244,6 @@ function fail(reason: string, detail?: unknown): null {
   return null;
 }
 
-/** Whether a verified caller is the administrator named in the rules. */
 /**
  * True when a mutating request did not come from another site.
  *
@@ -244,6 +287,7 @@ export function isSameOriginRequest(headers: Headers): boolean {
   return candidates.some((candidate) => candidate === host);
 }
 
+/** Whether a verified caller carries the administrator's address. */
 export function isAdmin(identity: CallerIdentity | null): boolean {
   return Boolean(identity && adminEmail && identity.email === adminEmail);
 }
@@ -258,13 +302,20 @@ export type AdminCheck = { allowed: true; identity: CallerIdentity } | { allowed
  * account", and a 503 means "this deployment has no administrator configured at
  * all" — three problems with three different fixes, which a single generic
  * refusal would flatten into one.
+ *
+ * This is not what enforces administrator access. The policies in
+ * `supabase/migrations` compare the caller's verified address against
+ * `app_admin.email`, so a request that got past this function and failed that
+ * comparison is still refused by Postgres. This gate exists so the console can
+ * say *why* in words a person can act on.
  */
 export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
   if (!adminEmail) {
     return {
       allowed: false,
       status: 503,
-      error: "Set `OPENMI_ADMIN_EMAIL` in the deployment environment to match the address in the database rules.",
+      error:
+        "Set `OPENMI_ADMIN_EMAIL` in the deployment environment to match the address seeded in `app_admin`.",
     };
   }
 
@@ -273,18 +324,16 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
     return {
       allowed: false,
       status: 401,
-      error: "Your session could not be verified. Close the console, sign in with Google again, and retry.",
+      error: "Your session could not be verified. Close the console, sign in again, and retry.",
     };
   }
   if (!isAdmin(identity)) {
     return {
       allowed: false,
       status: 403,
-      // Reached when the token is valid but carries no administrator address,
-      // which is what an anonymous session looks like even after signing in.
       error: identity.email
         ? "This account is not the Openmi administrator."
-        : "This session is still anonymous. Sign in with Google inside the console before using the controls.",
+        : "This session is still anonymous. Sign in inside the console before using the controls.",
     };
   }
   return { allowed: true, identity };
@@ -307,10 +356,6 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
  *   - neither set → an in-process Map, which is per instance and resets on cold
  *     start. It is a speed bump against a casual flood, not a defence against a
  *     determined one, and the code says so rather than pretending otherwise.
- *
- * The Redis path is optional on purpose: a deployment that has never heard of
- * Upstash must still run, and adding a required dependency for a limiter would
- * make the whole app fail to start over a control that is a backstop anyway.
  */
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL?.trim() ?? "";
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ?? "";
@@ -340,24 +385,17 @@ function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): 
  *
  * Null is deliberately "no answer" rather than "allowed": the caller falls
  * back to the in-process bucket, so a Redis outage degrades the limiter to the
- * weaker backend instead of removing it entirely. Refusing every request
- * because the limiter's own dependency is down would turn a protection layer
- * into the single point of failure it was meant to protect against.
+ * weaker backend instead of removing it entirely.
  */
 async function redisIncrement(key: string): Promise<{ count: number; ttlMs: number } | null> {
   try {
-    // INCR creates the counter; PEXPIRE only runs when it was just created, so
-    // the window slides from the first request and never leaks a key.
     const response = await fetch(`${redisUrl}/pipeline`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${redisToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify([
-        ["INCR", key],
-        ["PTTL", key],
-      ]),
+      body: JSON.stringify([["INCR", key], ["PTTL", key]]),
       cache: "no-store",
       signal: AbortSignal.timeout(2000),
     });
@@ -367,8 +405,7 @@ async function redisIncrement(key: string): Promise<{ count: number; ttlMs: numb
     let ttlMs = Number(payload?.[1]?.result);
     if (!Number.isFinite(count)) return null;
     // A fresh key reports -2 from PTTL before its first expire is set. The
-    // pipeline cannot branch, so the expire is issued by the caller when it
-    // sees that, and this one attempt reports the full window.
+    // pipeline cannot branch, so the expire is issued here.
     if (ttlMs < 0) {
       ttlMs = BUCKET_WINDOW_MS;
       void fetch(`${redisUrl}/pexpire/${encodeURIComponent(key)}`, {
@@ -390,8 +427,6 @@ function localIncrement(key: string, now: number): { count: number; ttlMs: numbe
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + BUCKET_WINDOW_MS });
-    // Drop expired buckets occasionally so the map cannot grow without bound
-    // on a long-lived instance.
     if (buckets.size > 5000) {
       for (const [entryKey, entry] of buckets) {
         if (entry.resetAt <= now) buckets.delete(entryKey);
@@ -412,8 +447,7 @@ export async function checkRateLimit(
    *
    * Chat and memory suggestions share a client but not a purpose, so they get
    * separate buckets. Sharing one would mean every suggestion request silently
-   * costs a message of the user's allowance, and the limit would then be a
-   * function of how often Openmi noticed something — a number nobody can explain.
+   * costs a message of the user's allowance.
    */
   scope = "chat"
 ): Promise<RateLimit> {
@@ -430,6 +464,7 @@ export async function checkRateLimit(
   }
   return { allowed: true, remaining: max - count, retryAfterSeconds: 0 };
 }
+
 /** The bans still in force at `now`. Expired ones lift by themselves. */
 export function activeBans(config: AppConfig, now = Date.now()): BanRecord[] {
   return config.bans.filter((ban) => isBanActive(ban, now));
@@ -437,8 +472,6 @@ export function activeBans(config: AppConfig, now = Date.now()): BanRecord[] {
 
 /** Whether the administrator has configured anything that needs an identity. */
 export function identityControlsActive(config: AppConfig, cap: number, now = Date.now()): boolean {
-  // Only bans still in force count. A ban that expired months ago must not
-  // keep forcing identification on every visitor who never had one.
   return activeBans(config, now).length > 0 || cap > 0;
 }
 
@@ -451,8 +484,7 @@ function formatBanDate(ms: number): string {
  * The one sentence a banned visitor receives.
  *
  * It carries the reason and the end date when they exist, because a refusal
- * nobody can interpret is how a mistaken ban turns into a support problem: the
- * visitor should be able to read why this happened and whether it lifts. Both
+ * nobody can interpret is how a mistaken ban turns into a support problem. Both
  * are the administrator's own words, verbatim — nothing is invented here.
  */
 export function banMessage(ban: BanRecord): string {
@@ -473,8 +505,7 @@ export function banMessage(ban: BanRecord): string {
  * omits the Authorization header has no identity, skips every check, and is
  * waved through — turning the ban list and the daily caps into decoration
  * removable with a single header. So once the administrator has configured
- * either one, a caller that cannot be identified is refused instead. They may
- * retry, but they cannot proceed anonymously.
+ * either one, a caller that cannot be identified is refused instead.
  */
 export function identityGate(
   identity: CallerIdentity | null,
@@ -485,9 +516,7 @@ export function identityGate(
   const bans = activeBans(config, now);
   if (bans.length === 0 && cap <= 0) return { allowed: true };
   // The administrator is exempt, like they are from maintenance mode. A ban
-  // must never be able to lock the person who grants plans out of the product
-  // they run — an accidental self-ban with no way back is exactly the kind of
-  // lockout this control exists to prevent in others.
+  // must never be able to lock the person who runs the product out of it.
   if (identity && isAdmin(identity)) return { allowed: true };
   if (!identity) {
     return {
@@ -502,33 +531,6 @@ export function identityGate(
 
 export { adminEmail };
 
-/**
- * Writes to the database using the caller's own token, so the rules evaluate
- * it exactly as they would for the browser. Returns false when the write was
- * refused, which is how a non-admin caller is detected.
- */
-export async function writeAsCaller(
-  authorization: string | null,
-  path: string,
-  value: unknown
-): Promise<boolean> {
-  const token = authorization?.replace(/^Bearer\s+/i, "").trim();
-  const base = restBase();
-  if (!token || !base) return false;
-
-  try {
-    const response = await fetch(`${base}/${path}.json?auth=${encodeURIComponent(token)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
-      cache: "no-store",
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 /** Today's key in UTC, which is what daily caps are counted against. */
 export function usageDay(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
@@ -541,16 +543,15 @@ export type UsageMode = "auto" | "code" | "self";
 export type UsageCounters = Partial<Record<UsageKind | UsageMode, number>>;
 
 /**
- * Reads today's counters for a visitor, then adds one and writes the result.
+ * Counts one use against the caller's day and answers the new total.
  *
- * The write is a read-modify-write, which two simultaneous requests can race
- * on. A cap can therefore be exceeded by a small margin under a burst. Closing
- * that gap needs a transaction the REST API cannot express, and the honest
- * trade is a cap that is approximate rather than a control that is exact.
+ * `bump_usage()` does the increment in one statement, so two simultaneous
+ * requests cannot both read the same counter and write the same value back —
+ * the read-modify-write the Realtime Database REST API forced on this. The
+ * function runs as the caller, so RLS and the owner check still apply.
  *
- * Chat messages also bump the mode counter, which is what the console's usage
- * breakdown reads. The whole record is rewritten rather than patched so a
- * single day is always one node with one shape.
+ * A refused call means the caller is not who they claim; the route treats that
+ * as unauthenticated rather than silently trusting the counter.
  */
 export async function consumeUsage(
   authorization: string | null,
@@ -558,41 +559,20 @@ export async function consumeUsage(
   kind: UsageKind,
   mode?: UsageMode
 ): Promise<{ used: number; allowed: boolean }> {
-  const day = usageDay();
-  const path = `usage/${uid}/${day}`;
-  const current = await readUsage(authorization, path);
-  const used = (current[kind] ?? 0) + 1;
-  const next: UsageCounters = {
-    ...current,
-    chat: kind === "chat" ? used : current.chat ?? 0,
-    image: kind === "image" ? used : current.image ?? 0,
-  };
-  if (kind === "chat" && mode) next[mode] = (next[mode] ?? 0) + 1;
-  const written = await writeAsCaller(authorization, path, next);
-  // A refused write means the caller is not who they claim; the caller's route
-  // treats that as unauthenticated rather than silently trusting the counter.
-  if (!written) return { used, allowed: false };
-  return { used, allowed: true };
-}
+  const token = bearerToken(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return { used: 0, allowed: false };
 
-async function readUsage(authorization: string | null, path: string): Promise<UsageCounters> {
-  const token = authorization?.replace(/^Bearer\s+/i, "").trim();
-  const base = restBase();
-  if (!token || !base) return {};
   try {
-    const response = await fetch(`${base}/${path}.json?auth=${encodeURIComponent(token)}`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
+    const { data, error } = await client.rpc("bump_usage", {
+      p_kind: kind,
+      p_mode: mode ?? null,
     });
-    if (!response.ok) return {};
-    const value = (await response.json()) as Record<string, unknown> | null;
-    const counters: UsageCounters = {};
-    if (!value) return counters;
-    for (const key of ["chat", "image", "auto", "code", "self"] as const) {
-      if (typeof value[key] === "number" && value[key] >= 0) counters[key] = value[key];
-    }
-    return counters;
+    if (error) return { used: 0, allowed: false };
+    // A set-returning function answers with one row.
+    const row = (Array.isArray(data) ? data[0] : data) as UsageCounters | null;
+    return { used: Number(row?.[kind] ?? 0), allowed: true };
   } catch {
-    return {};
+    return { used: 0, allowed: false };
   }
 }

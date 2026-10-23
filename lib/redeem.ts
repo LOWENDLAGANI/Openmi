@@ -1,25 +1,27 @@
 // ── Claiming a code ──────────────────────────────────────────────────────────
 //
-// The visitor types the word and this writes one node: which code they used and
+// The visitor types the word and this writes one row: which code they used and
 // when. That is the entire payload — no amount, no balance, no expiry.
 //
-// It is worth being explicit about why, because the tempting version of this
-// file would be to read the code, work out what it is worth, and write that into
-// the visitor's balance. That version is a paywall with a hole in it: the record
+// It is worth being explicit about why, because the tempting version of this file
+// would be to read the code, work out what it is worth, and write that into the
+// visitor's balance. That version is a paywall with a hole in it: the record
 // would then be written by the person claiming, and a bundle edit that wrote
-// `dew: 1000` into it would grant exactly that. Here the visitor chooses a word
-// and nothing else; `lib/serverRedeem.ts` looks up what the word is worth on the
-// server, every time it is asked.
+// `amount: 1000` into it would grant exactly that. Here the visitor chooses a
+// word and nothing else; the amount comes from the code, and the database itself
+// refuses any credit that does not match what the code carries — see
+// `dew_credit_allowed()` in supabase/migrations/20261023000500_dew_redeem.sql.
 //
-// Writing the claim is separate from receiving the credit on purpose. The rules
-// withhold `codes/` from everyone but the administrator, and the deployment has
-// no service account of its own — so the claim is recorded in the caller's own
-// node, and the credit that follows is pinned by the rules to the amount on the
-// code record itself.
+// Writing the claim is separate from receiving the credit on purpose. The
+// `redeem_codes` table is administrator-only, so a visitor cannot mint a code
+// for themselves; the claim is recorded in the visitor's own rows, and the server
+// folds it into their balance on every request. The one compromise is the
+// credit write below, which the visitor performs so the balance moves without a
+// service key — and it is safe precisely because the amount it carries is
+// checked against the code by the policy.
 
-import { get, ref, set } from "firebase/database";
-import { firebaseConfigured, getServices } from "./firebaseHistory";
-import { isValidCode, normalizeCode, parseRedeemCode } from "./redeemState";
+import { ensureUser, getSupabase, supabaseConfigured } from "./supabase";
+import { isValidCode, normalizeCode, redeemCodeFromRow } from "./redeemState";
 
 export interface ClaimResult {
   ok: boolean;
@@ -50,14 +52,16 @@ function notConfigured(): Error & { code?: string } {
  * case, because the visitor is going to be shown that sentence and an exception
  * would make it indistinguishable from a broken deployment.
  *
- * The write is refused by the rules when the code does not exist or has been
- * switched off — `database.rules.json` checks `active` on the very write — so a
+ * The insert is refused by the policies when the code does not exist or has been
+ * switched off — `redeem_code_is_live()` is evaluated on the very write — so a
  * terminated code cannot be claimed by a modified client either. The server
  * checks again on every request for claims that were made before it was off.
  */
 export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
-  const current = await getServices();
-  if (!current) throw notConfigured();
+  const client = getSupabase();
+  if (!client) throw notConfigured();
+  const user = await ensureUser();
+  if (!user) throw notConfigured();
 
   const code = normalizeCode(rawCode);
   if (!isValidCode(code)) {
@@ -65,57 +69,51 @@ export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
   }
 
   try {
-    const uid = (await current.ensureUser()).uid;
-    const claimRef = ref(current.database, `redeems/${uid}/${code}`);
-
     // The moment this code was claimed, which never changes once it is set.
     //
-    // The rules make a claim write-once: `claimedAt` cannot be moved, because a
-    // claim that can be rewritten is a claim whose window restarts every time it
-    // is typed — which is how one word becomes unlimited time. So this reads
-    // first, and only writes when there is genuinely nothing there.
-    const existing = await get(claimRef);
-    const previous = Number(existing.val()?.claimedAt);
-    if (Number.isFinite(previous) && previous > 0) {
-      return { ok: true, code, alreadyClaimed: true };
-    }
+    // A claim is write-once: `claimed_at` cannot be moved, because a claim that
+    // can be rewritten is a claim whose window restarts every time it is typed —
+    // which is how one word becomes unlimited time. So this reads first, and
+    // only writes when there is genuinely nothing there.
+    const existing = await client
+      .from("redeems")
+      .select("claimed_at")
+      .eq("owner", user.id)
+      .eq("code", code)
+      .maybeSingle();
+    if (existing.data) return { ok: true, code, alreadyClaimed: true };
 
-    await set(claimRef, { code, claimedAt: Date.now() });
-
-    // A Dew code tops up on the spot: the credit is written into dew/{uid}
-    // with the exact amount the code record carries. The rules refuse any
-    // other value for this key, so the writer picks only *whether* to claim —
-    // the amount is still decided by the code, server-side. A record that is
-    // not a Dew code is left alone here; the server folds in whatever the
-    // claims are actually worth on the next request.
-    const codeSnap = await get(ref(current.database, `codes/${code}`));
-    const codeRecord = parseRedeemCode(codeSnap.val());
-    if (codeRecord?.dew !== undefined && codeRecord.active) {
-      try {
-        await set(
-          ref(current.database, `dew/${uid}/credits/${code}`),
-          codeRecord.dew
-        );
-      } catch {
-        // The claim stands; the balance read on the next request folds it in
-        // via the same rule check. A refused credit write is retried on the
-        // next claim of the same word rather than reported as an error.
-      }
-    }
-    return { ok: true, code };
-  } catch (error) {
-    const cause = error as { code?: string; message?: string } | null;
-    const message = String(cause?.message ?? "");
-    // The rules refuse a claim against a code that is switched off, which is the
-    // one refusal with a meaning worth reporting. Everything else is a failure to
-    // write, which is an outage rather than an answer.
-    if (/permission/i.test(message)) {
+    const claim = await client.from("redeems").insert({ owner: user.id, code });
+    if (claim.error) {
+      // A duplicate means another tab wrote the same claim first, which is the
+      // same outcome as finding it already there.
+      if (claim.error.code === "23505") return { ok: true, code, alreadyClaimed: true };
       return {
         ok: false,
         code,
-        error: "That code cannot be used right now. Ask for a new one.",
+        error: claim.error.message.toLowerCase().includes("row-level security")
+          ? "That code cannot be used right now. Ask for a new one."
+          : "Openmi could not check that code. Please try again shortly.",
       };
     }
+
+    // A Dew code tops up on the spot: the credit is written with the exact amount
+    // the code carries. The policies refuse any other value for this key, so the
+    // writer picks only *whether* to claim — the amount is still decided by the
+    // code. A claim without a credit is still fine: the server folds it in on the
+    // next request through the same rule check.
+    const lookup = await client.rpc("lookup_redeem_code", { p_code: code });
+    const record = redeemCodeFromRow(Array.isArray(lookup.data) ? lookup.data[0] : lookup.data);
+    if (record?.active) {
+      await client
+        .from("dew_credits")
+        .upsert(
+          { owner: user.id, code: record.code, amount: record.dew },
+          { onConflict: "owner,code", ignoreDuplicates: true }
+        );
+    }
+    return { ok: true, code };
+  } catch {
     return {
       ok: false,
       code,
@@ -126,13 +124,19 @@ export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
 
 /** Whether this visitor has claimed a code, for showing the claim on /plus. */
 export async function hasClaimed(rawCode: string): Promise<boolean> {
-  if (!firebaseConfigured) return false;
+  if (!supabaseConfigured) return false;
   try {
-    const current = await getServices();
-    if (!current) return false;
-    const uid = (await current.ensureUser()).uid;
-    const snapshot = await get(ref(current.database, `redeems/${uid}/${normalizeCode(rawCode)}`));
-    return snapshot.exists();
+    const client = getSupabase();
+    if (!client) return false;
+    const user = await ensureUser();
+    if (!user) return false;
+    const { data } = await client
+      .from("redeems")
+      .select("code")
+      .eq("owner", user.id)
+      .eq("code", normalizeCode(rawCode))
+      .maybeSingle();
+    return Boolean(data);
   } catch {
     return false;
   }

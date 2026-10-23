@@ -198,17 +198,34 @@ assert.ok(
 assert.ok(!/body\.plan\b/.test(chatSource), "chat must never read a plan from the request body");
 assert.ok(!chatSource.includes("consumeUsage("), "chat does not count messages: Dew is the only control");
 
-// The deduction is a conditional write, and it has to know what to do about an
-// account that has never been charged — which is every account, once.
-assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
-assert.ok(dewSource.includes('"If-Match"'), "the deduction must be a conditional write, not a blind put");
-assert.ok(
-  dewSource.includes('"null_etag"'),
-  "a location that does not exist has no ETag to echo: without the documented null_etag the very first charge on an account is a guaranteed 412, and the balance never moves again"
+// The deduction is one atomic statement in the database, and the caller cannot
+// reach the column it moves. The Realtime Database needed an ETag dance because
+// REST had no transactions; Postgres does not, so the charge is an increment
+// rather than a read-modify-write that could lose a race.
+const dewSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261023000500_dew_redeem.sql"),
+  "utf8"
 );
-assert.ok(dewSource.includes("attempt === 0"), "a lost race is re-read and placed once, never looped");
+assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
 assert.ok(
-  deductDewSource.includes("fallback: true"),
-  "when the conditional path has failed twice, the charge must still land with a plain computed write"
+  deductDewSource.includes('rpc("deduct_dew"'),
+  "the deduction must go through the database function, not a client-side total"
+);
+assert.ok(
+  /set spent = public\.dew_wallets\.spent \+ excluded\.spent/.test(dewSchema),
+  "the spend must be incremented in SQL, or two simultaneous charges can overwrite each other"
+);
+assert.ok(
+  /create or replace function public\.deduct_dew\(p_amount numeric\)[\s\S]*security definer/.test(dewSchema),
+  "deduct_dew must run with the rights to write the wallet it owns"
+);
+assert.ok(
+  /revoke all on function public\.deduct_dew\(numeric\) from public/.test(dewSchema),
+  "deduct_dew must not be callable without a session"
+);
+assert.ok(
+  /grant select on public\.dew_wallets to authenticated/.test(dewSchema) &&
+    !/grant (update|insert)[^;]*on public\.dew_wallets to authenticated/.test(dewSchema),
+  "a caller must be able to read their spend and not write it, or a modified client could reset its own balance"
 );
 assert.ok(deductDewSource.includes("reason:"), "a refusal is reported with its own diagnosis, not just a boolean");

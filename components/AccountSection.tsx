@@ -9,7 +9,7 @@ import {
   describeLinkError,
   type AccountView,
 } from "@/lib/accountState";
-import { loadChatsFromAccount, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import { loadChatsFromAccount, syncCloudHistory } from "@/lib/cloudHistory";
 import EmailAuthForm from "./EmailAuthForm";
 import AuthDiagnostics from "./AuthDiagnostics";
 
@@ -23,11 +23,11 @@ interface AccountSectionProps {
  *
  * This is the whole of the visitor's sign-in. It is kept away from the
  * administrator's prompt on purpose — that one is reached by tapping the logo ten
- * times, and the two share nothing but the Firebase project. Signing in here
- * grants a token; only `database.rules.json` decides what a token is worth, and
- * it grants one named address and no others.
+ * times, and the two share nothing but the Supabase project. Signing in here
+ * grants a token; only row-level security decides what a token is worth, and it
+ * grants one verified admin and no others.
  *
- * The credential is an email address and a password, held by Firebase Auth.
+ * The credential is an email address and a password, held by Supabase Auth.
  * Registering upgrades the anonymous account this browser already has, so the
  * uid — and every chat written under it — stays exactly where it is. Nothing is
  * required: someone who never registers still has a name, a working Openmi, and
@@ -60,7 +60,7 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
   const resync = useCallback(async (announce: boolean) => {
     try {
       const adopted = await loadChatsFromAccount();
-      await syncFirebaseHistory();
+      await syncCloudHistory();
       if (announce && adopted && adopted.chats > 0) {
         setNotice(
           `Pulled ${adopted.chats} chat${adopted.chats === 1 ? "" : "s"} from your account.`

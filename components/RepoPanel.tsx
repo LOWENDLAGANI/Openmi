@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { bindGoogleAccount } from "@/lib/account";
-import { describeLinkError } from "@/lib/accountState";
-import { authHeader, firebaseConfigured } from "@/lib/firebaseHistory";
+import { authHeader, supabaseConfigured } from "@/lib/supabase";
 import { linkGithubAccount } from "@/lib/githubLink";
 import { parseScopes, recoveryFor, type PatRecovery } from "@/lib/github/pat";
 import type { ProjectSummary } from "@/lib/projects";
@@ -33,10 +31,9 @@ import type { ProjectSummary } from "@/lib/projects";
 // A deployment with `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` uses GitHub's
 // own OAuth App: the server mints a signed state, the browser round-trips to
 // github.com, and the sealed token comes back in an httpOnly cookie. Without
-// those values the Firebase-hosted GitHub credential is still tried, which is
-// what existing deployments already have. When neither is available the panel
-// says which two environment values are missing instead of offering a button
-// that fails after the click.
+// those values only the pasted-token door is offered. When neither is available
+// the panel says which two environment values are missing instead of offering a
+// button that fails after the click.
 
 interface RepoPanelProps {
   open: boolean;
@@ -108,7 +105,7 @@ class ApiError extends Error {
  * The deadline is the whole point: without it a held-open connection to the
  * app's own API looks exactly like a slow one, and the panel keeps saying it is
  * checking something it will never finish checking. Fifteen seconds is long
- * enough for a cold start and a Firebase token check, short enough that nobody
+ * enough for a cold start and a token check, short enough that nobody
  * waits on a dead request without knowing it.
  */
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -332,9 +329,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   /**
    * Starts a connection.
    *
-   * The native OAuth App is preferred because it needs no Firebase console
-   * change; the Firebase-hosted credential remains the fallback for a
-   * deployment that has not added the client id and secret.
+   * Starts the OAuth round trip. Offered only when the deployment has a GitHub
+   * OAuth App configured, because this button without one is a 404 with a button
+   * on it. The client id and secret are all it needs, and the callback stores
+   * the token in a sealed cookie rather than handing it to the page.
    */
   const connect = async () => {
     if (busy) return;
@@ -342,48 +340,16 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     setError(null);
     setNotice(null);
     try {
-      if (status?.oauth) {
-        const data = await api<{ url: string }>("/api/github/oauth/start", {
-          method: "POST",
-          body: JSON.stringify({ next: "/" }),
-        });
-        // A full-page navigation, not a popup: popups are blocked often enough
-        // that a connect button which depends on one reads as broken.
-        window.location.assign(data.url);
-        return;
-      }
-
       const outcome = await linkGithubAccount();
-      if (outcome.status === "dismissed") return;
+      if (outcome.status === "dismissed" || outcome.status === "redirected") return;
       if (outcome.status === "error") {
         setError(outcome.message);
         return;
       }
-      setNotice(`Connected as @${outcome.login || "GitHub"}. Choose a repository.`);
       const next = await loadStatus();
       if (next?.connected) await loadRepos();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not start the GitHub connection.");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  /** The Google door, offered where it is needed rather than only in Settings. */
-  const signIn = async () => {
-    if (busy) return;
-    setBusy("google");
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await bindGoogleAccount();
-      if (result.outcome === "dismissed") return;
-      setNotice("Signed in. Checking the GitHub connection…");
-      const next = await loadStatus();
-      if (next?.connected) await loadRepos();
-      else if (next && !next.connected) setNotice("Signed in. Connect GitHub to give the agent a repository.");
-    } catch (cause) {
-      setError(describeLinkError(cause));
     } finally {
       setBusy(null);
     }
@@ -687,26 +653,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                 Openmi could not identify this browser, so GitHub cannot be attached to an account yet.
               </p>
               <p className="text-[11px] leading-relaxed text-white/35">{statusState.message}</p>
-              {/* Hidden: Google login is not used — own approach handles sign-in. */}
-              {false && firebaseConfigured ? (
-                <button
-                  type="button"
-                  onClick={() => void signIn()}
-                  disabled={busy === "google"}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.08] px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12] disabled:opacity-50"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      fill="#EA4335"
-                      d="M12 10.2v3.9h5.5c-.24 1.4-1.7 4.1-5.5 4.1a6.2 6.2 0 0 1 0-12.4c1.76 0 2.94.75 3.62 1.4l2.57-2.47A9.9 9.9 0 0 0 12 2.5a9.5 9.5 0 1 0 0 19c5.5 0 9.13-3.86 9.13-9.3 0-.62-.07-1.1-.15-1.6z"
-                    />
-                  </svg>
-                  {busy === "google" ? "Opening Google…" : "Continue with Google"}
-                </button>
-              ) : (
+              {!supabaseConfigured && (
                 <div className="rounded-xl border border-amber-300/20 bg-amber-400/[0.05] p-3 text-[12px] leading-relaxed text-amber-100/85">
-                  This deployment has no Firebase project configured, so there is no account to attach GitHub to. Set the
-                  <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11px]">NEXT_PUBLIC_FIREBASE_*</code>
+                  This deployment has no Supabase project configured, so there is no account to attach GitHub to. Set the
+                  <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11px]">NEXT_PUBLIC_SUPABASE_*</code>
                   values and redeploy.
                 </div>
               )}
@@ -746,9 +696,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                 attached to it, so your chats and Dew do not move.
               </p>
               {tokenForm}
-              {/* Hidden: GitHub login is not used — own approach handles repo access. */}
-              {false && (
-                <>
+              {status?.oauth ? (
                 <button
                   type="button"
                   onClick={() => void connect()}
@@ -758,27 +706,11 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                 >
                   {busy === "connect" ? "Waiting for GitHub…" : "Connect GitHub"}
                 </button>
-                {status?.oauth ? (
-                  <p className="text-[11px] leading-relaxed text-white/35">
-                    You will be sent to GitHub to approve read access, then brought straight back here.
-                  </p>
-                ) : (
-                  <p className="text-[11px] leading-relaxed text-white/35">
-                    The agent gets read access to the repositories you choose. It cannot change anything without your
-                    approval.
-                  </p>
-                )}
-                {firebaseConfigured && (
-                  <button
-                    type="button"
-                    onClick={() => void signIn()}
-                    disabled={busy === "google"}
-                    className="w-full rounded-xl border border-white/[0.09] px-4 py-2 text-[12px] font-medium text-white/60 transition hover:bg-white/[0.06] disabled:opacity-50"
-                  >
-                    {busy === "google" ? "Opening Google…" : "Sign in with Google first"}
-                  </button>
-                )}
-                </>
+              ) : (
+                <p className="text-[11px] leading-relaxed text-white/35">
+                  The agent gets read access to the repositories you choose. It cannot change anything without your
+                  approval.
+                </p>
               )}
             </div>
           ) : (

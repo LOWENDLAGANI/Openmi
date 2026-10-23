@@ -14,7 +14,7 @@ import { githubStoreConfigured } from "@/lib/github/store";
 
 // ── Beginning the GitHub round trip ─────────────────────────────────────────
 //
-// The browser asks for a consent URL with its Firebase token attached, so the
+// The browser asks for a consent URL with its Supabase access token attached, so the
 // state the server signs is bound to the account that will own the connection.
 // Nothing secret is returned — the state is signed, not encrypted, and contains
 // only a uid and an expiry — and the client id is public by design.
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json(
       {
         error:
-          "This deployment has no GitHub OAuth App configured. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` (or enable the GitHub provider in Firebase), then redeploy.",
+          "This deployment has no GitHub OAuth App configured. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, then redeploy.",
         detail: "oauth-not-configured",
       },
       { status: 503 }

@@ -180,7 +180,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json(
       {
         error:
-          "The connection could not be saved. Check the database rules for `users/{uid}/githubConnections`.",
+          "The connection could not be saved. Check the `github_connections` policies in the Supabase project.",
         detail: "not-saved",
       },
       { status: 503 }

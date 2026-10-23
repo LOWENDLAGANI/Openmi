@@ -1603,18 +1603,24 @@ test("the panel's token helpers never import a Node built-in", () => {
   assert.doesNotMatch(source, /from "node:/, "pat.ts must stay importable by the browser");
 });
 
-test("the connection collection is owner-scoped in the rules", () => {
-  const rules = JSON.parse(read("database.rules.json")) as {
-    rules: { users: Record<string, Record<string, unknown>> };
-  };
-  const uid = rules.rules.users["$uid"]!;
-  for (const node of ["githubConnections", "githubDefault"]) {
-    assert.ok(uid[node], `users/{uid}/${node} must exist in the rules`);
-    assert.match(JSON.stringify(uid[node]), /auth\.uid === \$uid/);
+test("the connection collection is owner-scoped in the schema", () => {
+  const sql = read("supabase/migrations/20261023000300_github_projects.sql");
+  for (const table of ["github_connections", "github_default"]) {
+    assert.ok(sql.includes(`create table if not exists public.${table} (`), `${table} must exist`);
+    assert.ok(
+      sql.includes(`${table}_owner on public.${table}`) &&
+        new RegExp(`${table}_owner on public\\.${table}\\s+for all to authenticated\\s+using \\(owner = auth\\.uid\\(\\)\\)`).test(sql),
+      `${table} must be owner-scoped`
+    );
   }
   // The label is validated at the same limit the code normalizes to, so a stored
-  // connection can never fail its own rules.
-  assert.match(JSON.stringify(uid.githubConnections), /val\(\).length <= 40/);
+  // connection can never fail its own check.
+  assert.match(sql, /label text not null check \(length\(label\) between 1 and 40\)/);
+  // A connection's token is only ever readable by the row's owner or the admin.
+  assert.ok(
+    !/for select to (anon|public)/.test(sql),
+    "a connection table must never be readable without a session"
+  );
 });
 
 // ── source contracts ────────────────────────────────────────────────────────
@@ -1684,9 +1690,17 @@ test("the repository panel cannot stay on a bare \"checking\" forever", () => {
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /phase: "signed-out"/);
   assert.match(source, /phase: "error"/);
-  // Both doors out of a dead end, plus the native OAuth start call.
-  assert.match(source, /Continue with Google/); // present but hidden behind {false && ...} by owner choice
-  assert.match(source, /github\/oauth\/start/);
+  // Both doors out of a dead end. The OAuth start call itself lives in
+  // lib/githubLink.ts, which the panel calls, so the panel only has to name it.
+  assert.match(source, /linkGithubAccount\(\)/);
+  // And a deployment with no Supabase project is told so, rather than being
+  // offered a button that cannot attach GitHub to an account.
+  assert.match(source, /no Supabase project configured/);
+  assert.match(
+    read("lib/githubLink.ts"),
+    /\/api\/github\/oauth\/start/,
+    "the connect helper must start the app's own OAuth flow"
+  );
   // The old rendering keyed on a null status rendered the spinner forever.
   assert.doesNotMatch(source, /!status \?/);
   // And an empty repository list says it is still loading, not that it is empty.
@@ -1763,30 +1777,26 @@ test("the approval route checks the same branch and permission before signing", 
   assert.doesNotMatch(source, /commitChanges|git\/refs|\/pulls/);
 });
 
-test("change sets, approvals and commits are owner-scoped in the rules", () => {
-  const rules = JSON.parse(read("database.rules.json")) as { rules: Record<string, Record<string, unknown>> };
-  for (const node of ["changesets", "approvals", "commits"]) {
-    const entry = rules.rules[node];
-    assert.ok(entry, `${node} must exist in the rules`);
-    assert.equal(entry[".read"], false, `${node} must not be world-readable`);
-    assert.match(JSON.stringify(entry.$uid), /auth\.uid === \$uid/);
-    assert.match(JSON.stringify(entry.$uid), /\$changeSetId/);
+test("change sets, approvals and commits are owner-scoped in the schema", () => {
+  const sql = read("supabase/migrations/20261023000400_changesets.sql");
+  for (const table of ["changesets", "approvals", "commits"]) {
+    assert.ok(sql.includes(`create table if not exists public.${table} (`), `${table} must exist`);
+    assert.match(
+      sql,
+      new RegExp(`${table}_owner on public\\.${table}\\s+for all to authenticated\\s+using \\(owner = auth\\.uid\\(\\)\\)`),
+      `${table} must be owner-scoped`
+    );
   }
+  assert.ok(!/for select to (anon|public)/.test(sql), "these tables must never be world-readable");
 });
 
-test("the connection and the project are owner-scoped in the rules", () => {
-  const rules = JSON.parse(read("database.rules.json")) as {
-    rules: Record<string, unknown>;
-  };
-  const users = rules.rules.users as Record<string, unknown>;
-  const uid = users.$uid as Record<string, unknown>;
-  assert.ok(uid.github, "users/{uid}/github must exist in the rules");
-  assert.match(JSON.stringify(uid.github), /auth\.uid === \$uid/);
-
-  const projects = rules.rules.projects as Record<string, unknown>;
-  assert.equal(projects[".read"], false, "projects must not be world-readable");
-  assert.equal(projects[".write"], false);
-  assert.match(JSON.stringify(projects.$uid), /auth\.uid === \$uid/);
+test("the connection and the project are owner-scoped in the schema", () => {
+  const sql = read("supabase/migrations/20261023000300_github_projects.sql");
+  assert.ok(sql.includes("create table if not exists public.github_links ("), "github_links must exist");
+  assert.match(sql, /github_links_owner on public\.github_links\s+for all to authenticated\s+using \(owner = auth\.uid\(\)\)/);
+  assert.ok(sql.includes("create table if not exists public.projects ("), "projects must exist");
+  assert.match(sql, /projects_owner on public\.projects\s+for all to authenticated\s+using \(owner = auth\.uid\(\)\)/);
+  assert.ok(!/for select to (anon|public)/.test(sql), "projects must not be world-readable");
 });
 
 test("the deployment is told which keys GitHub needs", () => {

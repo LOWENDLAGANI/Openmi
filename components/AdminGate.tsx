@@ -1,65 +1,79 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { signInAsAdmin, signOutAdmin, verifyAdminAccess } from "@/lib/firebaseAdmin";
-import { firebaseConfigured, getServices } from "@/lib/firebaseHistory";
+import { signInAsAdmin, signOutAdmin, verifyAdminAccess } from "@/lib/cloudAdmin";
+import { signInWithEmail } from "@/lib/emailAuth";
+import { describeLinkError } from "@/lib/accountState";
+import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 
 interface AdminGateProps {
   open: boolean;
   onClose: () => void;
-  /** Fires once Firebase confirms the signed-in account is the administrator. */
+  /** Fires once Postgres confirms the signed-in account is the administrator. */
   onUnlocked: () => void;
 }
 
 type Mode = "checking" | "signin" | "denied" | "unavailable" | "notconfigured";
 
-/** Turns a Firebase error into something worth reading on a phone. */
+/** Turns an auth or database error into something worth reading on a phone. */
 function describe(cause: unknown): { code: string; message: string } {
   const error = cause as { code?: string; name?: string } | null;
   const code = error?.code ?? error?.name ?? "unknown";
   const message = cause instanceof Error ? cause.message : String(cause);
 
   const hints: Record<string, string> = {
-    "auth/operation-not-allowed":
-      "This sign-in method is switched off. Under Firebase → Authentication → Sign-in method, turn on Anonymous (the app signs every first-time visitor in anonymously) and Google.",
-    "auth/network-request-failed":
-      "The request to Firebase never completed. Check the connection, and whether an ad blocker or privacy extension is blocking googleapis.com.",
-    "auth/unauthorized-domain":
-      "This domain is not authorised. Under Firebase → Authentication → Settings → Authorized domains, add the domain you are visiting from.",
-    "auth/too-many-requests": "Too many attempts. Wait a minute and try again.",
-    PERMISSION_DENIED:
-      "The database rules do not list this account as the administrator. The rules may still contain the ADMIN_EMAIL placeholder — publish database.rules.json with your real address.",
+    anonymous_provider_disabled:
+      "Anonymous sign-ins are switched off. The app signs every first-time visitor in anonymously, so open Supabase → Authentication → Sign In / Providers and turn it on.",
+    signup_disabled:
+      "This project refuses new accounts. Supabase → Authentication → Sign In / Providers: turn on Allow new users to sign up.",
+    email_provider_disabled:
+      "Email sign-in is switched off. Supabase → Authentication → Sign In / Providers: turn on Email.",
+    provider_disabled:
+      "Google sign-in is switched off. Supabase → Authentication → Sign In / Providers: turn on Google, or sign in with the administrator's email and password instead.",
+    manual_linking_disabled:
+      "This project cannot attach a second sign-in method. Supabase → Authentication → Settings: turn on manual linking.",
+    invalid_credentials: "That email and password do not match an account.",
+    email_not_confirmed:
+      "That address has not been confirmed yet. Follow the link in the inbox, or confirm the user in the dashboard.",
+    over_request_rate_limit: "Too many attempts. Wait a minute and try again.",
+    "42501":
+      "The database refused this account. Check that `app_admin` holds the administrator's address and that the migrations have been applied.",
   };
 
-  return { code, message: hints[code] ?? message };
+  return { code, message: hints[code] ?? describeLinkError(cause) ?? message };
 }
 
 /**
  * The hidden admin prompt, reached by tapping the logo on the About page ten
  * times.
  *
- * There is no PIN and no address listed in the code. The prompt signs you in
- * and then attempts a real read; Firebase alone decides whether that succeeds,
- * so `database.rules.json` stays the single source of truth for who the
- * administrator is.
+ * There is no PIN and no address listed in the code. The prompt signs you in and
+ * then asks the database whether this account is the administrator —
+ * `public.is_admin()` is the same function every policy calls — so the migration
+ * stays the single source of truth for who that is.
  */
 export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps) {
   const [mode, setMode] = useState<Mode>("checking");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ code: string; message: string } | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  // Ask Firebase on every account change, so signing out drops back to the
+  // Ask the database on every account change, so signing out drops back to the
   // sign-in screen instead of leaving a stale console open.
   useEffect(() => {
     if (!open) return;
-    if (!firebaseConfigured) {
+    if (!supabaseConfigured) {
+      setMode("notconfigured");
+      return;
+    }
+    const client = getSupabase();
+    if (!client) {
       setMode("notconfigured");
       return;
     }
 
-    let unsubscribe: (() => void) | undefined;
     let cancelled = false;
 
     const fail = (cause: unknown) => {
@@ -69,66 +83,83 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
       setMode("unavailable");
     };
 
-    void getServices()
-      .then(async (services) => {
-        if (!services) {
-          if (!cancelled) setMode("notconfigured");
-          return;
-        }
-        const check = async () => {
-          try {
-            const allowed = await verifyAdminAccess();
-            if (cancelled) return;
-            if (allowed) onUnlocked();
-            else setMode("signin");
-          } catch (cause: unknown) {
-            fail(cause);
-          }
-        };
-        await services.auth.authStateReady();
-        await check();
+    const check = async () => {
+      try {
+        const allowed = await verifyAdminAccess();
         if (cancelled) return;
-        // Cleanup: unsubscribe on unmount or re-run
-        unsubscribe = onAuthStateChanged(services.auth, () => {
-          if (!cancelled) check();
-        });
-      })
-      .catch(fail);
+        if (allowed) onUnlocked();
+        else setMode("signin");
+      } catch (cause: unknown) {
+        fail(cause);
+      }
+    };
+
+    void check();
+    const { data } = client.auth.onAuthStateChange(() => {
+      if (!cancelled) void check();
+    });
 
     return () => {
       cancelled = true;
-      unsubscribe?.();
+      data.subscription.unsubscribe();
     };
   }, [open, onUnlocked]);
 
+  /** Google's door. It leaves the page; the check above runs when it returns. */
   const signIn = useCallback(async () => {
     setBusy(true);
     setError(null);
     setDetail(null);
     try {
       await signInAsAdmin();
-      try {
-        if (await verifyAdminAccess()) onUnlocked();
-        else setMode("denied");
-      } catch (cause: unknown) {
-        console.error("[openmi admin] verify after sign-in", cause);
-        setDetail(describe(cause));
-        setError(describe(cause).message);
-        setMode("signin");
-      }
     } catch (cause: unknown) {
-      const code = (cause as { code?: string })?.code ?? "";
-      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
-        setError("Sign-in was cancelled.");
-      } else {
-        console.error("[openmi admin]", cause);
-        setDetail(describe(cause));
-        setError(describe(cause).message);
-      }
+      console.error("[openmi admin]", cause);
+      setDetail(describe(cause));
+      setError(describe(cause).message);
     } finally {
       setBusy(false);
     }
-  }, [onUnlocked]);
+  }, []);
+
+  /**
+   * The door that always works: the administrator's own address and password.
+   *
+   * The address is created once, in the dashboard, and the same one is seeded in
+   * `app_admin`. Google is a convenience on top of it, not a requirement — a
+   * project with no OAuth client configured still gets in.
+   */
+  const signInPassword = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      if (busy) return;
+      setBusy(true);
+      setError(null);
+      setDetail(null);
+      try {
+        await signInWithEmail(email, password);
+        if (await verifyAdminAccess()) {
+          onUnlocked();
+          return;
+        }
+        setMode("denied");
+        const client = getSupabase();
+        const who = (await client?.auth.getUser())?.data.user?.email ?? null;
+        setDetail({
+          code: "not-the-admin",
+          message: who
+            ? `Signed in as ${who}. Seed that address in app_admin (and OPENMI_ADMIN_EMAIL) and try again.`
+            : "The database does not list this account as the administrator.",
+        });
+      } catch (cause: unknown) {
+        console.error("[openmi admin] sign-in", cause);
+        setDetail(describe(cause));
+        setError(describe(cause).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, email, password, onUnlocked]
+  );
 
   const leave = useCallback(async () => {
     setBusy(true);
@@ -142,18 +173,6 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
     } finally {
       setBusy(false);
     }
-  }, []);
-
-  /** Shown when the account is signed in but the rules refuse it. */
-  const showWho = useCallback(async () => {
-    const services = await getServices();
-    const email = services?.auth.currentUser?.email;
-    setDetail({
-      code: "not-the-admin",
-      message: email
-        ? `Signed in as ${email}. Put that address in place of ADMIN_EMAIL in database.rules.json, publish, and try again.`
-        : "The database rules do not list this account as the administrator.",
-    });
   }, []);
 
   if (!open) return null;
@@ -177,14 +196,14 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
 
         {mode === "notconfigured" && (
           <p className="mt-2 text-[13px] text-red-200/80">
-            The NEXT_PUBLIC_FIREBASE_* values are missing, so Openmi has no database to talk to. Add
-            them to the deployment and redeploy.
+            The NEXT_PUBLIC_SUPABASE_* values are missing, so Openmi has no project to talk to. Add them
+            to the deployment and redeploy.
           </p>
         )}
 
         {mode === "unavailable" && (
           <div className="mt-2 space-y-2 text-[13px] text-white/60">
-            <p>Openmi could not reach Firebase, so the console cannot be opened.</p>
+            <p>Openmi could not reach the database, so the console cannot be opened.</p>
             {detail && (
               <p className="break-words rounded-lg bg-black/40 px-2 py-2 font-mono text-[11px] leading-relaxed text-white/75">
                 {detail.code}
@@ -196,14 +215,46 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
 
         {mode === "signin" && (
           <div className="mt-2 space-y-2 text-[13px] text-white/60">
-            <p>Sign in with the Google account that owns this Firebase project.</p>
+            <p>Sign in with the administrator&rsquo;s account.</p>
+            <form onSubmit={signInPassword} className="space-y-2">
+              <input
+                type="email"
+                required
+                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="admin@example.com"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[13px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+              />
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Password"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[13px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full rounded-xl bg-[#2a6142] py-2.5 text-[13px] font-medium text-white transition hover:bg-[#327350] disabled:opacity-50"
+              >
+                {busy ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
+            <div className="flex items-center gap-2 py-1">
+              <span className="h-px flex-1 bg-white/10" />
+              <span className="text-[10px] uppercase tracking-wide text-white/25">or</span>
+              <span className="h-px flex-1 bg-white/10" />
+            </div>
             <button
               type="button"
               onClick={signIn}
               disabled={busy}
               className="w-full rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12] disabled:opacity-50"
             >
-              {busy ? "Opening Google…" : "Sign in with Google"}
+              {busy ? "Opening Google…" : "Continue with Google"}
             </button>
             {error && <p className="text-[12px] text-red-200/80">{error}</p>}
           </div>
@@ -211,30 +262,20 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
 
         {mode === "denied" && (
           <div className="mt-2 space-y-2 text-[13px] text-white/60">
-            <p>That account is signed in, but the database rules do not list it as the administrator.</p>
+            <p>That account is signed in, but the database does not list it as the administrator.</p>
             <p className="text-[12px] text-white/45">
-              The administrator is named by email address in database.rules.json.
+              The administrator is the address in the `app_admin` row, and OPENMI_ADMIN_EMAIL must name the
+              same person.
             </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void showWho()}
-                className="flex-1 rounded-xl border border-white/[0.09] py-2 text-[13px] text-white/70 transition hover:bg-white/[0.06]"
-              >
-                Show my email
-              </button>
-              <button
-                type="button"
-                onClick={() => void leave()}
-                disabled={busy}
-                className="flex-1 rounded-xl border border-white/[0.09] py-2 text-[13px] text-white/70 transition hover:bg-white/[0.06] disabled:opacity-50"
-              >
-                {busy ? "Signing out…" : "Use another account"}
-              </button>
-            </div>
-            {detail && (
-              <p className="break-all text-[12px] text-red-200/80">{detail.message}</p>
-            )}
+            <button
+              type="button"
+              onClick={() => void leave()}
+              disabled={busy}
+              className="w-full rounded-xl border border-white/[0.09] py-2 text-[13px] text-white/70 transition hover:bg-white/[0.06] disabled:opacity-50"
+            >
+              {busy ? "Signing out…" : "Use another account"}
+            </button>
+            {detail && <p className="break-all text-[12px] text-red-200/80">{detail.message}</p>}
           </div>
         )}
 

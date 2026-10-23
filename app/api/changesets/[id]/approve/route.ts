@@ -109,7 +109,7 @@ export async function POST(
     const saved = await saveApproval(authorization, identity.uid, approval);
     if (!saved) {
       return Response.json(
-        { error: "The approval could not be recorded. Check the database rules for `approvals/{uid}`." },
+        { error: "The approval could not be recorded. Check the `approvals` policies in the Supabase project." },
         { status: 503 }
       );
     }

@@ -43,7 +43,7 @@ const GUEST = { configured: true, signedIn: true, isAnonymous: true };
 
 console.log("\naccount state");
 
-test("a deployment with no Firebase has no account to offer", () => {
+test("a deployment with no Supabase project has no account to offer", () => {
   const view = describeAccount({ configured: false, signedIn: false });
   assert.equal(view.status, "unconfigured");
   assert.equal(view.canBind, false);
@@ -167,24 +167,24 @@ test("an unconfigured deployment explains itself instead of offering a dead butt
 console.log("\nfailures worth reading");
 
 test("closing the window is not a failure", () => {
-  assert.equal(isDismissed({ code: "auth/popup-closed-by-user" }), true);
-  assert.equal(isDismissed({ code: "auth/cancelled-popup-request" }), true);
-  assert.equal(isDismissed({ code: "auth/network-request-failed" }), false);
+  assert.equal(isDismissed({ code: "access_denied" }), true);
+  assert.equal(isDismissed(new Error("access_denied: user cancelled")), true);
+  assert.equal(isDismissed({ code: "invalid_credentials" }), false);
 });
 
 test("a disabled sign-in method is reported as the fixable thing it is", () => {
-  assert.match(describeLinkError({ code: "auth/operation-not-allowed" }), /turn on Google/);
+  assert.match(describeLinkError({ code: "provider_disabled" }), /turn on Google/);
 });
 
 test("an account that already exists says so rather than failing cryptically", () => {
-  assert.match(
-    describeLinkError({ code: "auth/credential-already-in-use" }),
-    /already linked to Openmi/
-  );
-  assert.match(
-    describeLinkError({ code: "auth/account-exists-with-different-credential" }),
-    /already has a Openmi history/
-  );
+  assert.match(describeLinkError({ code: "identity_already_exists" }), /already linked/);
+  assert.match(describeLinkError({ code: "email_exists" }), /Sign in instead/);
+});
+
+test("a project without anonymous sign-ins says which toggle that is", () => {
+  // This build signs every first-time visitor in anonymously, so this one toggle
+  // is the difference between a working product and a blank screen.
+  assert.match(describeLinkError({ code: "anonymous_provider_disabled" }), /Anonymous sign-ins/);
 });
 
 test("an unrecognised failure keeps its own message", () => {
@@ -226,28 +226,22 @@ test("a guest has no provider and no confirmed address to speak of", () => {
   assert.equal(view.emailVerified, false);
 });
 
-test("a restricted account creation says which toggle it means", () => {
-  // The SDK flattens four different backend answers into one code. Only the raw
-  // message distinguishes "creation is off" from "the key is another project",
-  // and the two fixes are in different consoles.
-  const restricted = explainSignInError("ADMIN_ONLY_OPERATION", false);
-  assert.match(restricted.nextStep, /Enable create \(sign-up\)/);
-  assert.match(restricted.nextStep, /User Actions/);
+test("sign-ups being off is named as the setting it is", () => {
+  const restricted = explainSignInError("SIGNUP_DISABLED", false);
+  assert.match(restricted.verdict, /refuses new accounts/);
+  assert.match(restricted.nextStep, /Allow new users to sign up/);
 });
 
 test("a disabled provider is not reported as a disabled project setting", () => {
-  const provider = explainSignInError("OPERATION_NOT_ALLOWED", false);
+  const provider = explainSignInError("ANONYMOUS_DISABLED", false);
   assert.match(provider.verdict, /Anonymous/);
-  assert.doesNotMatch(provider.nextStep, /Enable create/);
+  assert.doesNotMatch(provider.nextStep, /Allow new users/);
 });
 
 test("a key from another project is named as a mismatch, not as a toggle", () => {
-  const mismatch = explainSignInError("API_KEY_INVALID", false);
+  const mismatch = explainSignInError("INVALID_API_KEY", false);
   assert.match(mismatch.verdict, /two different projects/);
-  assert.match(mismatch.nextStep, /NEXT_PUBLIC_FIREBASE_PROJECT_ID/);
-
-  const unconfigured = explainSignInError("CONFIGURATION_NOT_FOUND", false);
-  assert.match(unconfigured.nextStep, /PROJECT_ID/);
+  assert.match(mismatch.nextStep, /NEXT_PUBLIC_SUPABASE_ANON_KEY/);
 });
 
 test("a working project says so instead of sending someone to a toggle", () => {
@@ -257,15 +251,15 @@ test("a working project says so instead of sending someone to a toggle", () => {
 
 test("an unknown answer keeps the backend's own words", () => {
   assert.match(explainSignInError("SOMETHING_NEW", false).verdict, /SOMETHING_NEW/);
-  assert.match(explainSignInError(null, false).verdict, /could not reach Firebase/);
+  assert.match(explainSignInError(null, false).verdict, /could not reach Supabase/);
 });
 
 test("each email failure names the next step", () => {
-  assert.match(describeLinkError({ code: "auth/invalid-credential" }), /do not match/);
-  assert.match(describeLinkError({ code: "auth/email-already-in-use" }), /Sign in instead/);
-  assert.match(describeLinkError({ code: "auth/weak-password" }), /six characters/);
-  assert.match(describeLinkError({ code: "auth/invalid-email" }), /not a valid email/);
-  assert.match(describeLinkError({ code: "auth/user-not-found" }), /Create one instead/);
+  assert.match(describeLinkError({ code: "invalid_credentials" }), /do not match/);
+  assert.match(describeLinkError({ code: "email_exists" }), /Sign in instead/);
+  assert.match(describeLinkError({ code: "weak_password" }), /six characters/);
+  assert.match(describeLinkError({ code: "email_address_invalid" }), /not a valid email/);
+  assert.match(describeLinkError({ code: "user_not_found" }), /Create one instead/);
 });
 
 console.log("\nthe account is not the administrator");
@@ -288,12 +282,12 @@ function code(file: string): string {
 
 test("nothing in the account path can read or write the admin's data", () => {
   // The binding code must stay away from the console entirely. Elevation is
-  // decided by the database rules naming one address, so a bind path that so much
-  // as read that namespace would be a second, client-side definition of who the
-  // administrator is.
+  // decided by the policies in supabase/migrations naming one address, so a bind
+  // path that so much as read that table would be a second, client-side
+  // definition of who the administrator is.
   const source = code("lib/account.ts");
   assert.ok(
-    !/firebaseAdmin|verifyAdminAccess|signInAsAdmin|admin\/registry/.test(source),
+    !/cloudAdmin|verifyAdminAccess|signInAsAdmin|app_admin|is_admin/.test(source),
     "lib/account.ts reaches into the administrator's namespace"
   );
 });
@@ -310,45 +304,37 @@ test("the bind path grants access by identity, never by a flag it sets", () => {
 test("binding goes through linking, which is what keeps the chats where they are", () => {
   // Signing in with a new account would silently orphan everything already
   // logged under the anonymous id. What makes the upgrade safe is not that
-  // `linkWithPopup` appears in the file — it is that it is handed the *existing*
-  // user, because linking a credential to that account is what leaves the uid
-  // alone. Asserting on the import instead of the call would pass on a build that
-  // imported the function and never used it, which is the exact regression worth
-  // catching here.
+  // `linkIdentity` appears in the file — it is that it is used *instead of* a
+  // fresh sign-in, on the account already in use, because attaching a credential
+  // to that account is what leaves the uid alone.
   const source = code("lib/account.ts");
-  assert.match(
-    source,
-    /linkWithPopup\(\s*existing\b/,
-    "the guest path no longer links the credential onto the account already in use"
-  );
-  // A plain sign-in stays, but only as the recovery for an account that already
-  // exists elsewhere — never as the way a guest gets an account.
-  assert.match(source, /isAlreadyInUse\(code\)/, "the recovery is gated on the account existing");
-  const linkAt = source.indexOf("linkWithPopup(existing");
-  const signInAt = source.indexOf("signInWithPopup(current.auth");
+  assert.match(source, /isAnonymousUser\(existing\)/, "the guest path is not distinguished");
+  assert.match(source, /linkIdentity\(/, "the guest path no longer links in place");
+
+  const linkAt = source.indexOf("linkIdentity(");
+  const signInAt = source.indexOf("signInWithOAuth(");
+  assert.ok(linkAt > 0, "the in-place link disappeared");
   assert.ok(signInAt > linkAt, "a fresh sign-in is only reached after the link is refused");
 });
 
 test("the visitor's profile is not the console's visitor list", () => {
-  // Two different nodes on purpose. The console reads `admin/registry`, which a
-  // visitor can write but never read; a name that has to follow someone to
-  // another browser needs a node they *can* read, and reusing the console's
-  // would mean loosening a rule the console depends on.
-  const rules = readFileSync(join(process.cwd(), "database.rules.json"), "utf8");
-  const parsed = JSON.parse(rules) as {
-    rules: {
-      users: { $uid: { profile?: { ".read": string } } };
-      admin: { registry: { $uid: { ".write": string; ".read"?: string } } };
-    };
-  };
-  assert.equal(
-    parsed.rules.users.$uid.profile?.[".read"],
-    "auth != null && auth.uid === $uid",
+  // Two different tables on purpose. The console reads `visitor_registry`, which
+  // a visitor may write but never read; a name that has to follow someone to
+  // another browser needs a row they *can* read, and reusing the console's would
+  // mean loosening a policy the console depends on.
+  const sql = readFileSync(
+    join(process.cwd(), "supabase/migrations/20261023000100_identity.sql"),
+    "utf8"
+  );
+  assert.match(
+    sql,
+    /create policy profiles_owner on public\.profiles\s+for all to authenticated\s+using \(id = auth\.uid\(\)\)/,
     "the profile is readable only by the person it belongs to"
   );
-  assert.equal(
-    parsed.rules.admin.registry.$uid[".read"],
-    undefined,
+  assert.ok(
+    !/for select to authenticated\s+using \(owner = auth\.uid\(\)\)/.test(
+      sql.split("visitor_registry")[1]?.split("push_subscriptions")[0] ?? ""
+    ),
     "the console's visitor list must stay unreadable to visitors"
   );
 });

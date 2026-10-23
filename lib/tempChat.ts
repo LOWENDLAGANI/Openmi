@@ -2,7 +2,7 @@
 // A temporary chat behaves exactly like a real one while you are having it, and
 // leaves no trace when you close it. That is a promise about *storage*, not
 // about the interface, so it is kept here as pure logic with no dependency on
-// Dexie or Firebase: if this module cannot reach the database, nothing built on
+// Dexie or Supabase: if this module cannot reach the database, nothing built on
 // it can either, and the promise cannot rot as the send path grows around it.
 //
 // The interface deliberately mirrors the few `lib/db.ts` helpers the thread

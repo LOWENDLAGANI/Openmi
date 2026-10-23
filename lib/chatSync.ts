@@ -1,5 +1,5 @@
 // ── How two devices' chat histories are reconciled ───────────────────────────
-// Pure logic only. Nothing here touches Firebase or IndexedDB, so the rules
+// Pure logic only. Nothing here touches the network or IndexedDB, so the rules
 // that decide what a sync keeps, drops, and overwrites can be tested without a
 // browser or a network.
 //

@@ -7,10 +7,10 @@ import { toOpenmiName } from "@/lib/modelEngines";
 import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
-import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller, writeAsCaller } from "@/lib/serverControl";
+import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 import { resolveDew } from "@/lib/serverRedeem";
 import { canAfford, estimateTokenUsage, outOfDewMessage, requestPrice } from "@/lib/dew";
-import { deductDew, type DewState } from "@/lib/serverDew";
+import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 
 // ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
 //   OPENROUTER_API_KEY → Auto router
@@ -681,14 +681,15 @@ export async function POST(req: NextRequest): Promise<Response> {
             `[dew] charge of ${price} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`
           );
         } else {
-          // The write-once log entry, best effort — rules refuse junk, so a
-          // failure here costs only the history, never the balance. The token
+          // The append-only log entry, best effort — the policy refuses junk, so
+          // a failure here costs only the history, never the balance. The token
           // counts ride along for the ledger even though they do not price it.
-          await writeAsCaller(
-            authorization,
-            `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            { type: "usage", at: Date.now(), dew: price, model: requested, prompt: billed.prompt, completion: billed.completion }
-          ).catch(() => undefined);
+          await recordDewTransaction(authorization, identity.uid, {
+            dew: price,
+            model: requested,
+            prompt: billed.prompt,
+            completion: billed.completion,
+          }).catch(() => undefined);
         }
       }
 

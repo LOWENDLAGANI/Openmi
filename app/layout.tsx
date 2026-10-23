@@ -79,8 +79,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className="h-[100dvh]">
-        {/* Starts the Firebase account service on mount, so the Google sign-in
-            popup can open inside the click that asks for it. See the component. */}
+        {/* Signs this browser in anonymously on mount, so the first request
+            already carries an identity. See the component. */}
         <AuthWarmup />
         {children}
         <ServiceWorker />

@@ -74,7 +74,7 @@ export async function PATCH(
     const promoted = await setDefaultConnection(authorization, identity.uid, id);
     if (!promoted) {
       return Response.json(
-        { error: "The default could not be changed. Check the database rules for `users/{uid}/githubDefault`." },
+        { error: "The default could not be changed. Check the `github_default` row in the Supabase project." },
         { status: 503 }
       );
     }

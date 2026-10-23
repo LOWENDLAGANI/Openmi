@@ -105,7 +105,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     const saved = await saveProject(authorization, identity.uid, project);
     if (!saved) {
       return Response.json(
-        { error: "The project could not be saved. Check the database rules for `projects/{uid}`." },
+        { error: "The project could not be saved. Check the `projects` policies in the Supabase project." },
         { status: 503 }
       );
     }

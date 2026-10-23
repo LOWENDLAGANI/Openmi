@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DEFAULT_CONFIG, subscribeAppConfig, type AppConfig } from "./appConfig";
-import { authHeader } from "./firebaseHistory";
+import { authHeader } from "./supabase";
 
 // ── Is Openmi closed, and am I the one who can open it? ───────────────────────
 // Both answers come from the server. The page cannot be trusted to declare

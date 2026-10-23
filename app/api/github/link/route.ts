@@ -6,10 +6,10 @@ import { looksLikeGithubToken } from "@/lib/github/oauth";
 
 // ── Connecting GitHub ────────────────────────────────────────────────────────
 //
-// The browser runs the Firebase GitHub link flow and receives an access token.
+// The browser runs the GitHub OAuth round trip and receives an access token.
 // It posts that token here once, over the same origin, and the server:
 //
-//   1. verifies the caller's Firebase token,
+//   1. verifies the caller's Supabase access token,
 //   2. asks GitHub who the token belongs to — a token that cannot even identify
 //      itself is not stored,
 //   3. seals it and writes it under the caller's account.
@@ -17,7 +17,7 @@ import { looksLikeGithubToken } from "@/lib/github/oauth";
 // The token is never echoed back. From this point the browser has no copy the
 // server depends on, and `github/status` answers with a login and a date.
 //
-// GitHub is authorisation, not a second login: the Firebase user is unchanged,
+// GitHub is authorisation, not a second login: the Supabase user is unchanged,
 // so the history and the Dew wallet attached to it do not move.
 
 export const runtime = "nodejs";
@@ -64,8 +64,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const accessToken = typeof body.accessToken === "string" ? body.accessToken.trim() : "";
   // GitHub tokens are long and opaque. The shared check accepts both the
-  // prefixed formats and the classic 40-character form, because a Firebase
-  // GitHub credential in an older project may still be the latter.
+  // prefixed formats and the classic 40-character form, because finding a
+  // credential in an older project would still leave the latter.
   if (!looksLikeGithubToken(accessToken)) {
     return Response.json({ error: "That does not look like a GitHub access token." }, { status: 400 });
   }
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   if (!saved) {
     return Response.json(
-      { error: "The connection could not be saved. Check the database rules for `users/{uid}/github`." },
+      { error: "The connection could not be saved. Check the `github_connections` policies in the Supabase project." },
       { status: 503 }
     );
   }

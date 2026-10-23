@@ -17,7 +17,7 @@ import {
 // ── Finishing the GitHub round trip ──────────────────────────────────────────
 //
 // GitHub sends the browser here with a one-time code and the state this server
-// signed. There is no Firebase token on this request — it is a top-level
+// signed. There is no bearer token on this request — it is a top-level
 // navigation — so the account is taken from the verified state and the sealed
 // token goes into an httpOnly cookie bound to that uid. Every later route reads
 // it with `resolveGithubLink`, which refuses a cookie belonging to anyone else.

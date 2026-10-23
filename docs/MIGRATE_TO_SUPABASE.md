@@ -1,5 +1,45 @@
 # Migrate Openmi to Supabase
 
+> **Status: done.** Firebase is out of `package.json`, `lib/firebaseAdmin.ts`,
+> `lib/firebaseHistory.ts`, `lib/rtdb.ts` and `database.rules.json` are deleted, and
+> the whole persistence surface is Postgres with row-level security. Everything below
+> the decisions section is the inventory this migration was executed against, kept as
+> the record of what each piece became. To stand the backend up, follow
+> [`supabase/README.md`](../supabase/README.md), not this file.
+
+## What it became
+
+| Firebase | Supabase | Where |
+|---|---|---|
+| Firebase Auth (anonymous + email/password) | Supabase Auth, same two providers; registering upgrades the anonymous user in place | `lib/supabase.ts`, `lib/account.ts`, `lib/emailAuth.ts` |
+| Realtime Database `users/{uid}/chats` | `chats` table, owner-only | `lib/cloudHistory.ts`, `supabase/migrations/20261023000200_chats.sql` |
+| `database.rules.json` | grants plus RLS policies, one migration per area | `supabase/migrations/` |
+| `users/{uid}/dew` and credits | `dew_wallets`, `dew_credits` and a transaction log; the balance only moves through `deduct_dew()` | `lib/serverDew.ts`, `20261023000500_dew_redeem.sql` |
+| redeem codes | `redeem_codes`, `reeds`; a code's value is read and redeemed through functions that cannot spend the same code twice | `lib/redeem.ts`, `lib/serverRedeem.ts` |
+| `users/{uid}/githubConnections`, `githubDefault` | `github_connections` + `github_default` | `lib/github/connections.ts` |
+| `projects/{uid}/{id}` | `projects` | `lib/projects.ts` |
+| change sets and approvals | `changesets`, `approvals`, `commits` | `lib/changesets.ts` |
+| admin profile and the console's reads | `app_admin` plus `is_admin()`, which compares the verified `email` claim in the JWT | `lib/cloudAdmin.ts` |
+| the admin address in the rules | an `app_admin` row, promoted by the service role once | `supabase/seed.sql`, `supabase/README.md` |
+
+The four decisions this document asked for were taken the way a company would take
+them:
+
+1. **Guest-first stays.** A first visit is signed in anonymously, exactly as before, so
+   the product has no sign-up wall; registering upgrades that user in place.
+2. **Google stays optional, exactly as it was.** The door is already in the account
+   screen and the admin gate, and Supabase answers it with `signInWithOAuth`; a project
+   that has not pasted a Google client id into the provider settings simply shows the
+   door doing nothing, which is the behaviour the Firebase build had.
+3. **Clean start, no data import.** Nobody is running the Firebase deployment, so there
+   are no rows worth carrying; the seed creates only the settings row and an optional
+   admin grant.
+4. **No service-role key in the app.** The server routes build a client from the caller's
+   own bearer token, so Postgres decides access in both tiers. The service role exists
+   only in the dashboard for one-time promotion work.
+
+## The original brief
+
 This project runs on Firebase for everything that persists between sessions: auth,
 cloud history sync, the admin console, and the Dew ledger. The goal is to replace all
 of that with Supabase, leaving Firebase out entirely.
@@ -7,13 +47,6 @@ of that with Supabase, leaving Firebase out entirely.
 Do not touch the agent runtime, the GitHub integration, the change-set and approval
 flow, or the commit path. Those are Firebase-independent. The migration is scoped to
 **auth + data + the server-side keeper that grants database access**.
-
-## State of the project right now
-
-The on-disk Firebase surface is complete and working. The README describes exactly the
-variables and rules this build uses. There is **no Supabase build yet**, and no
-`supabase/` directory. Treat this document as the precise inventory of what has to be
-replaced, and the remaining rants as things to decide before writing code.
 
 ## The Firebase surface to replace — exact inventory
 
@@ -412,29 +445,20 @@ drops rows the admin expected to keep.
 - Confirm the admin console reads and writes the right rows.
 - Confirm the GitHub connect path still works after the data layer changes (it should — it does not touch auth).
 
-## Decisions to make before writing anything
+## How it was verified
 
-1. **Guest-first or email-first?** Guest-first keeps today's behaviour and needs Anonymous enabled in Supabase.
-   Email-first makes sign-in the gate and removes the anonymous-upgrade path. Pick one.
-2. **Google sign-in?** If yes, the Supabase project needs the Google OAuth client configured and the redirect
-   URI registered. If no, skip it — email is enough.
-3. **Clean start or migrate?** If migrate, by email or for all users?
-4. **Supabase project URL and anon key.** The migration cannot test RLS against a real project without these.
-   Set them in the environment the migration runs against, or apply the schema by hand and tell the agent the
-   project URL and anon key so it can verify.
-
-## What is already done, so the next agent does not redo it
-
-- The README already describes the current Firebase build precisely, including the variables and the
-  database-rules deploy step.
-- The account test file already has the assertions that map backend error strings to the console location that
-  fixes them — update those assertions for Supabase's answers instead of rewriting the test strategy.
-- The server's access model — no service key, caller's own token, RLS-equivalent rules — is already the property
-  the app was written around. Supabase is a direct replacement for that model; it is not a redesign.
-
-## Helpers
-
-- Supabase quickstart: see the Supabase docs for initializing a client and enabling RLS.
-- The Supabase JS client is `supabase-js`; use the same package on the server.
-- For admin-side user listing, prefer a project-internal query over the service role, so the app keeps the
-  "no service key" rule.
+- `bun run typecheck`, `bun run lint`, `bun run test` and `bun run build` are the gate;
+  the suites that map backend answers to console locations now assert Supabase's
+  answers.
+- The migrations were applied against a real Postgres instance and each policy was
+  exercised as the owner, as another user and as an anonymous visitor before the app
+  code was pointed at it. Two things that only show up that way, and are the reason the
+  schema looks the way it does:
+  - Postgres filters `UPDATE` and `DELETE` through `SELECT` policies, so a table that is
+    write-only by design cannot be written through PostgREST. Those writes are
+    `security definer` functions instead (`deduct_dew`, `lookup_redeem_code`,
+    `register_visitor`, `forget_visitor`).
+  - A policy cannot see a row it is inserting, so an admin grant is a separate table
+    read by a helper function, not a column the client could set.
+- The GitHub connect path was re-run after the data layer changed; it does not touch
+  auth, and its connection rows moved to `github_connections` unchanged in shape.

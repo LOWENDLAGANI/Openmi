@@ -198,68 +198,122 @@ assert.deepEqual(
 // The single property the whole feature rests on. If the claim could say what it
 // is worth, then whoever can write a claim could write themselves a balance.
 
-const rules = JSON.parse(readFileSync(join(process.cwd(), "database.rules.json"), "utf8")).rules;
-const claimValidate = String(rules.redeems.$uid.$code[".validate"]);
+// The equivalent of the old rules file is now the schema. These assertions read
+// the migration that owns Dew and codes, so the guarantees are still checked
+// against the file that actually decides them rather than against a comment
+// describing it.
+const schema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261023000500_dew_redeem.sql"),
+  "utf8"
+);
 
-// The claim's payload is fixed and small. `dew`, `plan` and `days` are not in it.
-assert.ok(claimValidate.includes("['code','claimedAt']"), "the claim may only carry the code name and a time");
-assert.ok(!claimValidate.includes("'dew'"), "a claim must not be able to carry an amount");
-assert.ok(!claimValidate.includes("'plan'"), "a claim must not be able to carry a plan");
-assert.ok(!claimValidate.includes("'days'"), "a claim must not be able to carry a length");
-assert.ok(!claimValidate.includes("expiresAt"), "a claim must not be able to carry an end date");
+/** The `create table` block for one table. */
+function tableBlock(name: string): string {
+  const start = schema.indexOf(`create table if not exists public.${name} (`);
+  assert.ok(start >= 0, `the ${name} table is missing from the schema`);
+  const end = schema.indexOf("\n);", start);
+  return schema.slice(start, end);
+}
+
+/** Every policy statement for one table. */
+function policyBlock(name: string): string {
+  return schema
+    .split(/\n(?=drop policy|create policy)/)
+    .filter((chunk) => chunk.includes(`on public.${name}\n`))
+    .join("\n");
+}
+
+// The claim's payload is fixed and small. There is no column for an amount, a
+// plan, a length or an end date — so a claim literally cannot carry one.
+const claimColumns = tableBlock("redeems");
+assert.ok(claimColumns.includes("code text not null"), "a claim records which word was used");
+assert.ok(claimColumns.includes("claimed_at"), "and when it was used");
+assert.ok(!/\bdew\b/.test(claimColumns), "a claim must not be able to carry an amount");
+assert.ok(!/\bplan\b/.test(claimColumns), "a claim must not be able to carry a plan");
+assert.ok(!/\bdays\b/.test(claimColumns), "a claim must not be able to carry a length");
+assert.ok(!/expires/i.test(claimColumns), "a claim must not be able to carry an end date");
 
 // Termination is refused at the moment of writing, so a modified client cannot
 // claim against a code the owner has switched off.
+const claimPolicies = policyBlock("redeems");
 assert.ok(
-  /root\.child\('codes'\)\.child\(\$code\)\.child\('active'\)\.val\(\) === true/.test(claimValidate),
+  /create policy redeems_owner_claim on public\.redeems[\s\S]*public\.redeem_code_is_live\(code\)/.test(
+    claimPolicies
+  ),
   "the claim refuses the write unless the code is still switched on"
 );
 
-// A claim is written once. `claimedAt` is compared against what is already
-// there, so re-typing a code cannot move the moment it was claimed — which is
-// what turned one word into unlimited time.
+// A claim is written once: there is no UPDATE policy for its owner at all, so
+// re-typing a code cannot move the moment it was claimed — which is what turned
+// one word into unlimited time.
 assert.ok(
-  /!data\.exists\(\) \|\| data\.child\('claimedAt'\)\.val\(\) === newData\.child\('claimedAt'\)\.val\(\)/.test(
-    claimValidate
-  ),
+  !/create policy [a-z_]* on public\.redeems\s+for update/i.test(claimPolicies),
   "a claim's timestamp must be immutable, or redeeming resets the clock"
+);
+
+// A credit may only be written for the trial figure or for exactly what a live
+// code carries. This is the check that stops a modified client minting a
+// balance.
+assert.ok(
+  /create policy dew_credits_owner_grant on public\.dew_credits[\s\S]*public\.dew_credit_allowed\(code, amount\)/.test(
+    schema
+  ),
+  "a credit write must be checked against the code's own amount"
+);
+assert.ok(
+  /create or replace function public\.dew_credit_allowed[\s\S]*c\.dew = p_amount/.test(schema),
+  "the credit check must compare against the stored amount"
 );
 
 // ── The codes themselves are the owner's ─────────────────────────────────────
 
-const codeRules = rules.codes;
-assert.equal(codeRules.$code[".read"], "auth != null", "a code is readable only when you know its name");
-assert.equal(
-  codeRules[".write"],
-  "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
+const codePolicies = policyBlock("redeem_codes");
+assert.match(
+  codePolicies,
+  /create policy redeem_codes_admin on public\.redeem_codes\s+for all to authenticated\s+using \(public\.is_admin\(\)\)/,
   "only the owner may create, change or switch off a code"
 );
-// The owner must still be able to LIST them — the console reads the whole tree.
-// Refusing the parent read while granting the per-code one broke the console's
-// own code list, and the refusal surfaced as "This account is not the Openmi
-// administrator", which sent the owner looking at their account rather than at
-// the rule that was wrong.
-assert.equal(
-  codeRules[".read"],
-  "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
-  "only the owner may list every code; a visitor can still fetch one by name"
+// The owner must still be able to LIST them — the console reads the table. The
+// table itself is administrator-only, so a visitor cannot sweep it; the one door
+// for everybody else answers for an exact word, which is what the old per-code
+// read rule gave.
+assert.match(
+  codePolicies,
+  /create policy redeem_codes_admin on public\.redeem_codes\s+for all to authenticated/,
+  "only the owner may list every code"
+);
+assert.match(
+  schema,
+  /create or replace function public\.lookup_redeem_code\(p_code text\)[\s\S]*where c\.code = upper\(p_code\)/,
+  "a visitor can still fetch one code by the name they were given"
+);
+assert.ok(
+  !/for select to authenticated/.test(codePolicies),
+  "a visitor must not be able to select the code table"
 );
 
-// A code is a Dew amount and nothing else, validated on the write itself — the
-// server and the console both go through this rule.
-const codeValidate = String(codeRules.$code[".validate"]);
-assert.ok(codeValidate.includes("hasChildren(['dew'])"), "a code must carry a Dew amount");
-assert.ok(codeValidate.includes("val() > 0"), "and it must be positive");
-assert.ok(codeValidate.includes("val() <= 100000"), "and under the ceiling");
-assert.ok(!codeValidate.includes("'plan'"), "no plan-shaped code may be written any more");
-assert.ok(!codeValidate.includes("'days'"), "and no length-shaped one either");
+// A code is a Dew amount and nothing else, checked on the row itself — the
+// server and the console both write through this table.
+const codeColumns = tableBlock("redeem_codes");
+assert.ok(/dew numeric[\s\S]*?not null/.test(codeColumns), "a code must carry a Dew amount");
+assert.ok(codeColumns.includes("dew > 0"), "and it must be positive");
+assert.ok(codeColumns.includes("<= 100000"), "and under the ceiling");
+assert.ok(!/\bplan\b/.test(codeColumns), "no plan-shaped code may be written any more");
+assert.ok(!/\bdays\b/.test(codeColumns), "and no length-shaped one either");
 
 // ── The subscription tree is gone ────────────────────────────────────────────
 //
-// Pay as you go means there is nowhere left for a plan to live. The rules must
-// not offer the node, and no source file may still reach for it.
+// Pay as you go means there is nowhere left for a plan to live. The schema must
+// not offer the table, and no source file may still reach for it.
 
-assert.equal(rules.subscriptions, undefined, "the rules no longer offer a subscriptions tree");
+const migrationsDir = join(process.cwd(), "supabase/migrations");
+const allSchema = readdirSync(migrationsDir)
+  .map((file) => readFileSync(join(migrationsDir, file), "utf8"))
+  .join("\n");
+assert.ok(
+  !/create table[^;]*\bsubscriptions\b/i.test(allSchema),
+  "the schema no longer offers a subscriptions table"
+);
 
 const forbidden = [
   "useSubscription",
@@ -304,8 +358,11 @@ for (const file of scanned) {
 // ── The client helper writes the claim and nothing else ──────────────────────
 
 const claimSource = readFileSync(join(process.cwd(), "lib", "redeem.ts"), "utf8");
-const claimWrite = claimSource.slice(claimSource.indexOf("await set(claimRef"));
-assert.ok(claimWrite.includes("code,") && claimWrite.includes("claimedAt:"), "the client writes the word and the time");
+const claimWrite = claimSource.slice(claimSource.indexOf(".from(\"redeems\").insert("));
+assert.ok(
+  claimWrite.includes("owner: user.id") && claimWrite.includes("code"),
+  "the client writes the word and the owner, and nothing else"
+);
 assert.ok(!/dew:|plan:|days:|expiresAt:/.test(claimWrite), "and nothing that would decide what it is worth");
 
 // An already-claimed code is reported as already claimed, not as an error. The
@@ -313,7 +370,7 @@ assert.ok(!/dew:|plan:|days:|expiresAt:/.test(claimWrite), "and nothing that wou
 // way to make somebody ask for a replacement they do not need.
 assert.ok(claimSource.includes("alreadyClaimed"), "re-using a code must be reported as success, with the reason");
 assert.ok(
-  /existing\.val\(\)\?\.claimedAt/.test(claimSource) || /Number\(existing\.val\(\)/.test(claimSource),
+  /\.from\("redeems"\)\s*\n?\s*\.select\("claimed_at"\)/.test(claimSource),
   "the client must read the claim before writing it, so it does not reset the clock"
 );
 
@@ -325,7 +382,10 @@ assert.ok(
 
 const resolver = code(join(process.cwd(), "lib", "serverRedeem.ts"));
 assert.ok(resolver.includes("checkRedeemable("), "every code must be re-checked for termination on each request");
-assert.ok(resolver.includes("?auth="), "the code read must be made with the caller's token so the rules judge it");
+assert.ok(
+  resolver.includes("clientForToken(token)") && resolver.includes('rpc("lookup_redeem_code"'),
+  "the code read must be made with the caller's token so the policies judge it"
+);
 assert.ok(resolver.includes("dewRedemptionValue("), "a claim resolves to the amount on the code");
 assert.ok(!resolver.includes("planId"), "and never to a plan");
 // A read that fails is worth nothing. The comment says so; the code must do it.

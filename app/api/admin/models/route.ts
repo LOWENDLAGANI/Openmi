@@ -7,7 +7,7 @@ import { requireAdmin } from "@/lib/serverControl";
 // now?" for one of them at a time.
 //
 // Both operations are gated on the same proof every other admin route uses: a
-// verified caller whose address is the one named in `database.rules.json`. The
+// caller who holds a verified `app_admin` row. The
 // check itself is deliberately not counted against the chat limits — an
 // administrator verifying a model has not sent a message to anyone, and must
 // not be able to lock themselves out of their own console by testing it.

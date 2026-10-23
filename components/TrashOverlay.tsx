@@ -8,7 +8,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/db";
-import { syncFirebaseHistory, unmarkChatDeleted } from "@/lib/firebaseHistory";
+import { syncCloudHistory, unmarkChatDeleted } from "@/lib/cloudHistory";
 import { deleteForever, restoreFromTrash, TRASH_RETENTION_MS, type TrashEntry } from "@/lib/trash";
 
 interface TrashOverlayProps {
@@ -108,7 +108,7 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
                           // uploaded — otherwise it is back on this browser but
                           // silently excluded from the account for ever.
                           unmarkChatDeleted(entry.id);
-                          void syncFirebaseHistory().catch(() => undefined);
+                          void syncCloudHistory().catch(() => undefined);
                           onRestored(entry.id);
                         });
                       }}

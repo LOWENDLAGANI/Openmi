@@ -15,7 +15,7 @@
 // `GET /api/push` reports configured: false and the Settings section says so
 // instead of pretending.
 
-import { authHeader } from "./firebaseHistory";
+import { authHeader } from "./supabase";
 
 export function pushSupported(): boolean {
   return (

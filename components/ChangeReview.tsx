@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { authHeader } from "@/lib/firebaseHistory";
+import { authHeader } from "@/lib/supabase";
 import type { ChangeSetFileView, ChangeSetView, CommitResult } from "@/lib/types";
 
 // ── The change under review ─────────────────────────────────────────────────

@@ -1,18 +1,18 @@
 // ── Delete my data ───────────────────────────────────────────────────────────
 // The visitor's own eraser. It clears every local table, tells the account
 // sync that these chats are gone so the next pull cannot hand them back, and
-// removes this identity's nodes from the database with the visitor's own
-// token — the rules already allow an owner to write their own subtree, so
-// this needs no credential and no admin involvement.
+// removes this identity's rows from the database with the visitor's own token —
+// the policies already allow an owner to write their own rows, so this needs no
+// credential and no admin involvement.
 //
-// One thing it deliberately keeps: the Dew balance. Paid-for credits belong to
-// the person, not to the chat history, and an eraser that silently ate a
-// top-up would be the kind of "privacy" feature that generates support mail —
-// which is why `dew/{uid}` is simply not on the list of paths below.
+// One thing it deliberately keeps: the Dew ledger. Paid-for credits belong to the
+// person, not to the chat history, and an eraser that silently ate a top-up would
+// be the kind of "privacy" feature that generates support mail — which is why
+// `dew_credits` and `dew_wallets` are simply not on the list of tables below.
 
-import { remove, ref } from "firebase/database";
 import { db } from "./db";
-import { firebaseConfigured, getServices, syncChatWipe } from "./firebaseHistory";
+import { syncChatWipe } from "./cloudHistory";
+import { ensureUser, getSupabase } from "./supabase";
 
 export interface DeleteDataResult {
   /** The local wipe always runs; false only if Dexie itself refused. */
@@ -40,25 +40,42 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
   });
 
   let remote = 0;
-  if (firebaseConfigured) {
-    const current = await getServices();
-    // Anonymous or signed in, the data lives under whatever uid this browser
-    // holds — and the rules let that uid clear exactly its own paths.
-    const user = current?.user ?? (await current?.ensureUser());
-    if (current && user) {
-      for (const path of [
-        `users/${user.uid}`,
-        `admin/registry/${user.uid}`,
-        `usage/${user.uid}`,
-        `push/subscriptions/${user.uid}`,
-      ]) {
-        try {
-          await remove(ref(current.database, path));
-          remote += 1;
-        } catch {
-          // Rules not republished, offline, or already gone. The local wipe
-          // stands on its own; a partial remote removal is reported as such.
-        }
+  const client = getSupabase();
+  // Anonymous or signed in, the data lives under whatever id this browser
+  // holds — and the policies let that id clear exactly its own rows.
+  const user = client ? await ensureUser() : null;
+  if (client && user) {
+    // The registry row has no SELECT grant, so a direct delete would silently
+    // match nothing — the one door is the function that scopes itself.
+    try {
+      const { error } = await client.rpc("forget_visitor");
+      if (!error) remote += 1;
+    } catch {
+      // See below: the local wipe stands on its own.
+    }
+
+    // Chat messages first: a chat row that outlives its messages opens as an
+    // empty thread, which reads as data loss. The rest is order-independent.
+    for (const table of [
+      "chat_messages",
+      "chats",
+      "memories",
+      "github_connections",
+      "github_default",
+      "github_links",
+      "projects",
+      "changesets",
+      "approvals",
+      "commits",
+      "usage_daily",
+      "push_subscriptions",
+    ]) {
+      try {
+        const { error } = await client.from(table).delete().eq("owner", user.id);
+        if (!error) remote += 1;
+      } catch {
+        // Offline, or the table is not there. The local wipe stands on its own;
+        // a partial remote removal is reported as such.
       }
     }
   }

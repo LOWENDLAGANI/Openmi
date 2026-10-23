@@ -15,7 +15,7 @@ import {
 } from "@/lib/db";
 import { moveChatToTrash } from "@/lib/trash";
 import type { Chat, ChatFolder } from "@/lib/types";
-import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/firebaseHistory";
+import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/cloudHistory";
 import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import OpenmiMark from "@/components/OpenmiMark";

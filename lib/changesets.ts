@@ -20,12 +20,11 @@
 //      with `agent/`. Commit refuses anything else.
 //
 // Everything below is pure except the small store functions at the end, which
-// write through the caller's own Firebase token so the database rules remain
+// write through the caller's own token so row-level security remains
 // the only place access is decided.
 
 import { createHash } from "node:crypto";
-import { readAsCaller } from "./rtdb";
-import { writeAsCaller } from "./serverControl";
+import { clientForToken } from "./supabase";
 import { sign, turnKey, verify } from "./github/crypto";
 import type { ChangeSetFileView, ChangeSetView, CommitResult } from "./types";
 import type { StagedChange } from "./agent/edits";
@@ -530,20 +529,112 @@ export function commitGate(input: {
 
 // ── Storage ─────────────────────────────────────────────────────────────────
 //
-// Paths are in the caller's own node, and every write goes through the caller's
-// token, so `database.rules.json` decides what may be written. The rows are an
-// audit trail and a convenience; the signature is the authority.
+// Every row is in the caller's own name, and every write goes through the
+// caller's token, so the row-level security policies decide what may be written.
+// The rows are an audit trail and a convenience; the signature is the authority
+// — rewriting the `files` column and asking to commit produces a signature that
+// does not verify, which is what makes the commit invariant real rather than
+// decorative.
 
-const changeSetPath = (uid: string, id: string) => `changesets/${uid}/${id}`;
-const approvalPath = (uid: string, id: string) => `approvals/${uid}/${id}`;
-const commitPath = (uid: string, id: string) => `commits/${uid}/${id}`;
+function bearer(authorization: string | null): string {
+  return authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+}
+
+function ms(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function iso(value: number): string {
+  return new Date(value > 0 ? value : Date.now()).toISOString();
+}
+
+/** One stored row, in the shape `normalizeChangeSet` validates. */
+function changeSetFromRow(row: unknown): unknown {
+  if (!row || typeof row !== "object") return null;
+  const value = row as Record<string, unknown>;
+  return {
+    v: 1,
+    id: value.id,
+    projectId: value.project_id,
+    repoFullName: value.repo_full_name,
+    defaultBranch: value.default_branch,
+    baseSha: value.base_sha,
+    hash: value.hash,
+    branch: value.branch,
+    message: value.message,
+    files: value.files,
+    createdAt: ms(value.created_at),
+    exp: ms(value.expires_at),
+    status: value.status,
+    sig: value.signature,
+  };
+}
+
+function approvalFromRow(row: unknown): unknown {
+  if (!row || typeof row !== "object") return null;
+  const value = row as Record<string, unknown>;
+  return {
+    v: 1,
+    changeSetId: value.changeset_id,
+    repoFullName: value.repo_full_name,
+    baseSha: value.base_sha,
+    hash: value.hash,
+    branch: value.branch,
+    message: value.message,
+    at: ms(value.created_at),
+    sig: value.signature,
+  };
+}
+
+function commitFromRow(row: unknown): unknown {
+  if (!row || typeof row !== "object") return null;
+  const value = row as Record<string, unknown>;
+  return {
+    changeSetId: value.changeset_id,
+    sha: value.sha,
+    branch: value.branch,
+    prUrl: value.pr_url,
+    at: ms(value.created_at),
+  };
+}
 
 export async function saveChangeSet(
   authorization: string | null,
   uid: string,
   changeSet: ChangeSet
 ): Promise<boolean> {
-  return writeAsCaller(authorization, changeSetPath(uid, changeSet.id), changeSet);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  try {
+    const { error } = await client.from("changesets").upsert(
+      {
+        owner: uid,
+        id: changeSet.id,
+        project_id: changeSet.projectId,
+        repo_full_name: changeSet.repoFullName,
+        default_branch: changeSet.defaultBranch,
+        base_sha: changeSet.baseSha,
+        hash: changeSet.hash,
+        branch: changeSet.branch,
+        message: changeSet.message,
+        files: changeSet.files,
+        status: changeSet.status,
+        expires_at: iso(changeSet.exp),
+        signature: changeSet.sig,
+        created_at: iso(changeSet.createdAt),
+      },
+      { onConflict: "owner,id" }
+    );
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 export async function readChangeSet(
@@ -552,17 +643,33 @@ export async function readChangeSet(
   id: string
 ): Promise<ChangeSet | null> {
   if (!isChangeSetId(id)) return null;
-  const raw = await readAsCaller<unknown>(authorization, changeSetPath(uid, id));
-  return normalizeChangeSet(raw);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return null;
+  try {
+    const { data, error } = await client
+      .from("changesets")
+      .select(
+        "id, project_id, repo_full_name, default_branch, base_sha, hash, branch, message, files, status, expires_at, signature, created_at"
+      )
+      .eq("owner", uid)
+      .eq("id", id)
+      .maybeSingle();
+    if (error || !data) return null;
+    return normalizeChangeSet(changeSetFromRow(data));
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Rewrites a change set's status.
  *
- * A read-modify-write because the REST API has no patch. The risk is a status
- * write racing a commit, and it is acceptable: the status is a label on a
- * review screen, while whether something *may* be committed is decided by the
- * approval signature and GitHub's own branch head.
+ * A column update now rather than the read-modify-write the Realtime Database
+ * REST API forced on this. The risk was a status write racing a commit, and it
+ * was acceptable then for the same reason it is now harmless: the status is a
+ * label on a review screen, while whether something *may* be committed is
+ * decided by the approval signature and GitHub's own branch head.
  */
 export async function setChangeSetStatus(
   authorization: string | null,
@@ -570,7 +677,24 @@ export async function setChangeSetStatus(
   changeSet: ChangeSet,
   status: ChangeSetStatus
 ): Promise<boolean> {
-  return writeAsCaller(authorization, changeSetPath(uid, changeSet.id), { ...changeSet, status });
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  try {
+    // `.select()` so a row the policies filtered reads as a failure rather than
+    // as a write that never happened. PostgreSQL does not raise on a refused
+    // UPDATE; it simply matches nothing.
+    const { data, error } = await client
+      .from("changesets")
+      .update({ status })
+      .eq("owner", uid)
+      .eq("id", changeSet.id)
+      .select("id");
+    if (error) return false;
+    return Array.isArray(data) && data.length === 1;
+  } catch {
+    return false;
+  }
 }
 
 export async function saveApproval(
@@ -578,7 +702,28 @@ export async function saveApproval(
   uid: string,
   approval: Approval
 ): Promise<boolean> {
-  return writeAsCaller(authorization, approvalPath(uid, approval.changeSetId), approval);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  try {
+    const { error } = await client.from("approvals").upsert(
+      {
+        owner: uid,
+        changeset_id: approval.changeSetId,
+        repo_full_name: approval.repoFullName,
+        base_sha: approval.baseSha,
+        hash: approval.hash,
+        branch: approval.branch,
+        message: approval.message,
+        signature: approval.sig,
+        created_at: iso(approval.at),
+      },
+      { onConflict: "owner,changeset_id" }
+    );
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 export async function readApproval(
@@ -587,8 +732,21 @@ export async function readApproval(
   id: string
 ): Promise<Approval | null> {
   if (!isChangeSetId(id)) return null;
-  const raw = await readAsCaller<unknown>(authorization, approvalPath(uid, id));
-  return normalizeApproval(raw);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return null;
+  try {
+    const { data, error } = await client
+      .from("approvals")
+      .select("changeset_id, repo_full_name, base_sha, hash, branch, message, signature, created_at")
+      .eq("owner", uid)
+      .eq("changeset_id", id)
+      .maybeSingle();
+    if (error || !data) return null;
+    return normalizeApproval(approvalFromRow(data));
+  } catch {
+    return null;
+  }
 }
 
 export async function saveCommit(
@@ -596,7 +754,25 @@ export async function saveCommit(
   uid: string,
   record: CommitRecord
 ): Promise<boolean> {
-  return writeAsCaller(authorization, commitPath(uid, record.changeSetId), record);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  try {
+    const { error } = await client.from("commits").upsert(
+      {
+        owner: uid,
+        changeset_id: record.changeSetId,
+        sha: record.sha,
+        branch: record.branch,
+        pr_url: record.prUrl,
+        created_at: iso(record.at),
+      },
+      { onConflict: "owner,changeset_id" }
+    );
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 export async function readCommit(
@@ -605,8 +781,21 @@ export async function readCommit(
   id: string
 ): Promise<CommitRecord | null> {
   if (!isChangeSetId(id)) return null;
-  const raw = await readAsCaller<unknown>(authorization, commitPath(uid, id));
-  return normalizeCommit(raw);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return null;
+  try {
+    const { data, error } = await client
+      .from("commits")
+      .select("changeset_id, sha, branch, pr_url, created_at")
+      .eq("owner", uid)
+      .eq("changeset_id", id)
+      .maybeSingle();
+    if (error || !data) return null;
+    return normalizeCommit(commitFromRow(data));
+  } catch {
+    return null;
+  }
 }
 
 /** The review screen's view: diffs and counts, never the whole new file. */

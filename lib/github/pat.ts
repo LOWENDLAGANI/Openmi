@@ -30,7 +30,7 @@
 /** The classic scope the agent needs. Fine-grained tokens use permissions instead. */
 export const PAT_SCOPE_HINT = "repo";
 
-/** Matches the length the database rules validate on a stored label. */
+/** Matches the length the database validates on a stored label. */
 export const CONNECTION_LABEL_MAX = 40;
 
 export type ConnectionKind = "pat" | "oauth";

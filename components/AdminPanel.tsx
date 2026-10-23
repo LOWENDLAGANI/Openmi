@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
 import AdminControls from "./AdminControls";
 import ModelHealthSection from "./ModelHealth";
-import { firebaseConfigured, fetchVisitorRegistry, getServices, type VisitorProfile } from "@/lib/firebaseHistory";
+import { fetchVisitorRegistry, type VisitorProfile } from "@/lib/cloudHistory";
+import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import {
   appendAdminAudit,
   createRedeemCode,
@@ -22,16 +22,16 @@ import {
   wipeUser,
   type AdminAuditEntry,
   type UsageHistoryDay,
-} from "@/lib/firebaseAdmin";
+} from "@/lib/cloudAdmin";
 import { summarizeUsage } from "@/lib/usageStats";
 import { formatDew } from "@/lib/dew";
 import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
 
 // ── Admin console ────────────────────────────────────────────────────────────
-// Reads and wipes go straight to the Realtime Database from the browser. Access
-// is granted by `database.rules.json` to one Auth UID, and Firebase enforces
-// that on every call, so the console holds no credential of its own and the
-// deployment environment holds no service-account key.
+// Reads and wipes go straight to PostgREST from the browser. Access is granted
+// by a verified `app_admin` row, and row-level security enforces that on every
+// call, so the console holds no credential of its own and the deployment
+// environment holds no service-role key.
 
 interface AdminUser {
   uid: string;
@@ -117,19 +117,18 @@ export default function AdminPanel({
     if (!open) return;
     let unsubscribe = () => {};
     let cancelled = false;
-    void getServices()
-      .then((services) => {
-        if (!services || cancelled) return;
-        unsubscribe = onAuthStateChanged(services.auth, (user) => {
-          if (user) return;
-          setUsers(null);
-          setChats(null);
-          setChat(null);
-          setNamed(null);
-          onClose();
-        });
-      })
-      .catch(() => undefined);
+    const client = getSupabase();
+    if (!client) return;
+    const { data } = client.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      if (session?.user && event !== "SIGNED_OUT") return;
+      setUsers(null);
+      setChats(null);
+      setChat(null);
+      setNamed(null);
+      onClose();
+    });
+    unsubscribe = () => data.subscription.unsubscribe();
     return () => {
       cancelled = true;
       unsubscribe();
@@ -537,7 +536,7 @@ export default function AdminPanel({
                   <span className="text-[10px] text-white/25">{named?.length ?? 0}</span>
                 </div>
                 <p className="text-[10px] leading-relaxed text-white/30">
-                  Read live from the browser database. {firebaseConfigured ? "Firebase is configured." : "Firebase is not configured."}
+                  Read live from the browser database. {supabaseConfigured ? "Supabase is configured." : "Supabase is not configured."}
                 </p>
                 {named === null ? (
                   <p className="py-2 text-[11px] text-white/35">Loading…</p>
@@ -1082,8 +1081,8 @@ function AuditSection({
 
       {broken && (
         <p className="mb-2 rounded-[10px] border border-amber-300/15 bg-amber-400/[0.06] px-2.5 py-2 text-[10px] leading-relaxed text-amber-100/85">
-          The database rules in use do not cover <code>admin/audit</code>, so history could not be
-          written. The codes themselves worked. Publish <code>admin/audit</code> rules to record them.
+          The <code>audit_log</code> policies in use do not cover the admin view, so history could not
+          be written. The codes themselves worked. Apply the migrations to record them.
         </p>
       )}
 

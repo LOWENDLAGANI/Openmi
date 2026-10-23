@@ -22,8 +22,7 @@
 // entry must not take the whole list with it.
 
 import { createHash } from "node:crypto";
-import { deleteAsCaller, readAsCaller } from "../rtdb";
-import { writeAsCaller } from "../serverControl";
+import { clientForToken } from "../supabase";
 import { seal, tokenKey, unseal } from "./crypto";
 import { looksLikeGithubToken } from "./oauth";
 import {
@@ -85,14 +84,34 @@ interface StoredConnection {
   canReadRepos: boolean;
 }
 
-interface StoredDefault {
-  id: string;
-  at: number;
+function bearer(authorization: string | null): string {
+  return authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
 }
 
-const connectionsPath = (uid: string) => `users/${uid}/githubConnections`;
-const connectionPath = (uid: string, id: string) => `${connectionsPath(uid)}/${id}`;
-const defaultPath = (uid: string) => `users/${uid}/githubDefault`;
+function ms(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+/** One row, in the shape `open()` reads. */
+function storedFromRow(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    v: 1,
+    token: row.token,
+    login: row.login,
+    scopes: row.scopes,
+    kind: row.kind,
+    label: row.label,
+    linkedAt: ms(row.linked_at),
+    canReadRepos: row.can_read_repos === true,
+  };
+}
+
+const CONNECTION_COLUMNS = "id, token, login, scopes, kind, label, can_read_repos, linked_at";
 
 /** True when this deployment can store a connection at all. */
 export function connectionsConfigured(): boolean {
@@ -147,13 +166,24 @@ export async function listGithubConnections(
   authorization: string | null,
   uid: string
 ): Promise<GithubConnectionSummary[]> {
-  const stored = await readAsCaller<Record<string, unknown>>(authorization, connectionsPath(uid));
-  if (!stored) return [];
-  return Object.entries(stored)
-    .map(([id, raw]) => open(id, raw))
-    .filter((connection): connection is GithubConnection => connection !== null)
-    .sort((a, b) => b.linkedAt - a.linkedAt)
-    .map(summaryOf);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return [];
+  try {
+    const { data, error } = await client
+      .from("github_connections")
+      .select(CONNECTION_COLUMNS)
+      .eq("owner", uid)
+      .order("linked_at", { ascending: false });
+    if (error || !data) return [];
+    return (data as Record<string, unknown>[])
+      .map((row) => open(String(row.id ?? ""), storedFromRow(row)))
+      .filter((connection): connection is GithubConnection => connection !== null)
+      .sort((a, b) => b.linkedAt - a.linkedAt)
+      .map(summaryOf);
+  } catch {
+    return [];
+  }
 }
 
 /** One connection, or null when it is not this account's or does not open. */
@@ -163,8 +193,21 @@ export async function readGithubConnection(
   id: string
 ): Promise<GithubConnection | null> {
   if (!isConnectionId(id)) return null;
-  const stored = await readAsCaller<unknown>(authorization, connectionPath(uid, id));
-  return open(id, stored);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return null;
+  try {
+    const { data, error } = await client
+      .from("github_connections")
+      .select(CONNECTION_COLUMNS)
+      .eq("owner", uid)
+      .eq("id", id)
+      .maybeSingle();
+    if (error || !data) return null;
+    return open(id, storedFromRow(data as Record<string, unknown>));
+  } catch {
+    return null;
+  }
 }
 
 /** The id the account chose, when it has chosen one and it still exists. */
@@ -172,9 +215,21 @@ export async function readDefaultConnectionId(
   authorization: string | null,
   uid: string
 ): Promise<string | null> {
-  const stored = await readAsCaller<StoredDefault>(authorization, defaultPath(uid));
-  if (!stored || typeof stored.id !== "string" || !isConnectionId(stored.id)) return null;
-  return stored.id;
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return null;
+  try {
+    const { data, error } = await client
+      .from("github_default")
+      .select("connection_id")
+      .eq("owner", uid)
+      .maybeSingle();
+    if (error || !data) return null;
+    const id = data.connection_id;
+    return typeof id === "string" && isConnectionId(id) ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Marks a connection as the one new repository reads use. */
@@ -184,10 +239,18 @@ export async function setDefaultConnection(
   id: string
 ): Promise<boolean> {
   if (!isConnectionId(id)) return false;
-  return writeAsCaller(authorization, defaultPath(uid), {
-    id,
-    at: Date.now(),
-  } satisfies StoredDefault);
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  try {
+    const { error } = await client.from("github_default").upsert(
+      { owner: uid, connection_id: id, at: new Date().toISOString() },
+      { onConflict: "owner" }
+    );
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -229,18 +292,31 @@ export async function saveGithubConnection(
     canReadRepos: Boolean(input.canReadRepos),
   };
 
-  const stored: StoredConnection = {
-    v: 1,
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client) return null;
+
+  const row = {
+    owner: uid,
+    id,
     token: seal(connection.token, key),
     login: connection.login,
     scopes: connection.scopes,
     kind: connection.kind,
     label: connection.label,
-    linkedAt: connection.linkedAt,
-    canReadRepos: connection.canReadRepos,
+    can_read_repos: connection.canReadRepos,
+    linked_at: new Date(connection.linkedAt).toISOString(),
   };
 
-  const written = await writeAsCaller(authorization, connectionPath(uid, id), stored);
+  let written = false;
+  try {
+    const { error } = await client
+      .from("github_connections")
+      .upsert(row, { onConflict: "owner,id" });
+    written = !error;
+  } catch {
+    written = false;
+  }
   if (!written) return null;
 
   // The default is a convenience, never a requirement: a failed write here
@@ -259,10 +335,21 @@ export async function deleteGithubConnection(
   id: string
 ): Promise<boolean> {
   if (!isConnectionId(id)) return false;
-  const removed = await deleteAsCaller(authorization, connectionPath(uid, id));
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+
+  let removed = false;
+  try {
+    const { error } = await client.from("github_connections").delete().eq("owner", uid).eq("id", id);
+    removed = !error;
+  } catch {
+    removed = false;
+  }
+
   const currentDefault = await readDefaultConnectionId(authorization, uid);
   if (currentDefault === id) {
-    await deleteAsCaller(authorization, defaultPath(uid));
+    await client.from("github_default").delete().eq("owner", uid);
     // Another connection may remain. Promoting the newest keeps repository
     // reads working without the person having to pick again after a removal.
     const remaining = await listGithubConnections(authorization, uid);
