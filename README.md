@@ -9,18 +9,15 @@ when you say so**, on a branch of its own.
 > can also call `propose_edits`, which stages a change and returns a unified
 > diff the server computed from the base commit. That change is saved for
 > review; nothing reaches GitHub until you press **Approve & commit**, which
-> opens a pull request from an `agent/` branch. Phase 3 (execution) is deferred —
-> see [docs/OVERHAUL_SPEC.md](docs/OVERHAUL_SPEC.md).
+> opens a pull request from an `agent/` branch. Phase 3 (execution) is deferred —\n> see [docs/OVERHAUL_SPEC.md](docs/OVERHAUL_SPEC.md).
 
 ## What works today
 
 - Chat with **Auto** and **Code** modes, streamed over SSE with provider
   fallback and continuation when a model hits its output limit.
 - Local-first history in IndexedDB (Dexie), synced to Firebase when configured.
-- **An account with an email address and a password**, held by Firebase Auth.
-  Registering upgrades the guest identity this browser already has, so the UID —
-  and every chat written under it — stays exactly where it is. A confirmation
-  mail is sent on registration; nothing is gated on it.
+- **An account with an email address and a password**, held by the sign-in
+  backend.
 - **Dew**: one flat price per request, per model — `0.25` for Auto, `0.5` for
   Code. Token counts are still recorded and shown; they no longer price the
   request.
@@ -28,12 +25,11 @@ when you say so**, on a branch of its own.
   branching replies, web search, attachments, push, PWA, admin console.
 - **GitHub connected with a personal access token.** A token pasted into the
   panel is checked against `GET /user` and one repository listing, then sealed
-  with AES-256-GCM under `users/{uid}/githubConnections`. An account can hold
+  with AES-256-GCM under the account's stored connections. An account can hold
   several connections and mark one as the default; reconnecting the same GitHub
   account rotates its token rather than adding a second entry. No response ever
   contains a token. A GitHub OAuth App is still available as a second door when
-  one is configured, and the Firebase-hosted credential still works for
-  deployments that already have it.
+  one is configured.
 - **A repository workspace.** Repo picker over every repository the connection
   can read, a filtered file tree, and a read-only file viewer, all pinned to one
   commit (the project records `baseSha` when it is attached).
@@ -82,10 +78,38 @@ Open http://localhost:3000.
 
 ## Configuration
 
-Copy `.env.example` to `.env.local`. Nothing in it is required to boot: with no
-model key the app shows a setup notice instead of crashing.
+Copy `.env.example` to `.env.local`.
 
-The important ones:
+### Why this README is the migration page
+
+The backend is **being replaced**: accounts, cloud history, the admin console
+and the Dew ledger are moving off Firebase to Supabase. What is on disk is the
+complete Firebase surface — the settings above still describe that build — and
+there is no Supabase build ready yet. **Do not use this README to stand up a
+newly deployed app.** Read it as the precise inventory of what a migration must
+replace, and come back to the Supabase section once the variables are set.
+
+If you ran into the sign-in error that sends people down a rabbit hole, here is
+the honest inventory of what actually causes it — in Firebase, and in whatever
+replaces it:
+
+| Backend answer | What it actually means |
+|---|---|
+| `auth/admin-restricted-operation` | end-user **account creation** is restricted for the project — not a sign-in provider being off. In Firebase this is Authentication → Settings → User Actions → **Enable create (sign-up)**. In Supabase it is the **enable anonymous sign-ins** toggle on `POST /auth/v1/signup` when the app still sends anonymous requests, plus Email/Password being available for the email path. |
+| `auth/operation-not-allowed` | the attempted sign-in method specifically is unavailable (Anonymous off, Google off, etc.). |
+| `API_KEY_INVALID` / `CONFIGURATION_NOT_FOUND` | the build is holding a key or project id the project does not accept — i.e. the wrong project, or values set after the last build. |
+
+The last row is the one people keep missing: in Firebase these values are
+inlined into the JS at build time. Adding them after a build does not reach the
+already-built site — it needs a real rebuild. Same holds for Supabase: set the
+values, then build the site.
+
+### Environment variables (current Firebase surface)
+
+Nothing in it is required to boot: with no model key the app shows a setup notice
+instead of crashing.
+
+The important ones for **this build**:
 
 | Variable | Purpose |
 |---|---|
@@ -93,14 +117,35 @@ The important ones:
 | `GEMINI_API_KEY` | Code mode (V3 → V2 → V1 only). |
 | `GROQ_API_KEY` | Last-resort fallback for Auto. |
 | `TAVILY_API_KEY` | Web search and source links. |
-| `NEXT_PUBLIC_FIREBASE_*` | Accounts, cloud history, admin console, Dew ledger. |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Client project key. |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Auth domain. |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Project id. |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Storage bucket. |
+| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Messaging sender id. |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | App id. |
 | `OPENMI_ADMIN_EMAIL` | The one address allowed into the console. |
 | `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews and the sitemap. |
 | `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens. Unset means GitHub cannot be connected. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App, a second door beside the pasted token. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
 
-### Signing in
+These Firebase variables, the Firebase dependency and the database rules below
+are **all** part of the thing being removed. A migration should leave them out.
+
+### Environment variables (target surface, do not set yet)
+
+Once the Supabase backend is in place, the account and data variables become:
+
+| Variable | Purpose |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL. |
+| `SUPABASE_ANON_KEY` | The key the browser and the server use; the server forwards it to PostgREST so RLS decides access. No service-role key is stored in the app. |
+| `OPENMI_ADMIN_EMAIL` | The one address allowed into the admin console — enforced by a row-level policy, not by a service key. |
+
+No `NEXT_PUBLIC_FIREBASE_*` variables remain. No `database.rules.json` is
+deployed.
+
+## Signing in (current Firebase sign-in instructions — obsolete once migrated)
 
 Signing in is an email address and a password, and the password is Firebase
 Auth's to hold — this app never sees or stores it. Turn the provider on under
@@ -116,7 +161,12 @@ the existing history is the real one. A confirmation mail goes out on
 registration and can be resent from the account row; nothing is blocked while it
 is unconfirmed.
 
-### Connecting GitHub
+> **This section is Firebase-specific and will be rewritten once Supabase is in
+> place.** The migration keeps email + password as the sign-in method and can
+> keep guest-first or switch to email-first; the sign-in page topology changes
+> accordingly.
+
+## Connecting GitHub
 
 **A. Personal access token (the door that needs no console change)**
 
@@ -146,9 +196,11 @@ account.
 
 **Then, either way:**
 
-4. Deploy the updated `database.rules.json`. Connections live at
-   `users/{uid}/githubConnections/{id}` with a `users/{uid}/githubDefault`
-   pointer, and projects at `projects/{uid}/{id}` — all owner-only.
+4. Deploy the project's access rules. Connections live at `users/{uid}/githubConnections/{id}`
+   with a `users/{uid}/githubDefault` pointer, and projects at
+   `projects/{uid}/{id}` — all owner-only. **On the Migrate to Supabase branch
+   this step is replaced by the Postgres schema and RLS policies — see the
+   migration inventory below and the `supabase/` directory once it exists.**
 5. Pick a repository in the panel — it pins the branch head as the project's
    base commit.
 
@@ -179,8 +231,21 @@ lib/changesets.ts    change-set ids, hashes, branch naming, signed change sets
                      and approvals, the commit gate, the stored records
 components/ChangeReview.tsx  the diff cards and Approve & commit
 components/EmailAuthForm.tsx  register, sign in, resend, reset
+lib/rtdb.ts          Firebase Realtime Database caller wrapper — **part of the
+                     Firebase surface being removed**
+lib/firebaseAdmin.ts  Firebase Admin SDK helpers — **part of the Firebase
+                     surface being removed**
+lib/firebaseHistory.ts  Firebase cloud history sync — **part of the Firebase
+                     surface being removed**
+lib/account.ts       Firebase-accessing account module — **part of the Firebase
+                     surface being removed**
 docs/OVERHAUL_SPEC.md  the contract for the repo agent
 docs/legacy/         the previous Openmi product docs, kept for reference
+docs/MIGRATE_TO_SUPABASE.md  migration plan and firebase-removal checklist —
+                     follow this when migrating
+supabase/           (to be added by the migration) Postgres schema, RLS
+                     policies, and seed — replaces Firebase Realtime Database,
+                     Firebase Auth and database.rules.json
 ```
 
 ## Non-negotiable rules
