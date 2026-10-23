@@ -68,6 +68,12 @@ bun run dev
 
 Open http://localhost:3000.
 
+The **About** page carries a setup banner: it lists exactly the keys this
+deployment is missing, what each one stops working, and where the value comes
+from. A key that has been set drops out of the list on the next read, and when
+nothing is missing the banner is a single line saying so. It reports presence
+only — `GET /api/setup` never returns a value — so it is safe on a public page.
+
 | Script | What it does |
 |---|---|
 | `bun run dev` | Next.js dev server on `0.0.0.0`. |

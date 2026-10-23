@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AboutLogo from "@/components/AboutLogo";
 import MaintenanceGate from "@/components/MaintenanceGate";
+import SetupStatus from "@/components/SetupStatus";
 
 // ── Fill these in ────────────────────────────────────────────────────────────
 /** When the first Openmi build was created. */
@@ -92,6 +93,10 @@ function AboutContent() {
             Openmi is still in beta testing. Stay tuned, and thank you for your patience.
           </p>
         </header>
+
+        {/* What this deployment has not configured yet. Owned by the owner:
+            it reads a public presence report and shows only the gaps. */}
+        <SetupStatus />
 
         <section className="mt-14 grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-5">
