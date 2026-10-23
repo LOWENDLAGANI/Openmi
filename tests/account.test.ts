@@ -164,6 +164,27 @@ test("an unconfigured deployment explains itself instead of offering a dead butt
   assert.match(accountExplanation(view), /keeps working without it/);
 });
 
+test("the settings row never disappears, whatever the account service answers", () => {
+  // It used to `return null` for `unconfigured` and `unreachable`, which removed
+  // the whole Account section. A person opening Settings then found no account
+  // row at all and no reason for its absence — the section had not broken, it had
+  // declined to render. The copy for both states existed and was never shown.
+  //
+  // A state the visitor cannot see is a state they cannot fix, so both must
+  // render the row and withhold only the controls that would fail at the click.
+  const source = code("components/AccountSection.tsx");
+  assert.doesNotMatch(
+    source,
+    /view\.status === "unconfigured" \|\| view\.status === "unreachable"\)\s*return null/,
+    "the account row hides itself when it has something to explain"
+  );
+  // Both states are still named, so the row knows which explanation to show.
+  assert.match(source, /status === "unconfigured"/);
+  assert.match(source, /status === "unreachable"/);
+  // And the sign-in form is withheld from a state that cannot use it.
+  assert.match(source, /canSignIn/, "sign-in is gated on a state that can actually sign in");
+});
+
 console.log("\nfailures worth reading");
 
 test("closing the window is not a failure", () => {

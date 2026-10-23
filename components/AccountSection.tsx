@@ -86,15 +86,33 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
     }
   }, []);
 
-  if (!view || view.status === "unconfigured" || view.status === "unreachable") return null;
+  // Waiting on the first read: nothing to say yet, and a blank row is better
+  // than one that arrives a frame later.
+  if (!view) return null;
 
+  // `unconfigured` and `unreachable` used to return null here, which removed the
+  // whole row and left people looking for an Account section that had silently
+  // gone. The explanation for both states was written and never rendered. A
+  // state the visitor cannot see is a state they cannot fix, so both now render
+  // the row with the reason and without the controls they cannot use.
+  const unconfigured = view.status === "unconfigured";
+  const unreachable = view.status === "unreachable";
   const linked = view.isLinked;
+  // Signing in is only possible when there is a project to sign in against and
+  // a session to upgrade; an unreachable project would fail at the click.
+  const canSignIn = view.status === "guest";
 
   return (
     <section>
       <h3 className="mb-2.5 text-[13px] font-semibold text-white">Account</h3>
 
-      <div className="rounded-[16px] border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
+      <div
+        className={`rounded-[16px] border px-3.5 py-3 ${
+          unconfigured || unreachable
+            ? "border-amber-300/20 bg-amber-400/[0.05]"
+            : "border-white/[0.06] bg-white/[0.02]"
+        }`}
+      >
         <div className="flex items-start gap-3">
           <span
             aria-hidden
@@ -124,10 +142,17 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
                 Email not confirmed yet. Nothing is blocked — confirm it whenever the link arrives.
               </p>
             )}
+            {(unconfigured || unreachable) && (
+              <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
+                {unconfigured
+                  ? "Sign-in appears here once this deployment has a Supabase project. Until then everything else about Openmi keeps working."
+                  : "Sign-in is hidden while the account service is unreachable — it would fail at the click."}
+              </p>
+            )}
           </div>
         </div>
 
-        {!linked && (
+        {canSignIn && (
           <div className="mt-3">
             <EmailAuthForm
               name={displayName}
