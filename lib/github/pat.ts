@@ -11,7 +11,12 @@
 // one, and the person revokes it on GitHub rather than in this app. What the two
 // share is the part that matters: the secret is sealed with the deployment key
 // before it is stored, never returned to the browser, and never chosen by the
-// client. Everything in this module is pure except the id, which is a hash.
+// client.
+//
+// Everything here is pure and dependency-free, because the repository panel
+// reads it in the browser as well as the server. The connection id is derived
+// from a SHA-256 hash, which needs `node:crypto`, so it lives in
+// `connections.ts` — a module a client component must never import.
 //
 // ── The scope question ───────────────────────────────────────────────────────
 // The agent reads repositories. A token that cannot read any is useless to it,
@@ -22,8 +27,6 @@
 // stores what it is given and returns a warning to put on screen. Blocking here
 // would turn a recoverable mistake into a dead end.
 
-import { createHash } from "node:crypto";
-
 /** The classic scope the agent needs. Fine-grained tokens use permissions instead. */
 export const PAT_SCOPE_HINT = "repo";
 
@@ -31,18 +34,6 @@ export const PAT_SCOPE_HINT = "repo";
 export const CONNECTION_LABEL_MAX = 40;
 
 export type ConnectionKind = "pat" | "oauth";
-
-/**
- * A stable id for one GitHub account's connection.
- *
- * Derived from the login so reconnecting the same account *replaces* its entry
- * instead of adding a second one — a new token for the same person is a
- * rotated credential, not a new connection. Two GitHub accounts on one Openmi
- * account are two entries, which is the point of storing a collection.
- */
-export function connectionIdFor(login: string): string {
-  return createHash("sha256").update(login.trim().toLowerCase()).digest("hex").slice(0, 12);
-}
 
 /** True when a URL segment could be one of our connection ids. */
 export function isConnectionId(value: unknown): value is string {
@@ -88,45 +79,112 @@ export interface PatAssessment {
 }
 
 /**
+ * What a person should do about a token that cannot do its job.
+ *
+ * Returned only when there is something to fix, so `null` is the good state.
+ * The panel renders this as a card with the scope spelled out and a link to the
+ * page where the token is edited: "the agent cannot read repositories" is a
+ * dead end on its own, and the two things that resolve it are a name to copy and
+ * a place to paste it.
+ *
+ * The scope text is written the way each kind of token presents it, because
+ * `repo` does not exist on a fine-grained token and looking for it there is how
+ * someone ends up creating the same broken token twice.
+ */
+export interface PatRecovery {
+  /** `blocked` cannot read anything; `limited` can read, but less than expected. */
+  level: "blocked" | "limited";
+  headline: string;
+  body: string;
+  /** The exact classic scope to add. */
+  classicScope: string;
+  /** The exact fine-grained permissions to add, in GitHub's own wording. */
+  fineGrained: string[];
+  /** Where a classic token is created or edited. */
+  tokenUrl: string;
+  /** Where a fine-grained token is created. */
+  fineGrainedUrl: string;
+}
+
+const TOKEN_URL = "https://github.com/settings/tokens";
+const FINE_GRAINED_URL = "https://github.com/settings/personal-access-tokens/new";
+
+function recovery(
+  level: PatRecovery["level"],
+  headline: string,
+  body: string
+): PatRecovery {
+  return {
+    level,
+    headline,
+    body,
+    classicScope: PAT_SCOPE_HINT,
+    fineGrained: ["Contents: Read", "Metadata: Read"],
+    tokenUrl: TOKEN_URL,
+    fineGrainedUrl: FINE_GRAINED_URL,
+  };
+}
+
+/**
+ * The recovery for one token, or null when it needs none.
+ *
+ * The strongest fact wins: a failed repository listing is reported ahead of a
+ * thin scope header, because the header is advisory and the probe is not.
+ */
+export function recoveryFor(input: {
+  scopes: string[];
+  canReadRepos: boolean;
+}): PatRecovery | null {
+  const { scopes, canReadRepos } = input;
+
+  if (!canReadRepos) {
+    return recovery(
+      "blocked",
+      "This token cannot read repositories",
+      "GitHub accepted it, but would not let it list a single repository, so the agent cannot read any repository with it. Add the scope below to the token on GitHub, then replace this connection with the new one."
+    );
+  }
+
+  // An empty list means GitHub reported no classic scopes — a fine-grained
+  // token, whose access the probe already proved. Nothing to fix.
+  if (scopes.length === 0) return null;
+  if (scopes.includes("repo")) return null;
+
+  if (scopes.includes("public_repo")) {
+    return recovery(
+      "limited",
+      "This token only reaches public repositories",
+      "It can read public repositories, but private ones will not appear in the list until it has the scope below. Add it on GitHub, then replace this connection with the new token."
+    );
+  }
+
+  return recovery(
+    "limited",
+    "This token is missing repository scopes",
+    "It has no repository scope at all, so the repositories it can reach may not include the one you pick. Add the scope below on GitHub, then replace this connection with the new token."
+  );
+}
+
+/**
  * Turns what the token can do into the one sentence worth showing.
  *
  * Order matters: the strongest fact wins. A token that cannot list a single
  * repository is the important thing to say even if its scope header also looks
  * thin, because the scope header is advisory and the failed probe is not.
  */
+/**
+ * The one-line version of the same judgement, for a response body.
+ *
+ * Composed from `recoveryFor` rather than written out again, so the panel's
+ * card and the API's message can never disagree about what is wrong or which
+ * scope fixes it.
+ */
 export function assessPat(input: { scopes: string[]; canReadRepos: boolean }): PatAssessment {
-  const { scopes, canReadRepos } = input;
-
-  if (!canReadRepos) {
-    return {
-      canReadRepos,
-      scopes,
-      warning:
-        "This token can identify you on GitHub but cannot read any repository, so the agent cannot use it yet. Grant the `repo` scope on a classic token, or Contents: read plus Metadata: read on a fine-grained token, then connect it again.",
-    };
-  }
-
-  // An empty list means GitHub did not report classic scopes — a fine-grained
-  // token. The probe already proved it can read something, so there is nothing
-  // to warn about from a header that does not exist.
-  if (scopes.length === 0) return { canReadRepos, scopes, warning: null };
-
-  if (scopes.includes("repo")) return { canReadRepos, scopes, warning: null };
-
-  if (scopes.includes("public_repo")) {
-    return {
-      canReadRepos,
-      scopes,
-      warning:
-        "This token can only read public repositories. Private ones will not appear until it has the `repo` scope.",
-    };
-  }
-
+  const found = recoveryFor(input);
   return {
-    canReadRepos,
-    scopes,
-    warning:
-      "This token has no `repo` or `public_repo` scope. It can reach the repositories it was granted, but the agent may not be able to read the ones you pick.",
+    canReadRepos: input.canReadRepos,
+    scopes: input.scopes,
+    warning: found ? found.body : null,
   };
 }
 

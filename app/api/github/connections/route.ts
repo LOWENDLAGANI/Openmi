@@ -2,8 +2,9 @@ import { NextRequest } from "next/server";
 import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
 import { GithubError, canListRepos, getViewerWithScopes } from "@/lib/github/client";
 import { looksLikeGithubToken } from "@/lib/github/oauth";
-import { assessPat, connectionIdFor, normalizeConnectionLabel } from "@/lib/github/pat";
+import { assessPat, normalizeConnectionLabel } from "@/lib/github/pat";
 import {
+  connectionIdFor,
   connectionsConfigured,
   listGithubConnections,
   readDefaultConnectionId,

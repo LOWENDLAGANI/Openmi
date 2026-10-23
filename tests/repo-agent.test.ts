@@ -78,12 +78,15 @@ import {
 import {
   CONNECTION_LABEL_MAX,
   assessPat,
-  connectionIdFor,
   describeScopes,
   isConnectionId,
   normalizeConnectionLabel,
   parseScopes,
+  recoveryFor,
 } from "../lib/github/pat";
+// The id needs a hash, so it lives with the server-only storage module. The
+// browser-readable half of the same feature stays free of Node built-ins.
+import { connectionIdFor } from "../lib/github/connections";
 
 let failures = 0;
 let passes = 0;
@@ -1526,6 +1529,45 @@ test("classic scopes are read from their header, and its absence is not \"no sco
   assert.deepEqual(parseScopes(undefined), []);
 });
 
+test("a token that cannot read repositories is given the exact scope to add", () => {
+  const recovery = recoveryFor({ scopes: [], canReadRepos: false });
+  assert.ok(recovery, "a broken token must produce a recovery, not silence");
+  assert.equal(recovery!.level, "blocked");
+  // The scope is spelled the way each kind of token presents it, because `repo`
+  // does not exist on a fine-grained token and looking for it there is how
+  // somebody creates the same broken token twice.
+  assert.equal(recovery!.classicScope, "repo");
+  assert.deepEqual(recovery!.fineGrained, ["Contents: Read", "Metadata: Read"]);
+  assert.match(recovery!.tokenUrl, /github\.com\/settings\/tokens$/);
+  assert.match(recovery!.fineGrainedUrl, /personal-access-tokens/);
+  assert.match(recovery!.body, /cannot read any repository/);
+});
+
+test("a public-only token is told it cannot reach private repositories", () => {
+  const recovery = recoveryFor({ scopes: ["public_repo", "read:user"], canReadRepos: true });
+  assert.equal(recovery?.level, "limited");
+  assert.match(recovery!.headline, /public repositories/);
+  assert.equal(recovery!.classicScope, "repo");
+});
+
+test("a token with no repository scope at all is still given a fix", () => {
+  const recovery = recoveryFor({ scopes: ["read:user"], canReadRepos: true });
+  assert.equal(recovery?.level, "limited");
+  assert.match(recovery!.headline, /missing repository scopes/);
+});
+
+test("a healthy token needs no recovery card", () => {
+  assert.equal(recoveryFor({ scopes: ["repo"], canReadRepos: true }), null);
+  assert.equal(recoveryFor({ scopes: [], canReadRepos: true }), null, "fine-grained, proven by the probe");
+});
+
+test("the warning a response carries is the recovery's own text", () => {
+  // One source of truth: the card in the panel and the sentence in the response
+  // cannot describe the same token differently.
+  const input = { scopes: [] as string[], canReadRepos: false };
+  assert.equal(assessPat(input).warning, recoveryFor(input)!.body);
+});
+
 test("a token that cannot list a repository is warned about, never refused", () => {
   const verdict = assessPat({ scopes: ["read:user"], canReadRepos: false });
   assert.equal(verdict.canReadRepos, false);
@@ -1551,6 +1593,14 @@ test("a fine-grained token is judged by the probe alone", () => {
   assert.equal(describeScopes([], false), "no repository access");
   assert.equal(describeScopes(["repo"], true), "read and write repositories");
   assert.equal(describeScopes(["public_repo"], true), "public repositories only");
+});
+
+test("the panel's token helpers never import a Node built-in", () => {
+  // The repository panel is a client component and reads scope and recovery
+  // rules to render the card. One `node:` import there fails the production
+  // build with a webpack error that typecheck and the tests cannot see.
+  const source = read("lib/github/pat.ts");
+  assert.doesNotMatch(source, /from "node:/, "pat.ts must stay importable by the browser");
 });
 
 test("the connection collection is owner-scoped in the rules", () => {

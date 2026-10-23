@@ -21,17 +21,33 @@
 // A connection that cannot be opened is skipped rather than reported: one dead
 // entry must not take the whole list with it.
 
+import { createHash } from "node:crypto";
 import { deleteAsCaller, readAsCaller } from "../rtdb";
 import { writeAsCaller } from "../serverControl";
 import { seal, tokenKey, unseal } from "./crypto";
 import { looksLikeGithubToken } from "./oauth";
 import {
-  connectionIdFor,
   isConnectionId,
   normalizeConnectionKind,
   normalizeConnectionLabel,
   type ConnectionKind,
 } from "./pat";
+
+/**
+ * A stable id for one GitHub account's connection.
+ *
+ * Derived from the login so reconnecting the same account *replaces* its entry
+ * instead of adding a second one — a new token for the same person is a
+ * rotated credential, not a new connection. Two GitHub accounts on one Openmi
+ * account are two entries, which is the point of storing a collection.
+ *
+ * It lives here rather than in `pat.ts` because it needs `node:crypto`, and
+ * `pat.ts` is read by the browser. Keeping the hash on this side of that line is
+ * what stops the panel from pulling a Node built-in into the client bundle.
+ */
+export function connectionIdFor(login: string): string {
+  return createHash("sha256").update(login.trim().toLowerCase()).digest("hex").slice(0, 12);
+}
 
 export interface GithubConnection {
   id: string;

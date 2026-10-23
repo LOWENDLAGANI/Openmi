@@ -61,8 +61,8 @@ function installDatabaseStub(): { rows: Map<string, string>; restore: () => void
 }
 
 (async () => {
-  const { connectionIdFor } = await import("../lib/github/pat");
   const {
+    connectionIdFor,
     defaultGithubConnection,
     deleteGithubConnection,
     listGithubConnections,

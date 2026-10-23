@@ -5,6 +5,7 @@ import { bindGoogleAccount } from "@/lib/account";
 import { describeLinkError } from "@/lib/accountState";
 import { authHeader, firebaseConfigured } from "@/lib/firebaseHistory";
 import { linkGithubAccount } from "@/lib/githubLink";
+import { parseScopes, recoveryFor, type PatRecovery } from "@/lib/github/pat";
 import type { ProjectSummary } from "@/lib/projects";
 
 // ── The repository workspace ────────────────────────────────────────────────
@@ -192,8 +193,9 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const [fileText, setFileText] = useState<string | null>(null);
   const [patToken, setPatToken] = useState("");
   const [patLabel, setPatLabel] = useState("");
-  /** The scope warning a token connect returned, held until the next action. */
-  const [patWarning, setPatWarning] = useState<string | null>(null);
+  /** The connection a new paste would replace, when one was picked to fix. */
+  const [replaceFor, setReplaceFor] = useState<GithubConnectionItem | null>(null);
+  const patInputRef = useRef<HTMLInputElement | null>(null);
 
   const status = statusState.phase === "ready" ? statusState.status : null;
 
@@ -405,7 +407,6 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     setBusy("pat");
     setError(null);
     setNotice(null);
-    setPatWarning(null);
     try {
       const data = await api<{
         login: string;
@@ -418,12 +419,14 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
       });
       setPatToken("");
       setPatLabel("");
-      if (data.warning) {
-        setPatWarning(data.warning);
-        setNotice(`Saved as @${data.login}.`);
-      } else {
-        setNotice(`Connected as @${data.login}. Choose a repository.`);
-      }
+      setReplaceFor(null);
+      // The card below says what is wrong and which scope fixes it, so the
+      // notice only has to say what just happened.
+      setNotice(
+        data.warning
+          ? `Saved as @${data.login}. It needs attention — see the note below.`
+          : `Connected as @${data.login}. Choose a repository.`
+      );
       const next = await loadStatus();
       if (next?.connected) await loadRepos();
     } catch (cause) {
@@ -525,6 +528,35 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   };
 
   /**
+   * Connections that cannot do their job, each with the fix attached.
+   *
+   * Derived from the stored list rather than from the last response, so the note
+   * survives a reload: a token that was connected yesterday and still cannot
+   * read anything must not look healthy today just because nothing was clicked.
+   */
+  const attention = (statusState.phase === "ready" ? statusState.status.connections ?? [] : [])
+    .map((connection) => ({
+      connection,
+      recovery: recoveryFor({
+        scopes: parseScopes(connection.scopes),
+        canReadRepos: connection.canReadRepos,
+      }),
+    }))
+    .filter(
+      (entry): entry is { connection: GithubConnectionItem; recovery: PatRecovery } =>
+        entry.recovery !== null
+    );
+
+  /** Starts a replacement for one connection, putting the cursor where it helps. */
+  const startReplacement = (connection: GithubConnectionItem) => {
+    setReplaceFor(connection);
+    setPatLabel(connection.label);
+    // The form is below the list; focusing the field is what brings it into
+    // view, so the person does not have to find it again.
+    patInputRef.current?.focus();
+  };
+
+  /**
    * The token door, rendered wherever a connection can be added.
    *
    * Defined once and used in two places — before anything is connected, and
@@ -534,13 +566,16 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
    */
   const tokenForm = (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-      <p className="text-[12px] font-medium text-white/85">Connect with a personal access token</p>
+      <p className="text-[12px] font-medium text-white/85">
+        {replaceFor ? `Replace the @${replaceFor.login} token` : "Connect with a personal access token"}
+      </p>
       <p className="mt-1 text-[11px] leading-relaxed text-white/40">
         Create one at github.com/settings/tokens with the <code className="rounded bg-black/40 px-1 py-0.5 text-[10px]">repo</code> scope
-        (or Contents: read on a fine-grained token), then paste it here. It is sealed on the server and never sent back to
-        this browser.
+        (or Contents: Read plus Metadata: Read on a fine-grained token), then paste it here. It is sealed on the server and
+        never sent back to this browser.
       </p>
       <input
+        ref={patInputRef}
         type="password"
         value={patToken}
         onChange={(event) => setPatToken(event.target.value)}
@@ -564,12 +599,22 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
           className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
           style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
         >
-          {busy === "pat" ? "Checking…" : "Connect"}
+          {busy === "pat" ? "Checking…" : replaceFor ? "Replace" : "Connect"}
         </button>
       </div>
-      {patWarning && (
-        <p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-400/[0.05] px-2 py-1.5 text-[10.5px] leading-relaxed text-amber-100/85">
-          {patWarning}
+      {replaceFor && (
+        <p className="mt-1.5 flex items-center gap-2 text-[10px] leading-relaxed text-white/35">
+          Saving replaces the token for @{replaceFor.login} — the connection keeps its place in the list.
+          <button
+            type="button"
+            onClick={() => {
+              setReplaceFor(null);
+              setPatLabel("");
+            }}
+            className="shrink-0 text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
+          >
+            Cancel
+          </button>
         </p>
       )}
     </div>
@@ -751,6 +796,89 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                   Disconnect
                 </button>
               </div>
+
+              {attention.length > 0 && (
+                <div className="space-y-2">
+                  {attention.map(({ connection, recovery }) => {
+                    const blocked = recovery.level === "blocked";
+                    return (
+                      <div
+                        key={connection.id}
+                        className={`rounded-xl border p-2.5 ${
+                          blocked
+                            ? "border-red-400/25 bg-red-500/[0.06]"
+                            : "border-amber-300/20 bg-amber-400/[0.05]"
+                        }`}
+                      >
+                        <p
+                          className={`text-[11.5px] font-semibold ${
+                            blocked ? "text-red-100/90" : "text-amber-100/90"
+                          }`}
+                        >
+                          {recovery.headline}
+                        </p>
+                        <p
+                          className={`mt-0.5 text-[10.5px] leading-relaxed ${
+                            blocked ? "text-red-100/60" : "text-amber-100/60"
+                          }`}
+                        >
+                          <span className="font-mono text-white/70">@{connection.login}</span> — {recovery.body}
+                        </p>
+
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          <span className="text-[9px] uppercase tracking-[0.1em] text-white/30">Scope</span>
+                          <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-[#a9d8bb]">
+                            {recovery.classicScope}
+                          </code>
+                          <span className="text-[9px] text-white/25">or</span>
+                          {recovery.fineGrained.map((scope) => (
+                            <code
+                              key={scope}
+                              className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-[#a9d8bb]"
+                            >
+                              {scope}
+                            </code>
+                          ))}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <a
+                            href={recovery.tokenUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-md border border-white/[0.14] px-2 py-1 text-[10px] font-medium text-white/75 transition-colors hover:bg-white/[0.07] hover:text-white"
+                          >
+                            Open GitHub tokens ↗
+                          </a>
+                          <a
+                            href={recovery.fineGrainedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-1 py-1 text-[10px] text-white/40 underline-offset-2 transition-colors hover:text-white/70 hover:underline"
+                          >
+                            New fine-grained token
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => startReplacement(connection)}
+                            className="rounded-md border border-white/[0.14] px-2 py-1 text-[10px] font-medium text-white/75 transition-colors hover:bg-white/[0.07] hover:text-white"
+                          >
+                            Replace token
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void removeConnection(connection.id)}
+                            disabled={busy === `remove:${connection.id}`}
+                            className="px-1 py-1 text-[10px] text-white/40 transition-colors hover:text-red-300 disabled:opacity-50"
+                          >
+                            {busy === `remove:${connection.id}` ? "Removing…" : "Remove"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {(statusState.status.connections?.length ?? 0) > 0 && (
                 <div>
