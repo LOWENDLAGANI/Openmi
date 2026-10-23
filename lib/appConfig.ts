@@ -194,9 +194,35 @@ export function subscribeAppConfig(onChange: (config: AppConfig) => void): () =>
       if (!cancelled && data) onChange(normalizeConfig(rowToStored(data)));
     });
 
-  const channel = client
-    .channel("openmi:app-config")
-    .on(
+  // supabase.channel(topic) returns the existing instance when a channel
+  // with that topic is still registered — including one whose async
+  // removeChannel has been called but not yet completed. Calling
+  // .on("postgres_changes", …) on an already-subscribed instance throws:
+  // "cannot add `postgres_changes` callbacks … after `subscribe()`."
+  //
+  // The one caller that matters (the app root effect) subscribes once for the
+  // lifetime of the tab, so the common path is: subscribe, then never touch it
+  // again. The defensive check below is for the rare path where a parent
+  // re-renders, a child remounts, or the same function is reached again before
+  // the previous removal finished — in all of those we must not re-register.
+  const channel = client.channel("openmi:app-config");
+
+  let alreadySubscribed = false;
+  try {
+    // isJoined / isJoining are the channel's own view of whether it has been
+    // subscribed; if either is true we must not add postgres_changes handlers
+    // or call subscribe() again.
+    if (channel.isJoined() || channel.isJoining()) {
+      alreadySubscribed = true;
+    }
+  } catch {
+    // Older realtime-js builds expose different / no introspection on the
+    // channel. Assume not-subscribed and let the subscribe() below be
+    // harmless-ish; the .on guard is the important part either way.
+  }
+
+  if (!alreadySubscribed) {
+    channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "app_config" },
       (payload) => {
@@ -204,8 +230,10 @@ export function subscribeAppConfig(onChange: (config: AppConfig) => void): () =>
         const row = (payload.new ?? null) as Record<string, unknown> | null;
         if (row) onChange(normalizeConfig(rowToStored(row)));
       }
-    )
-    .subscribe();
+    );
+
+    channel.subscribe();
+  }
 
   return () => {
     cancelled = true;
