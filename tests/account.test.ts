@@ -22,6 +22,7 @@ import {
   normalizeName,
   resolveName,
 } from "../lib/accountState";
+import { explainSignInError } from "../lib/authDiagnostics";
 
 let failures = 0;
 let passes = 0;
@@ -223,6 +224,40 @@ test("a guest has no provider and no confirmed address to speak of", () => {
   const view = describeAccount(GUEST);
   assert.equal(view.provider, null);
   assert.equal(view.emailVerified, false);
+});
+
+test("a restricted account creation says which toggle it means", () => {
+  // The SDK flattens four different backend answers into one code. Only the raw
+  // message distinguishes "creation is off" from "the key is another project",
+  // and the two fixes are in different consoles.
+  const restricted = explainSignInError("ADMIN_ONLY_OPERATION", false);
+  assert.match(restricted.nextStep, /Enable create \(sign-up\)/);
+  assert.match(restricted.nextStep, /User Actions/);
+});
+
+test("a disabled provider is not reported as a disabled project setting", () => {
+  const provider = explainSignInError("OPERATION_NOT_ALLOWED", false);
+  assert.match(provider.verdict, /Anonymous/);
+  assert.doesNotMatch(provider.nextStep, /Enable create/);
+});
+
+test("a key from another project is named as a mismatch, not as a toggle", () => {
+  const mismatch = explainSignInError("API_KEY_INVALID", false);
+  assert.match(mismatch.verdict, /two different projects/);
+  assert.match(mismatch.nextStep, /NEXT_PUBLIC_FIREBASE_PROJECT_ID/);
+
+  const unconfigured = explainSignInError("CONFIGURATION_NOT_FOUND", false);
+  assert.match(unconfigured.nextStep, /PROJECT_ID/);
+});
+
+test("a working project says so instead of sending someone to a toggle", () => {
+  const healthy = explainSignInError(null, true);
+  assert.match(healthy.verdict, /Account creation is not the problem/);
+});
+
+test("an unknown answer keeps the backend's own words", () => {
+  assert.match(explainSignInError("SOMETHING_NEW", false).verdict, /SOMETHING_NEW/);
+  assert.match(explainSignInError(null, false).verdict, /could not reach Firebase/);
 });
 
 test("each email failure names the next step", () => {

@@ -11,6 +11,7 @@ import {
 } from "@/lib/accountState";
 import { loadChatsFromAccount, syncFirebaseHistory } from "@/lib/firebaseHistory";
 import EmailAuthForm from "./EmailAuthForm";
+import AuthDiagnostics from "./AuthDiagnostics";
 
 interface AccountSectionProps {
   displayName: string;
@@ -156,6 +157,9 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
         {error && <p className="mt-2.5 text-[11px] leading-relaxed text-red-200/80">{error}</p>}
         {notice && <p className="mt-2.5 text-[11px] leading-relaxed text-[#a9d8bb]/70">{notice}</p>}
       </div>
+
+      {/* Collapsed by default: it is a diagnostic, not part of the account row. */}
+      <AuthDiagnostics />
     </section>
   );
 }
