@@ -5,7 +5,7 @@
 // pinning in a test, because it is a promise about storage and every change to
 // the send path is a chance to break it quietly — a stray `db.messages.add`
 // would leave the whole conversation on the device, and because the account
-// sync starts from local rows it would then reach Firebase as well.
+// sync starts from local rows it would then reach Supabase as well.
 //
 //   bun run test
 

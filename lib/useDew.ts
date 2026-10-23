@@ -29,7 +29,7 @@ export interface DewSnapshot {
   /** True under LOW_BALANCE_THRESHOLD, for the amber chip. */
   low: boolean;
   /** True when the caller has a verified identity. False when signed out,
-   *  unidentified, or the deployment has no Firebase — the balance is then
+   *  unidentified, or the deployment has no Supabase project — the balance is then
    *  unknown rather than zero, and the chip must not claim otherwise. */
   signedIn: boolean;
 }
@@ -60,7 +60,7 @@ async function load(): Promise<void> {
   try {
     const headers = await authHeader();
     if (!headers.Authorization) {
-      // Signed out or Firebase not configured: no identity, no balance.
+      // Signed out or Supabase not configured: no identity, no balance.
       // The chip must not claim a zero the caller never had.
       publishUnknown();
       return;

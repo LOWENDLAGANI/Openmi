@@ -10,7 +10,7 @@
 //
 // The flow is a full-page round trip rather than a popup:
 //
-//   1. The browser posts to `/api/github/oauth/start` with its Firebase token.
+//   1. The browser posts to `/api/github/oauth/start` with its access token.
 //   2. The server signs a short-lived state containing the caller's uid and
 //      answers with the GitHub authorize URL.
 //   3. GitHub redirects to `/api/github/oauth/callback`, which exchanges the code
@@ -39,7 +39,7 @@ export interface GithubOAuthConfig {
 /** What the signed state carries between the two halves of the flow. */
 export interface GithubOAuthState {
   v: 1;
-  /** The Firebase account the connection will belong to. */
+  /** The account the connection will belong to. */
   uid: string;
   /** Where to send the browser afterwards. Always an app-relative path. */
   next: string;
@@ -50,8 +50,9 @@ export interface GithubOAuthState {
 /**
  * The OAuth App credentials, or null when this deployment has none.
  *
- * Both values are server-only. A deployment without them keeps the Firebase
- * link path — it does not lose the feature, it just has one fewer way in.
+ * Both values are server-only. A deployment without them keeps the token-paste
+ * door in the repository panel — it does not lose the feature, it just has one
+ * fewer way in.
  */
 export function githubOAuthConfig(): GithubOAuthConfig | null {
   const clientId = process.env.GITHUB_CLIENT_ID?.trim() ?? "";

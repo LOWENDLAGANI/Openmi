@@ -3,13 +3,13 @@
 // One client for the whole tab. It holds the session (persisted, refreshed) and
 // it is the thing every authenticated read and write goes through, so the
 // database sees the caller's own JWT and Postgres row-level security is the only
-// judge. That is the property the Firebase build was written around, and it is
+// judge. That is the property the app was written around, and it is
 // the property that survives: there is no service-role key in this file, in the
 // server routes, or in the deployment environment.
 //
 // ── Guest-first ─────────────────────────────────────────────────────────────
 // The build is unchanged in one important way: a first-time visitor is signed in
-// anonymously, exactly as they were on Firebase. Supabase supports that, but
+// anonymously, so the product has no sign-up wall. Supabase supports that, but
 // only when **Anonymous sign-ins** is enabled for the project — a dashboard
 // toggle, not a build setting, which is why an empty session is not an error
 // here. Registering then upgrades that same user in place (lib/emailAuth.ts), so

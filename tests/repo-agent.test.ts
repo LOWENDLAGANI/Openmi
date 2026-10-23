@@ -7,7 +7,7 @@
 //   bun run test
 //
 // Pure modules only, plus source-contract checks that fail if somebody adds a
-// write to the GitHub client or a fourth tool. No network, no Firebase.
+// write to the GitHub client or a fourth tool. No network, no database.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -1286,7 +1286,7 @@ later("a path that escapes the repository is refused before anything is written"
   }
 });
 
-// ── GitHub OAuth, the door that needs no Firebase console change ────────────
+// ── GitHub OAuth, the door the deployment configures once ───────────────────
 console.log("\ngithub oauth");
 
 const OAUTH_KEY = "9f".repeat(32);
