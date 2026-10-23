@@ -553,7 +553,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                 >
                   {busy === "connect" ? "Waiting for GitHub…" : "Connect GitHub"}
                 </button>
-                {statusState.status.oauth ? (
+                {status?.oauth ? (
                   <p className="text-[11px] leading-relaxed text-white/35">
                     You will be sent to GitHub to approve read access, then brought straight back here.
                   </p>
