@@ -9,6 +9,9 @@
 // naming one address, so there is no code path here by which signing in could
 // reach the console. See the note on bindGoogleAccount in lib/account.ts.
 
+/** Which credential the account signed in with. Null for a guest. */
+export type AccountProvider = "google" | "email" | null;
+
 /** What Openmi knows about who is using it right now. */
 export type AccountStatus =
   /** No NEXT_PUBLIC_FIREBASE_* values, so there is no account to have. */
@@ -37,6 +40,16 @@ export interface AccountView {
    * linked account is already what binding would produce.
    */
   canBind: boolean;
+  /**
+   * Whether the address on the account has been confirmed.
+   *
+   * Only an email/password account can be unverified: Google vouches for the
+   * address itself. Nothing is gated on this — an unconfirmed account can still
+   * chat — so it is reported for the interface to nudge, never to block.
+   */
+  emailVerified: boolean;
+  /** Which credential the account signed in with, when it is not a guest. */
+  provider: AccountProvider;
 }
 
 export interface AccountInput {
@@ -48,6 +61,8 @@ export interface AccountInput {
   isAnonymous?: boolean;
   email?: string | null;
   name?: string | null;
+  emailVerified?: boolean;
+  provider?: AccountProvider;
 }
 
 /**
@@ -59,28 +74,54 @@ export interface AccountInput {
  * never does, while "signed in but anonymous" is exactly the state a guest is
  * in and the one binding exists to change.
  */
+const GUEST_VIEW: AccountView = {
+  status: "guest",
+  email: null,
+  name: null,
+  isLinked: false,
+  canBind: true,
+  emailVerified: false,
+  provider: null,
+};
+
 export function describeAccount(input: AccountInput): AccountView {
   if (!input.configured) {
-    return { status: "unconfigured", email: null, name: null, isLinked: false, canBind: false };
+    return {
+      status: "unconfigured",
+      email: null,
+      name: null,
+      isLinked: false,
+      canBind: false,
+      emailVerified: false,
+      provider: null,
+    };
   }
   if (input.reachable === false) {
-    return { status: "unreachable", email: null, name: null, isLinked: false, canBind: false };
+    return {
+      status: "unreachable",
+      email: null,
+      name: null,
+      isLinked: false,
+      canBind: false,
+      emailVerified: false,
+      provider: null,
+    };
   }
   if (!input.signedIn) {
     // Firebase is fine and simply has not signed anyone in yet. The app signs a
     // first-time visitor in anonymously, so this is brief and not an error.
-    return { status: "guest", email: null, name: null, isLinked: false, canBind: true };
+    return GUEST_VIEW;
   }
 
-  if (input.isAnonymous) {
-    return { status: "guest", email: null, name: null, isLinked: false, canBind: true };
-  }
+  if (input.isAnonymous) return GUEST_VIEW;
   return {
     status: "linked",
     email: input.email ?? null,
     name: input.name ?? null,
     isLinked: true,
     canBind: false,
+    emailVerified: input.emailVerified ?? false,
+    provider: input.provider ?? null,
   };
 }
 
@@ -143,6 +184,24 @@ const LINK_ERRORS: Record<string, string> = {
   "auth/requires-recent-login":
     "For safety, sign in again before changing what is linked to this account.",
   "auth/user-disabled": "That account has been disabled.",
+
+  // ── email and password ────────────────────────────────────────────────────
+  // Reachable from the register and sign-in forms. Each says what to do next
+  // rather than restating the code, because the code is not the useful part.
+  "auth/invalid-email": "That is not a valid email address.",
+  "auth/missing-email": "Enter your email address.",
+  "auth/missing-password": "Enter your password.",
+  "auth/weak-password": "Use at least six characters for your password.",
+  "auth/email-already-in-use":
+    "An account already exists for that address. Sign in instead — your chats come with you.",
+  "auth/invalid-credential": "That email and password do not match an account.",
+  "auth/invalid-login-credentials": "That email and password do not match an account.",
+  "auth/wrong-password": "That password is not right for this address.",
+  "auth/user-not-found": "There is no account for that address. Create one instead.",
+  "auth/email-change-needs-verification":
+    "Confirm your current address before changing it. Check your inbox for the link.",
+  "auth/provider-already-linked": "This account already has a password.",
+  "auth/unconfigured": "This deployment has no Firebase project configured, so accounts are unavailable.",
 };
 
 export function describeLinkError(cause: unknown): string {

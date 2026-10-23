@@ -29,7 +29,7 @@ import {
 } from "firebase/auth";
 import { get, ref, set, type Database } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
-import { isDismissed, normalizeName, type AccountView } from "./accountState";
+import { isDismissed, normalizeName, type AccountProvider, type AccountView } from "./accountState";
 
 /** What a bind actually did, which the interface needs to describe it honestly. */
 export type BindOutcome =
@@ -49,15 +49,43 @@ export interface BindResult {
   view: AccountView;
 }
 
-function viewOf(user: User | null): AccountView {
+/**
+ * Which credential signed this account in.
+ *
+ * Read from `providerData`, which lists every credential on the account. A
+ * guest has none and answers null. Firebase names the email/password provider
+ * `password`, which is not obvious enough to leave unexplained at the call
+ * site.
+ */
+function providerOf(user: User | null): AccountProvider {
+  if (!user || user.isAnonymous) return null;
+  const ids = user.providerData.map((entry) => entry.providerId);
+  if (ids.includes("google.com")) return "google";
+  if (ids.includes("password")) return "email";
+  return null;
+}
+
+/**
+ * The view of one Firebase user, shared with the email/password flow.
+ *
+ * Exported because `lib/emailAuth.ts` has to answer with exactly the shape the
+ * rest of the interface already reads. A second implementation of this mapping
+ * would be the kind of duplicate that drifts: one of the two would learn about
+ * a new field and the other would silently keep reporting the old shape.
+ */
+export function accountViewOf(user: User | null): AccountView {
   return {
     status: user && !user.isAnonymous ? "linked" : "guest",
     email: user?.email ?? null,
     name: user?.displayName ?? null,
     isLinked: Boolean(user && !user.isAnonymous),
     canBind: !(user && !user.isAnonymous),
+    emailVerified: Boolean(user?.emailVerified),
+    provider: providerOf(user),
   };
 }
+
+const viewOf = accountViewOf;
 
 /** Google configured for exactly one account per Firebase project. */
 function googleProvider(): GoogleAuthProvider {
@@ -239,6 +267,8 @@ export function watchAccount(
       name: null,
       isLinked: false,
       canBind: false,
+      emailVerified: false,
+      provider: null,
     });
     return () => {};
   }
@@ -266,6 +296,8 @@ export function watchAccount(
           name: null,
           isLinked: false,
           canBind: false,
+          emailVerified: false,
+          provider: null,
         });
       }
     });

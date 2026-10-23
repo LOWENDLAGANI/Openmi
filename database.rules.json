@@ -63,6 +63,18 @@
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.hasChildren(['v','token','login','scopes','linkedAt']) && newData.child('v').val() === 1 && newData.child('token').isString() && newData.child('token').val().length > 0 && newData.child('login').isString() && newData.child('login').val().length <= 100 && newData.child('scopes').isString() && newData.child('scopes').val().length <= 200 && newData.child('linkedAt').isNumber()"
         },
+        "githubConnections": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          "$connectionId": {
+            ".validate": "newData.hasChildren(['v','token','login','scopes','kind','label','linkedAt','canReadRepos']) && newData.child('v').val() === 1 && newData.child('token').isString() && newData.child('token').val().length > 0 && newData.child('login').isString() && newData.child('login').val().length > 0 && newData.child('login').val().length <= 100 && newData.child('scopes').isString() && newData.child('scopes').val().length <= 200 && (newData.child('kind').val() === 'pat' || newData.child('kind').val() === 'oauth') && newData.child('label').isString() && newData.child('label').val().length > 0 && newData.child('label').val().length <= 40 && newData.child('linkedAt').isNumber() && newData.child('canReadRepos').isBoolean()"
+          }
+        },
+        "githubDefault": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['id','at']) && newData.child('id').isString() && newData.child('id').val().length > 0 && newData.child('id').val().length <= 40 && newData.child('at').isNumber()"
+        },
         "profile": {
           ".read": "auth != null && auth.uid === $uid",
           ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length <= 40"

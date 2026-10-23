@@ -16,6 +16,8 @@
 //   - A 401 always means the stored token is dead. The caller's remedy is to
 //     reconnect, and the message says so.
 
+import { parseScopes } from "./pat";
+
 const API_BASE = "https://api.github.com";
 
 export class GithubError extends Error {
@@ -133,6 +135,44 @@ async function githubFetch<T>(token: string, path: string, init?: RequestInit): 
 export async function getViewer(token: string): Promise<GithubViewer> {
   const { data } = await githubFetch<GithubViewer>(token, "/user");
   return data;
+}
+
+/**
+ * The account a token belongs to, plus what the token says it may do.
+ *
+ * Classic personal access tokens report their scopes in `x-oauth-scopes`;
+ * fine-grained ones report nothing. An empty list therefore means "not
+ * stated", which is why the caller probes a repository listing separately
+ * rather than trusting the header on its own.
+ */
+export async function getViewerWithScopes(
+  token: string
+): Promise<{ viewer: GithubViewer; scopes: string[]; scopeHeaderPresent: boolean }> {
+  const { data, headers } = await githubFetch<GithubViewer>(token, "/user");
+  const raw = headers.get("x-oauth-scopes");
+  return {
+    viewer: data,
+    scopes: parseScopes(raw),
+    scopeHeaderPresent: raw !== null,
+  };
+}
+
+/**
+ * Whether this token can list a repository at all.
+ *
+ * The cheapest honest test of "may the agent read anything with this?" is to
+ * ask for one repository. A 403 here is an answer (no scope), not an error; a
+ * 401 or an unreachable host is an error, because the token's own validity is
+ * what is in question and the caller should report that instead of a scope hint.
+ */
+export async function canListRepos(token: string): Promise<boolean> {
+  try {
+    const { data } = await githubFetch<unknown>(token, "/user/repos?per_page=1");
+    return Array.isArray(data);
+  } catch (error) {
+    if (error instanceof GithubError && (error.status === 0 || error.status === 401)) throw error;
+    return false;
+  }
 }
 
 /**

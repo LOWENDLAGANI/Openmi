@@ -193,6 +193,46 @@ test("an unrecognised failure keeps its own message", () => {
   );
 });
 
+test("an email account is a linked account, and says so", () => {
+  const view = describeAccount({
+    configured: true,
+    signedIn: true,
+    isAnonymous: false,
+    email: "someone@example.com",
+    provider: "email",
+    emailVerified: false,
+  });
+  assert.equal(view.status, "linked");
+  assert.equal(view.provider, "email");
+  assert.equal(view.emailVerified, false, "an unconfirmed address must not read as confirmed");
+});
+
+test("a confirmed address is reported as confirmed", () => {
+  const view = describeAccount({
+    configured: true,
+    signedIn: true,
+    isAnonymous: false,
+    email: "someone@example.com",
+    provider: "email",
+    emailVerified: true,
+  });
+  assert.equal(view.emailVerified, true);
+});
+
+test("a guest has no provider and no confirmed address to speak of", () => {
+  const view = describeAccount(GUEST);
+  assert.equal(view.provider, null);
+  assert.equal(view.emailVerified, false);
+});
+
+test("each email failure names the next step", () => {
+  assert.match(describeLinkError({ code: "auth/invalid-credential" }), /do not match/);
+  assert.match(describeLinkError({ code: "auth/email-already-in-use" }), /Sign in instead/);
+  assert.match(describeLinkError({ code: "auth/weak-password" }), /six characters/);
+  assert.match(describeLinkError({ code: "auth/invalid-email" }), /not a valid email/);
+  assert.match(describeLinkError({ code: "auth/user-not-found" }), /Create one instead/);
+});
+
 console.log("\nthe account is not the administrator");
 
 /**

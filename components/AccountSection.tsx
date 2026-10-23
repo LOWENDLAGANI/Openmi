@@ -1,26 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  bindGoogleAccount,
-  detachGoogleAccount,
-  watchAccount,
-} from "@/lib/account";
+import { watchAccount } from "@/lib/account";
+import { signOutToGuest } from "@/lib/emailAuth";
 import {
   accountExplanation,
   accountHeadline,
   describeLinkError,
-  isDismissed,
   type AccountView,
 } from "@/lib/accountState";
 import { loadChatsFromAccount, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import EmailAuthForm from "./EmailAuthForm";
 
 interface AccountSectionProps {
   displayName: string;
 }
 
 /**
- * The account row in Settings: what this browser is signed in as, and the button
+ * The account row in Settings: what this browser is signed in as, and the form
  * that changes it.
  *
  * This is the whole of the visitor's sign-in. It is kept away from the
@@ -29,8 +26,11 @@ interface AccountSectionProps {
  * grants a token; only `database.rules.json` decides what a token is worth, and
  * it grants one named address and no others.
  *
- * Binding is offered, never required. Someone who never links an account still
- * has a name, a working Openmi, and a chat history in their browser.
+ * The credential is an email address and a password, held by Firebase Auth.
+ * Registering upgrades the anonymous account this browser already has, so the
+ * uid — and every chat written under it — stays exactly where it is. Nothing is
+ * required: someone who never registers still has a name, a working Openmi, and
+ * a chat history in their browser.
  */
 export default function AccountSection({ displayName }: AccountSectionProps) {
   const [view, setView] = useState<AccountView | null>(null);
@@ -53,14 +53,14 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
    * that signs in to an account holding a phone's history adopts it instead of
    * uploading an empty library over the top of it; pushing afterwards means this
    * device's chats exist on the account too. Doing it here rather than inside
-   * the bind keeps `lib/account.ts` free of chat logic and means a failed sync
+   * the auth module keeps that module free of chat logic and means a failed sync
    * never blocks the sign-in itself.
    */
-  const resync = useCallback(async () => {
+  const resync = useCallback(async (announce: boolean) => {
     try {
       const adopted = await loadChatsFromAccount();
       await syncFirebaseHistory();
-      if (adopted && adopted.chats > 0) {
+      if (announce && adopted && adopted.chats > 0) {
         setNotice(
           `Pulled ${adopted.chats} chat${adopted.chats === 1 ? "" : "s"} from your account.`
         );
@@ -70,37 +70,15 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
     }
   }, []);
 
-  const bind = useCallback(async () => {
+  const signOut = useCallback(async () => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const result = await bindGoogleAccount(displayName);
-      if (result.outcome === "dismissed") return;
-      if (result.outcome === "adopted") {
-        await resync();
-      } else {
-        await resync();
-        setNotice("Linked. Your chats and your name now follow this Google account.");
-      }
-    } catch (cause: unknown) {
-      if (isDismissed(cause)) return;
-      console.error("[Openmi] Could not link the account", cause);
-      setError(describeLinkError(cause));
-    } finally {
-      setBusy(false);
-    }
-  }, [displayName, resync]);
-
-  const detach = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await detachGoogleAccount();
+      await signOutToGuest();
       setNotice("This device is back to a name on its own. Your account is untouched.");
-    } catch (cause: unknown) {
-      console.error("[Openmi] Could not detach the account", cause);
+    } catch (cause) {
+      console.error("[Openmi] Could not sign out", cause);
       setError(describeLinkError(cause));
     } finally {
       setBusy(false);
@@ -140,31 +118,34 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
             <p className="mt-1 text-[11px] leading-relaxed text-white/40">
               {accountExplanation(view)}
             </p>
+            {linked && view.provider === "email" && !view.emailVerified && (
+              <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
+                Email not confirmed yet. Nothing is blocked — confirm it whenever the link arrives.
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Hidden: Google login is not used — own approach handles account linking. */}
-        {false && !linked && (
-          <button
-            type="button"
-            onClick={bind}
-            disabled={busy}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12] disabled:opacity-50"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-              <path
-                fill="#EA4335"
-                d="M12 10.2v3.9h5.5c-.24 1.4-1.7 4.1-5.5 4.1a6.2 6.2 0 0 1 0-12.4c1.76 0 2.94.75 3.62 1.4l2.57-2.47A9.9 9.9 0 0 0 12 2.5a9.5 9.5 0 1 0 0 19c5.5 0 9.13-3.86 9.13-9.3 0-.62-.07-1.1-.15-1.6z"
-              />
-            </svg>
-            {busy ? "Opening Google…" : "Link a Google account"}
-          </button>
+        {!linked && (
+          <div className="mt-3">
+            <EmailAuthForm
+              name={displayName}
+              onSignedIn={(_next, outcome) => {
+                // An upgraded guest keeps its uid and only needs the push half;
+                // an adopted account brought its history with it and needs the
+                // pull too. Both are safe to run, so the difference is only what
+                // is said about it.
+                void resync(outcome === "adopted");
+                setError(null);
+              }}
+            />
+          </div>
         )}
 
-        {false && linked && (
+        {linked && (
           <button
             type="button"
-            onClick={detach}
+            onClick={() => void signOut()}
             disabled={busy}
             className="mt-3 w-full rounded-xl border border-white/[0.09] py-2.5 text-[13px] font-medium text-white/70 transition hover:bg-white/[0.06] disabled:opacity-50"
           >
@@ -172,12 +153,8 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
           </button>
         )}
 
-        {error && (
-          <p className="mt-2.5 text-[11px] leading-relaxed text-red-200/80">{error}</p>
-        )}
-        {notice && (
-          <p className="mt-2.5 text-[11px] leading-relaxed text-[#a9d8bb]/70">{notice}</p>
-        )}
+        {error && <p className="mt-2.5 text-[11px] leading-relaxed text-red-200/80">{error}</p>}
+        {notice && <p className="mt-2.5 text-[11px] leading-relaxed text-[#a9d8bb]/70">{notice}</p>}
       </div>
     </section>
   );

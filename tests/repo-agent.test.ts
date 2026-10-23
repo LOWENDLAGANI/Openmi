@@ -75,6 +75,15 @@ import {
   signOAuthState,
   verifyOAuthState,
 } from "../lib/github/oauth";
+import {
+  CONNECTION_LABEL_MAX,
+  assessPat,
+  connectionIdFor,
+  describeScopes,
+  isConnectionId,
+  normalizeConnectionLabel,
+  parseScopes,
+} from "../lib/github/pat";
 
 let failures = 0;
 let passes = 0;
@@ -1486,6 +1495,76 @@ later("a successful code exchange returns the token and its scopes", async () =>
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// ── personal access tokens ──────────────────────────────────────────────────
+console.log("\npersonal access tokens");
+
+test("a connection id is derived from the login, so reconnecting replaces it", () => {
+  assert.equal(connectionIdFor("Octocat"), connectionIdFor("octocat"), "case must not make a second entry");
+  assert.equal(connectionIdFor(" octocat "), connectionIdFor("octocat"), "whitespace must not either");
+  assert.match(connectionIdFor("octocat"), /^[0-9a-f]{12}$/);
+  assert.notEqual(connectionIdFor("octocat"), connectionIdFor("hubot"), "two GitHub accounts are two entries");
+  assert.equal(isConnectionId(connectionIdFor("octocat")), true);
+  assert.equal(isConnectionId("not-an-id"), false);
+  assert.equal(isConnectionId("../etc/passwd"), false);
+});
+
+test("a connection label is trimmed, collapsed and capped", () => {
+  assert.equal(normalizeConnectionLabel("  work   laptop "), "work laptop");
+  assert.equal(normalizeConnectionLabel(""), "GitHub", "a saved connection always has a label the rules accept");
+  assert.equal(normalizeConnectionLabel("   "), "GitHub");
+  assert.equal(normalizeConnectionLabel("x".repeat(80)).length, CONNECTION_LABEL_MAX);
+  assert.equal(normalizeConnectionLabel(null, "octocat"), "octocat");
+});
+
+test("classic scopes are read from their header, and its absence is not \"no scopes\"", () => {
+  assert.deepEqual(parseScopes("repo, read:user"), ["repo", "read:user"]);
+  assert.deepEqual(parseScopes("repo"), ["repo"]);
+  assert.deepEqual(parseScopes(""), []);
+  assert.deepEqual(parseScopes(null), []);
+  assert.deepEqual(parseScopes(undefined), []);
+});
+
+test("a token that cannot list a repository is warned about, never refused", () => {
+  const verdict = assessPat({ scopes: ["read:user"], canReadRepos: false });
+  assert.equal(verdict.canReadRepos, false);
+  assert.match(verdict.warning ?? "", /cannot read any repository/);
+  // The door still stores what it was given; the warning is the whole outcome.
+  assert.equal(typeof verdict.warning, "string");
+});
+
+test("a public-only token is warned about the private repositories it cannot reach", () => {
+  const verdict = assessPat({ scopes: ["public_repo", "read:user"], canReadRepos: true });
+  assert.match(verdict.warning ?? "", /public repositories/);
+});
+
+test("a token with the full scope needs no warning", () => {
+  assert.equal(assessPat({ scopes: ["repo"], canReadRepos: true }).warning, null);
+});
+
+test("a fine-grained token is judged by the probe alone", () => {
+  // Fine-grained tokens report no `x-oauth-scopes`, so an empty list means
+  // "GitHub did not say", and the repository listing is the real answer.
+  assert.equal(assessPat({ scopes: [], canReadRepos: true }).warning, null);
+  assert.equal(describeScopes([], true), "fine-grained");
+  assert.equal(describeScopes([], false), "no repository access");
+  assert.equal(describeScopes(["repo"], true), "read and write repositories");
+  assert.equal(describeScopes(["public_repo"], true), "public repositories only");
+});
+
+test("the connection collection is owner-scoped in the rules", () => {
+  const rules = JSON.parse(read("database.rules.json")) as {
+    rules: { users: Record<string, Record<string, unknown>> };
+  };
+  const uid = rules.rules.users["$uid"]!;
+  for (const node of ["githubConnections", "githubDefault"]) {
+    assert.ok(uid[node], `users/{uid}/${node} must exist in the rules`);
+    assert.match(JSON.stringify(uid[node]), /auth\.uid === \$uid/);
+  }
+  // The label is validated at the same limit the code normalizes to, so a stored
+  // connection can never fail its own rules.
+  assert.match(JSON.stringify(uid.githubConnections), /val\(\).length <= 40/);
 });
 
 // ── source contracts ────────────────────────────────────────────────────────

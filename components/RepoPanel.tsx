@@ -44,12 +44,28 @@ interface RepoPanelProps {
   onSelectProject: (project: ProjectSummary | null) => void;
 }
 
+interface GithubConnectionItem {
+  id: string;
+  login: string;
+  scopes: string;
+  kind: "pat" | "oauth";
+  label: string;
+  linkedAt: number;
+  canReadRepos: boolean;
+}
+
 interface GithubStatus {
   configured: boolean;
   connected: boolean;
   login: string | null;
   /** True when this deployment has a GitHub OAuth App configured. */
   oauth?: boolean;
+  /** True when a personal access token can be pasted. */
+  pat?: boolean;
+  /** Every connection this account holds. Never a token. */
+  connections?: GithubConnectionItem[];
+  /** The connection new repository reads use. */
+  defaultId?: string | null;
 }
 
 type StatusState =
@@ -174,6 +190,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const [truncated, setTruncated] = useState(false);
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [fileText, setFileText] = useState<string | null>(null);
+  const [patToken, setPatToken] = useState("");
+  const [patLabel, setPatLabel] = useState("");
+  /** The scope warning a token connect returned, held until the next action. */
+  const [patWarning, setPatWarning] = useState<string | null>(null);
 
   const status = statusState.phase === "ready" ? statusState.status : null;
 
@@ -367,11 +387,99 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     }
   };
 
+  /**
+   * Adds a connection from a token pasted in by the person.
+   *
+   * This is the door that does not depend on an OAuth App, a callback URL or a
+   * provider switched on in a console: one POST, one `GET /user` behind it. A
+   * warning about scope is shown rather than treated as a failure, because the
+   * token is alive and only its reach is in question.
+   */
+  const connectWithToken = async () => {
+    if (busy) return;
+    const token = patToken.trim();
+    if (!token) {
+      setError("Paste a GitHub token first.");
+      return;
+    }
+    setBusy("pat");
+    setError(null);
+    setNotice(null);
+    setPatWarning(null);
+    try {
+      const data = await api<{
+        login: string;
+        label: string;
+        canReadRepos: boolean;
+        warning: string | null;
+      }>("/api/github/connections", {
+        method: "POST",
+        body: JSON.stringify({ token, label: patLabel.trim() || undefined }),
+      });
+      setPatToken("");
+      setPatLabel("");
+      if (data.warning) {
+        setPatWarning(data.warning);
+        setNotice(`Saved as @${data.login}.`);
+      } else {
+        setNotice(`Connected as @${data.login}. Choose a repository.`);
+      }
+      const next = await loadStatus();
+      if (next?.connected) await loadRepos();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "That token could not be connected.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const removeConnection = async (id: string) => {
+    if (busy) return;
+    setBusy(`remove:${id}`);
+    setError(null);
+    try {
+      await api(`/api/github/connections/${id}`, { method: "DELETE" });
+      const next = await loadStatus();
+      if (next?.connected) await loadRepos();
+      else setRepos([]);
+      setNotice("Connection removed. Your projects stay in the list.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "That connection could not be removed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const promoteConnection = async (id: string) => {
+    if (busy) return;
+    setBusy(`default:${id}`);
+    setError(null);
+    try {
+      await api(`/api/github/connections/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ makeDefault: true }),
+      });
+      await loadStatus();
+      setNotice("That connection is now used for repository reads.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The default could not be changed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const disconnect = async () => {
     if (busy) return;
     setBusy("disconnect");
     setError(null);
     try {
+      // Every stored connection goes, not just the pointer: leaving one behind
+      // would make "Disconnect" a button that visibly does nothing, because a
+      // repository read would still find a token.
+      const stored = statusState.phase === "ready" ? statusState.status.connections ?? [] : [];
+      for (const item of stored) {
+        await api(`/api/github/connections/${item.id}`, { method: "DELETE" }).catch(() => undefined);
+      }
       await api("/api/github/unlink", { method: "POST" });
       setStatusState({ phase: "ready", status: { configured: true, connected: false, login: null } });
       setRepos([]);
@@ -415,6 +523,57 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
       setFileText(null);
     }
   };
+
+  /**
+   * The token door, rendered wherever a connection can be added.
+   *
+   * Defined once and used in two places — before anything is connected, and
+   * again beside the list so a second account can be added without removing the
+   * first. Keeping it in one expression rather than two copies is what stops the
+   * two from drifting apart.
+   */
+  const tokenForm = (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+      <p className="text-[12px] font-medium text-white/85">Connect with a personal access token</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-white/40">
+        Create one at github.com/settings/tokens with the <code className="rounded bg-black/40 px-1 py-0.5 text-[10px]">repo</code> scope
+        (or Contents: read on a fine-grained token), then paste it here. It is sealed on the server and never sent back to
+        this browser.
+      </p>
+      <input
+        type="password"
+        value={patToken}
+        onChange={(event) => setPatToken(event.target.value)}
+        placeholder="ghp_… or github_pat_…"
+        autoComplete="off"
+        spellCheck={false}
+        className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 font-mono text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+      />
+      <div className="mt-1.5 flex gap-1.5">
+        <input
+          value={patLabel}
+          onChange={(event) => setPatLabel(event.target.value)}
+          placeholder="Label (optional)"
+          maxLength={40}
+          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+        />
+        <button
+          type="button"
+          onClick={() => void connectWithToken()}
+          disabled={busy === "pat" || !patToken.trim()}
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
+          style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
+        >
+          {busy === "pat" ? "Checking…" : "Connect"}
+        </button>
+      </div>
+      {patWarning && (
+        <p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-400/[0.05] px-2 py-1.5 text-[10.5px] leading-relaxed text-amber-100/85">
+          {patWarning}
+        </p>
+      )}
+    </div>
+  );
 
   if (!open) return null;
 
@@ -538,9 +697,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
           ) : !statusState.status.connected ? (
             <div className="space-y-3">
               <p className="text-[13px] leading-relaxed text-white/60">
-                Connect GitHub to let the agent read a repository. Google stays your account — GitHub is added to it, so
-                your chats and Dew do not move.
+                Connect GitHub to let the agent read a repository. Your Openmi account stays the account — GitHub is
+                attached to it, so your chats and Dew do not move.
               </p>
+              {tokenForm}
               {/* Hidden: GitHub login is not used — own approach handles repo access. */}
               {false && (
                 <>
@@ -591,6 +751,64 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                   Disconnect
                 </button>
               </div>
+
+              {(statusState.status.connections?.length ?? 0) > 0 && (
+                <div>
+                  <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
+                    GitHub connections
+                  </h3>
+                  <div className="space-y-1">
+                    {(statusState.status.connections ?? []).map((item) => {
+                      const isDefault = statusState.status.defaultId === item.id;
+                      const detail = item.scopes
+                        ? item.scopes.slice(0, 40)
+                        : item.canReadRepos
+                          ? "fine-grained token"
+                          : "no repository access";
+                      return (
+                        <div
+                          key={item.id}
+                          className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void promoteConnection(item.id)}
+                            disabled={busy === `default:${item.id}` || isDefault}
+                            title={isDefault ? "Used for repository reads" : "Use this connection for repository reads"}
+                            className="min-w-0 flex-1 text-left disabled:cursor-default"
+                          >
+                            <span className="block truncate text-[11px] text-white/75">
+                              @{item.login}
+                              {item.label && item.label !== item.login ? ` · ${item.label}` : ""}
+                            </span>
+                            <span className="block truncate text-[9.5px] text-white/30">{detail}</span>
+                          </button>
+                          {isDefault ? (
+                            <span className="shrink-0 rounded bg-[#a9d8bb]/15 px-1 py-0.5 text-[8px] uppercase tracking-wide text-[#a9d8bb]/80">
+                              default
+                            </span>
+                          ) : (
+                            <span className="shrink-0 text-[9px] text-white/20">
+                              {busy === `default:${item.id}` ? "…" : item.kind}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void removeConnection(item.id)}
+                            disabled={busy === `remove:${item.id}`}
+                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-white/25 transition-colors hover:bg-white/[0.07] hover:text-red-300 disabled:opacity-50"
+                            aria-label={`Remove the @${item.login} connection`}
+                          >
+                            {busy === `remove:${item.id}` ? "…" : "Remove"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {tokenForm}
 
               {project && (
                 <div className="rounded-xl border border-[#a9d8bb]/15 bg-[#a9d8bb]/[0.035]">

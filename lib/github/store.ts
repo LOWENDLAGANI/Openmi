@@ -17,6 +17,7 @@
 
 import { deleteAsCaller, readAsCaller } from "../rtdb";
 import { writeAsCaller } from "../serverControl";
+import { defaultGithubConnection } from "./connections";
 import { seal, tokenKey, unseal } from "./crypto";
 import { looksLikeGithubToken } from "./oauth";
 
@@ -134,13 +135,20 @@ export interface RequestWithCookies {
 }
 
 /**
- * The connection a request may use, from either store.
+ * The connection a request may use, from any of the three stores.
  *
- * The cookie is checked first because that is the flow the app now offers by
- * default; a database value is the Firebase-hosted link, kept so an existing
- * connection does not break when the deployment adds the OAuth App. Both are
- * scoped to the verified uid, and a cookie for someone else falls through
- * rather than being used.
+ * Order matters, and it is "most specific to least":
+ *
+ *   1. The sealed OAuth cookie. It belongs to this browser and was sealed for
+ *      this uid, so nothing else can be more specific.
+ *   2. The account's connection collection, which is what a pasted personal
+ *      access token creates. The default entry is chosen, falling back to the
+ *      newest, so an account with several tokens still has one answer.
+ *   3. The legacy single node, kept so a connection made before the collection
+ *      existed does not break.
+ *
+ * Every step is scoped to the verified uid, and a cookie sealed for someone
+ * else falls through rather than being used.
  */
 export async function resolveGithubLink(
   req: RequestWithCookies,
@@ -152,6 +160,17 @@ export async function resolveGithubLink(
     uid
   );
   if (fromCookie) return fromCookie;
+
+  const stored = await defaultGithubConnection(authorization, uid);
+  if (stored) {
+    return {
+      token: stored.token,
+      login: stored.login,
+      scopes: stored.scopes,
+      linkedAt: stored.linkedAt,
+    };
+  }
+
   return readGithubLink(authorization, uid);
 }
 

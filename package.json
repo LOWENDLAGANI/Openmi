@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "eslint .",
-    "test": "bunx tsx tests/code-fence.test.ts && bunx tsx tests/account.test.ts && bunx tsx tests/chat-sync.test.ts && bunx tsx tests/truncation.test.ts && bunx tsx tests/model-health.test.ts && bunx tsx tests/temp-chat.test.ts && bunx tsx tests/deleted-chats.test.ts && bunx tsx tests/redeem.test.ts && bunx tsx tests/server-control.test.ts && bunx tsx tests/feature-batch.test.ts && bunx tsx tests/composer-and-thread.test.ts && bunx tsx tests/dew.test.ts && bunx tsx tests/repo-agent.test.ts",
+    "test": "bunx tsx tests/code-fence.test.ts && bunx tsx tests/account.test.ts && bunx tsx tests/chat-sync.test.ts && bunx tsx tests/truncation.test.ts && bunx tsx tests/model-health.test.ts && bunx tsx tests/temp-chat.test.ts && bunx tsx tests/deleted-chats.test.ts && bunx tsx tests/redeem.test.ts && bunx tsx tests/server-control.test.ts && bunx tsx tests/feature-batch.test.ts && bunx tsx tests/composer-and-thread.test.ts && bunx tsx tests/dew.test.ts && bunx tsx tests/repo-agent.test.ts && bunx tsx tests/github-connections.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

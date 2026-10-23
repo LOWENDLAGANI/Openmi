@@ -17,16 +17,23 @@ when you say so**, on a branch of its own.
 - Chat with **Auto** and **Code** modes, streamed over SSE with provider
   fallback and continuation when a model hits its output limit.
 - Local-first history in IndexedDB (Dexie), synced to Firebase when configured.
-- A guest identity that can be linked to a Google account without moving history.
+- **An account with an email address and a password**, held by Firebase Auth.
+  Registering upgrades the guest identity this browser already has, so the UID —
+  and every chat written under it — stays exactly where it is. A confirmation
+  mail is sent on registration; nothing is gated on it.
 - **Dew**: one flat price per request, per model — `0.25` for Auto, `0.5` for
   Code. Token counts are still recorded and shown; they no longer price the
   request.
 - Temporary chats, folders, trash with a thirty-day restore, palette search,
   branching replies, web search, attachments, push, PWA, admin console.
-- **GitHub connected to the existing account.** `GithubAuthProvider` links a
-  credential to the Firebase user, so the UID, history and Dew wallet stay put.
-  The access token is sealed with AES-256-GCM and stored at
-  `users/{uid}/github`; no response ever contains it.
+- **GitHub connected with a personal access token.** A token pasted into the
+  panel is checked against `GET /user` and one repository listing, then sealed
+  with AES-256-GCM under `users/{uid}/githubConnections`. An account can hold
+  several connections and mark one as the default; reconnecting the same GitHub
+  account rotates its token rather than adding a second entry. No response ever
+  contains a token. A GitHub OAuth App is still available as a second door when
+  one is configured, and the Firebase-hosted credential still works for
+  deployments that already have it.
 - **A repository workspace.** Repo picker over every repository the connection
   can read, a filtered file tree, and a read-only file viewer, all pinned to one
   commit (the project records `baseSha` when it is attached).
@@ -90,48 +97,63 @@ The important ones:
 | `OPENMI_ADMIN_EMAIL` | The one address allowed into the console. |
 | `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews and the sitemap. |
 | `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens. Unset means GitHub cannot be connected. |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | A GitHub OAuth App, so visitors can connect GitHub without a Firebase console change. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App, a second door beside the pasted token. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
+
+### Signing in
+
+Signing in is an email address and a password, and the password is Firebase
+Auth's to hold — this app never sees or stores it. Turn the provider on under
+Firebase console → Authentication → Sign-in method → **Email/Password**. That is
+the only setup; the `NEXT_PUBLIC_FIREBASE_*` values already in reach are all the
+client needs.
+
+Registering **links a credential onto the anonymous account this browser already
+has** rather than creating a new user, so the UID does not change and the chats
+written before registering stay where they are. If the address already belongs
+to an account, the link is refused and the app signs into that account instead —
+the existing history is the real one. A confirmation mail goes out on
+registration and can be resent from the account row; nothing is blocked while it
+is unconfirmed.
 
 ### Connecting GitHub
 
-There are two doors, and the panel picks whichever this deployment has. The
-GitHub OAuth App is preferred because it needs nothing done in the Firebase
-console.
+**A. Personal access token (the door that needs no console change)**
 
-**A. GitHub OAuth App (recommended)**
+1. Set `GITHUB_TOKEN_KEY` to a 32-byte hex value (`openssl rand -hex 32`) and
+   redeploy. Nothing else is required.
+2. In the app, open the repository panel and paste a token from
+   github.com/settings/tokens with the **`repo`** scope (or Contents: read plus
+   Metadata: read on a fine-grained token).
+3. The server asks GitHub who the token belongs to and whether it can list a
+   repository. A token that is alive but cannot read repositories is **stored
+   with a warning**, because adding the scope is a thing the person can go and
+   do; a token GitHub refuses is rejected with the reason.
 
-1. GitHub → Settings → Developer settings → **OAuth Apps** → New OAuth App.
-   Set the homepage to your site, and the **Authorization callback URL** to
-   `https://<your-domain>/api/github/oauth/callback` for every origin you use
-   (add a second app, or edit the callback, for local development).
-2. Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_TOKEN_KEY`
-   (`openssl rand -hex 32`), `AGENT_TURN_SECRET`, and `NEXT_PUBLIC_SITE_URL` to
-   the exact public origin — the callback URL is derived from it and must match
-   the OAuth App character for character.
-3. In the app, open the repository panel from the sidebar, press **Connect
-   GitHub**, approve the app, and you are returned to the panel. The access
-   token is sealed and kept in an httpOnly cookie bound to your account; no
-   response contains it.
+An account may hold several tokens — a personal one, a work one, a fine-grained
+one — and the list lets one be made the default. Reconnecting the same GitHub
+account replaces its entry instead of adding another.
 
-**B. Firebase-hosted GitHub credential (existing deployments)**
+**B. GitHub OAuth App (optional)**
 
-1. In the Firebase console → Authentication → Sign-in method, **enable GitHub**.
-   Firebase hosts the OAuth app, so this repository needs no client id or secret.
-2. Set `GITHUB_TOKEN_KEY` and `AGENT_TURN_SECRET`.
-3. The connection is sealed and written to `users/{uid}/github` using your own
-   Firebase token.
+A full-page round trip instead of a pasted token. Create the app at GitHub →
+Settings → Developer settings → **OAuth Apps** → New OAuth App, with the
+**Authorization callback URL** set to
+`https://<your-domain>/api/github/oauth/callback` for every origin you use, then
+set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `NEXT_PUBLIC_SITE_URL` to the
+exact public origin. The token is sealed into an httpOnly cookie bound to your
+account.
 
 **Then, either way:**
 
-4. Deploy the updated `database.rules.json`: projects live at
-   `projects/{uid}/{id}`, readable and writable only by their owner. A
-   connection stored in the database is owner-only for the same reason.
+4. Deploy the updated `database.rules.json`. Connections live at
+   `users/{uid}/githubConnections/{id}` with a `users/{uid}/githubDefault`
+   pointer, and projects at `projects/{uid}/{id}` — all owner-only.
 5. Pick a repository in the panel — it pins the branch head as the project's
    base commit.
 
-If neither door is configured, the panel says which values are missing instead
-of leaving a button that cannot work; if the status check fails or times out, it
+If no key is configured, the panel says which value is missing instead of
+leaving a button that cannot work; if the status check fails or times out, it
 shows the failure with a retry rather than staying on "Checking the
 connection…".
 
@@ -143,16 +165,20 @@ app/                 routes; /api/chat is the streaming proxy, /api/agent/step
 components/          chat shell, sidebar, settings, admin console, RepoPanel
 lib/                 dew.ts (pricing), providers.ts (server-only chains),
                      models.ts (client-visible catalog), db.ts (Dexie),
-                     serverControl.ts (identity, bans, rate limits)
-lib/github/          client.ts (REST, read-only), oauth.ts (GitHub OAuth App
-                     flow), tree.ts (filtering), search.ts (lexical), cache.ts,
-                     crypto.ts (seal/sign), store.ts (the sealed connection)
+                     serverControl.ts (identity, bans, rate limits),
+                     emailAuth.ts (register, sign in, verify, reset)
+lib/github/          client.ts (REST, read-only), pat.ts (token scopes and ids),
+                     connections.ts (the token collection and its default),
+                     oauth.ts (GitHub OAuth App flow), tree.ts (filtering),
+                     search.ts (lexical), cache.ts, crypto.ts (seal/sign),
+                     store.ts (which connection a request may use)
 lib/agent/           tools.ts (the four tools), edits.ts (staging and unified
                      diffs), model.ts (one decision), turns.ts (signed turn
                      budget), run.ts (one step)
 lib/changesets.ts    change-set ids, hashes, branch naming, signed change sets
                      and approvals, the commit gate, the stored records
 components/ChangeReview.tsx  the diff cards and Approve & commit
+components/EmailAuthForm.tsx  register, sign in, resend, reset
 docs/OVERHAUL_SPEC.md  the contract for the repo agent
 docs/legacy/         the previous Openmi product docs, kept for reference
 ```
