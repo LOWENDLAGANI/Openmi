@@ -68,8 +68,6 @@ function items(): SetupItem[] {
   const turnSecret = present(process.env.AGENT_TURN_SECRET) || tokenKey;
   const oauthId = present(process.env.GITHUB_CLIENT_ID);
   const oauthSecret = present(process.env.GITHUB_CLIENT_SECRET);
-  const pushPublic = present(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
-  const pushPrivate = present(process.env.WEB_PUSH_PRIVATE_KEY);
   const redis =
     present(process.env.UPSTASH_REDIS_REST_URL) && present(process.env.UPSTASH_REDIS_REST_TOKEN);
 
@@ -116,14 +114,6 @@ function items(): SetupItem[] {
       where: "openssl rand -hex 32 — any 32-byte hex value; rotating it forces every user to reconnect.",
       severity: "optional",
       configured: tokenKey,
-    },
-    {
-      keys: ["NEXT_PUBLIC_VAPID_PUBLIC_KEY", "WEB_PUSH_PRIVATE_KEY"],
-      label: "Push notifications",
-      missing: "Nobody can be notified; the settings toggle for it does nothing.",
-      where: "npx web-push generate-vapid-keys, then put the public half in NEXT_PUBLIC_ and the private half server-side.",
-      severity: "optional",
-      configured: pushPublic && pushPrivate,
     },
     {
       keys: ["TAVILY_API_KEY"],

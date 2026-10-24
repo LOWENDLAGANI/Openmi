@@ -178,25 +178,10 @@ await test("the sidebar opens overlays instead of a search section", () => {
   assert.ok(!sidebar.includes("GalleryOverlay"), "the removed gallery is still mounted");
 });
 
-await test("a push broadcast is admin-gated on the server", () => {
-  const push = read("app/api/push/route.ts");
-  assert.match(push, /action\?: "subscribe" \| "unsubscribe" \| "test" \| "broadcast"/);
-  assert.match(push, /requireAdmin\(req\.headers\)/, "broadcast must not be open to any caller");
-});
-
 await test("the console has the usage section with its chart", () => {
   const admin = read("components/AdminPanel.tsx");
   assert.match(admin, /<UsageSection \/>/, "the trend chart is not mounted in the console");
   assert.match(admin, /function UsageSection/);
-});
-
-await test("notifications are checked on every visit, not asked once", () => {
-  const page = read("app/page.tsx");
-  assert.match(page, /<NotificationNag \/>/, "the every-visit check is not mounted");
-  const nag = read("components/NotificationNag.tsx");
-  assert.match(nag, /currentPushSubscription/, "the prompt does not read the actual subscription");
-  assert.match(nag, /pushServerStatus/, "the prompt asks even when the deployment cannot send");
-  assert.match(nag, /Not now/, "the visitor needs a way out for this visit");
 });
 
 await test("chat actions live behind a hold menu with the feature written out", () => {

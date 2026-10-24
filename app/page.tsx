@@ -11,7 +11,6 @@ import OpenmiTutorial from "@/components/OpenmiTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
 import type { ProjectSummary } from "@/lib/projects";
-import NotificationNag from "@/components/NotificationNag";
 import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
@@ -1235,10 +1234,6 @@ export default function HomePage() {
             LG FAILED
           </div>
         )}
-
-        {/* Checked on every visit: subscribed browsers see nothing, everyone
-            else is asked until they are. */}
-        <NotificationNag />
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">

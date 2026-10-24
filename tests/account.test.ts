@@ -326,7 +326,7 @@ test("the visitor's profile is not the console's visitor list", () => {
   );
   assert.ok(
     !/for select to authenticated\s+using \(owner = auth\.uid\(\)\)/.test(
-      sql.split("visitor_registry")[1]?.split("push_subscriptions")[0] ?? ""
+      sql.split("visitor_registry")[1]?.split("profiles")[0] ?? ""
     ),
     "the console's visitor list must stay unreadable to visitors"
   );

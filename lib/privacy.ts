@@ -72,7 +72,6 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
       "approvals",
       "commits",
       "usage_daily",
-      "push_subscriptions",
     ]) {
       try {
         const { error } = await client.from(table).delete().eq("owner", user.id);

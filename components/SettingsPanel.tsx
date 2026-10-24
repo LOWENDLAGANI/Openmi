@@ -5,8 +5,6 @@ import type { SearchMode } from "@/lib/types";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
 import DataControls from "@/components/DataControls";
-import PushSettings from "@/components/PushSettings";
-
 interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
@@ -260,7 +258,6 @@ export default function SettingsPanel({
             </section>
           </div>
 
-          <PushSettings />
         </div>
       </section>
     </div>

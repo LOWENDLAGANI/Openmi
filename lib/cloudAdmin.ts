@@ -283,7 +283,6 @@ const USER_CONTENT_TABLES = [
   "changesets",
   "approvals",
   "commits",
-  "push_subscriptions",
 ] as const;
 
 /**
