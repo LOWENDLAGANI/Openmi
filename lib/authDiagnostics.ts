@@ -1,15 +1,4 @@
-// ── Why can this browser not sign in? ───────────────────────────────────────
-//
-// A provider that is switched off answers with `provider_disabled`, and a
-// project that refuses new accounts answers with `signup_disabled`. Both are
-// poor clues: nothing in either says which toggle to change, or which project
-// the key belongs to.
-//
-// Supabase answers the question directly. `GET /auth/v1/settings` returns the
-// provider switches for the project the key names — including Email, Google,
-// GitHub and Azure — so this module asks it and prints the answer instead of
-// guessing from an error code. The mapping from the settings to a fix is pure
-// and tested; the request is one unauthenticated call and creates nothing.
+// Auth diagnostics — reports which project a build talks to and which doors it offers.
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "";

@@ -1,29 +1,4 @@
-// ── The account ──────────────────────────────────────────────────────────────
-// Signing in with Google, GitHub, Microsoft or email, signing out, and carrying
-// a name and preferences across browsers. This is the user's account and not the
-// administrator's: nothing here can grant console access, and nothing here reads
-// the console's data.
-//
-// ── Every visitor has an account ────────────────────────────────────────────
-// The guest-first build is gone. There is no anonymous Supabase user, so a first
-// visit lands on the sign-in screen and the product is only usable once one of
-// the four doors has produced a session. That is what makes the rest of the
-// promise honest: every chat, preference and push subscription belongs to a real
-// `auth.users` row and follows the person to another browser.
-//
-// ── OAuth is a redirect, not a popup ────────────────────────────────────────
-// Supabase's OAuth is a full-page round trip. That is the shape most large sites
-// use, and it removes a class of failure the popup path had: extensions, strict
-// pop-up settings and embedded views that block `window.open` no longer matter.
-// `detectSessionInUrl` in lib/supabase.ts exchanges the returned code for a
-// session when the page loads again, and `watchAccount` reports it. A provider
-// that refuses the sign-in puts its reason in the URL, which
-// `consumeOAuthError` reads once and the sign-in screen shows.
-//
-// Elevation is decided entirely by the policies in `supabase/migrations`, which
-// compare one address seeded in `app_admin`. Signing in grants a token and
-// nothing else, so there is no path from this file to the admin console even for
-// the person who owns it.
+// The account — sign-in with Google, GitHub, Microsoft or email, sign-out, names.
 
 import type { Provider, User } from "@supabase/supabase-js";
 import { currentUser, getSupabase, withTimeout } from "./supabase";
@@ -58,14 +33,7 @@ const PROVIDER_SCOPES: Record<OAuthProvider, string | undefined> = {
   microsoft: "email openid profile",
 };
 
-/**
- * Which credential signed this account in.
- *
- * Read from `identities`, which lists every credential on the user, and then
- * from `app_metadata.provider`, which is what a token minted by an older SDK
- * carries. Supabase calls Microsoft `azure`; the product calls it Microsoft,
- * because that is the word on the button the person pressed.
- */
+/** Which credential signed this account in, from `identities`. */
 function providerOf(user: User | null): AccountProvider {
   if (!user) return null;
   const providers = (user.identities ?? []).map((identity) => identity.provider);
@@ -78,14 +46,7 @@ function providerOf(user: User | null): AccountProvider {
   return null;
 }
 
-/**
- * The provider's own idea of the person's name.
- *
- * Each provider puts it somewhere slightly different: Google sends `full_name`
- * and `name`, GitHub sends `user_name` and sometimes `full_name`, Microsoft sends
- * `name` or `preferred_username`. All of them are weaker than a name the person
- * typed here, which is why this is only ever a fallback.
- */
+/** Provider names from user_metadata — weaker than a name the person typed. */
 function providerNameOf(user: User | null): string | null {
   const meta = (user?.user_metadata ?? {}) as Record<string, unknown>;
   for (const key of ["name", "full_name", "display_name", "user_name", "preferred_username"]) {
@@ -95,13 +56,7 @@ function providerNameOf(user: User | null): string | null {
   return null;
 }
 
-/**
- * The name to greet this account by before it has chosen one.
- *
- * The provider's name is preferred over the address, because "Rani" reads better
- * than "rani.k". When the provider supplied nothing at all, the local part of the
- * address is the only human-shaped thing available.
- */
+/** Name to greet this account by before it has chosen one. */
 export function displayNameFromUser(user: User | null): string | null {
   const fromProvider = providerNameOf(user);
   if (fromProvider) return fromProvider;
@@ -110,14 +65,7 @@ export function displayNameFromUser(user: User | null): string | null {
   return local ? normalizeName(local) : null;
 }
 
-/**
- * The view of one Supabase user, shared with the email/password flow.
- *
- * Exported because `lib/emailAuth.ts` has to answer with exactly the shape the
- * rest of the interface already reads. A second implementation of this mapping
- * would be the kind of duplicate that drifts: one of the two would learn about
- * a new field and the other would silently keep reporting the old shape.
- */
+/** The interface view of one Supabase user. */
 export function accountViewOf(user: User | null): AccountView {
   const provider = providerOf(user);
   return viewFromUser({

@@ -80,9 +80,7 @@ function CapField({
   );
 }
 
-/** The lengths a ban can be set for. Permanent is the default on purpose: the
- *  common case is a device that should not come back, and every other choice is
- *  one tap away rather than the other way round. */
+/** The lengths a ban can be set for. */
 const BAN_DURATIONS: Array<{ label: string; value: number | "permanent" | "custom" }> = [
   { label: "Permanent", value: "permanent" },
   { label: "1 day", value: 1 },
@@ -170,14 +168,7 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
 
   const commitAnnouncement = () => void save({ ...config, announcement: announcement.slice(0, 200) });
 
-  /**
-   * Sends the current announcement as a push to every subscribed device.
-   *
-   * The route verifies this console's own token and refuses anyone who is not
-   * the administrator, so a reachable button gains a caller nothing — and a
-   * deployment without push keys or republished rules reports that plainly
-   * rather than pretending the notification went out.
-   */
+  /** Sends the current announcement as a push to every subscribed device. */
   const handlePush = async () => {
     const text = announcement.trim().slice(0, 200);
     if (!text || pushBusy) return;

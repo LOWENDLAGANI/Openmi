@@ -1,21 +1,4 @@
-// ── Redeem codes ─────────────────────────────────────────────────────────────
-// Pure logic only — no database, no fetch — so every rule about what a code is,
-// what claiming one does, and what happens when it is terminated can be tested
-// without a browser or a network.
-//
-// A code is a word the owner chooses, carrying a Dew amount — the pay-as-you-go
-// currency Openmi bills in. It used to carry a plan and a number of days; the
-// subscription model is gone, and so is that shape. A record without a Dew
-// amount is not a code any more: it resolves to nothing rather than to the
-// nearest thing that still fits, because a code whose meaning cannot be read
-// must never turn into somebody's balance by accident.
-//
-// The important rule, and the reason this is not just "write the amount to the
-// user": **a claim never carries an amount.** It records which code was used,
-// and what that code is worth is read from the code itself by the server. If
-// the claim said "100 Dew", then anything able to write a claim could write
-// itself a balance, and the rules that pin the amount would be worth nothing.
-// So the only thing a user controls is the name of a code.
+// Redeem codes — a word carrying Dew; the claim never carries an amount.
 
 /**
  * How a code is written down.

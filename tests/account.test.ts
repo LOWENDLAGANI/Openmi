@@ -97,7 +97,7 @@ test("a real account is signed in and identifies its provider", () => {
 test("Microsoft is the product word for Supabase's azure provider", () => {
   assert.equal(providerLabel("microsoft"), "Microsoft");
   assert.equal(providerLabel("github"), "GitHub");
-  assert.equal(providerLabel("email"), "email and password");
+  assert.equal(providerLabel("email"), "email");
   assert.equal(providerLabel(null), "an account");
 });
 

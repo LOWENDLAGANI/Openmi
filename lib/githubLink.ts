@@ -1,19 +1,4 @@
-// ── Connecting GitHub from the browser ──────────────────────────────────────
-//
-// GitHub is attached to the Openmi account as a stored credential, not as a
-// second way to sign in. `/api/github/oauth/start` signs a state bound to the
-// verified uid, GitHub returns to the callback, and the callback seals the token
-// into an httpOnly cookie that never reaches this module.
-//
-// This used to have a second door: the identity provider's own GitHub provider,
-// which handed the browser a token to post back. That door needed a provider
-// switched on in a console, and nothing was lost by removing it — the app's own
-// OAuth App needs no identity provider configured anywhere, and it never puts
-// the token in the page. A deployment without `GITHUB_CLIENT_ID` /
-// `GITHUB_CLIENT_SECRET` still has the token-paste door in the repository panel.
-//
-// The token exists server-side for exactly one purpose. Nothing in this file can
-// read it back.
+// GitHub connection from the browser — a stored credential, not a sign-in method.
 
 import { authHeader, currentUser, supabaseConfigured } from "./supabase";
 

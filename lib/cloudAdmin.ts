@@ -1,19 +1,4 @@
-// ── The admin console's window into the data ────────────────────────────────
-// The console reads every visitor's logged chats and can wipe them. That used to
-// need a service account, because the browser was not allowed to read chat data
-// at all and only the Admin SDK — which ignored the rules — could. It does not
-// any more, and it still does not: the policies in `supabase/migrations` grant
-// one address elevated read and write across the user tables, and this module is
-// the client-side caller for those grants.
-//
-// So there is no project-wide credential in the deployment environment, and no
-// service-role key in this file. The check in `verifyAdminAccess` is cosmetic: it
-// only decides which screen to show. Postgres evaluates the same condition on
-// every read and write, so patching this file would gain an attacker nothing.
-//
-// Every call here runs as the signed-in administrator — the session already
-// holds their JWT — which is why signing in is a prerequisite for the console
-// rather than a convenience.
+// Admin console — reads every visitor's logged chats and can wipe them.
 
 import { getSupabase } from "./supabase";
 import { dewBalanceFrom, roundDew } from "./dew";
@@ -73,14 +58,7 @@ function requireClient() {
   return client;
 }
 
-/**
- * Whether the signed-in account is the administrator.
- *
- * Answered by `public.is_admin()` — the same function every policy calls — so
- * the console's answer cannot disagree with the database's. False rather than a
- * throw when the account is simply not the one: that is the ordinary case for a
- * visitor who found the hidden prompt.
- */
+/** Whether the signed-in account is the administrator. */
 export async function verifyAdminAccess(): Promise<boolean> {
   const client = requireClient();
   const session = await client.auth.getSession();
@@ -93,13 +71,7 @@ export async function verifyAdminAccess(): Promise<boolean> {
   return data === true;
 }
 
-/**
- * Signs in with Google, returning once the round trip has been requested.
- *
- * Supabase's OAuth is a full-page redirect, so this returns after the browser
- * has already left; the gate re-checks `verifyAdminAccess` when it comes back,
- * which is the only thing that decides whether the console opens.
- */
+/** Signs in with Google, returning once the round trip has been requested. */
 export async function signInAsAdmin(): Promise<string> {
   const client = requireClient();
   const { error } = await client.auth.signInWithOAuth({
@@ -138,15 +110,8 @@ export interface AdminUser {
   lastSeen: number | null;
   chats: number;
   messages: number;
-}
+}/** Everyone who has been here at all. */
 
-/**
- * Everyone who has been here at all, not only everyone who has talked.
- *
- * The registry supplies the names and the two timestamps; `admin_user_stats()`
- * supplies the counts in one call rather than downloading every message to count
- * them. Both are administrator-only, so a non-admin gets nothing to draw.
- */
 export async function listUsers(): Promise<AdminUser[]> {
   const client = requireClient();
 
@@ -408,8 +373,7 @@ export async function grantDew(uid: string, dew: number): Promise<DewGrant> {
     .insert({ owner: visitor, code: key, amount });
   if (error) rethrow(error);
 
-  const balance = await readDewBalance(visitor);
-  return { uid: visitor, dew: amount, balance };
+  return { uid: visitor, dew: amount, balance: await readDewBalance(visitor) };
 }
 
 // ── Redeem codes ────────────────────────────────────────────────────────────

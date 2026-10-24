@@ -1,19 +1,4 @@
-// ── Account state ────────────────────────────────────────────────────────────
-// Pure logic only. Nothing here imports Supabase, so the rules that decide what
-// a person is shown — and what happens to their name — can be tested without a
-// browser, a network, or a project.
-//
-// Openmi requires an account. There is no guest state and no anonymous identity:
-// a browser is either signed in through Google, GitHub, Microsoft or an email
-// address and password, or it is signed out and the sign-in screen stands in
-// front of the product. Every row the interface shows is therefore owned by a
-// real `auth.users` row, which is what makes the cloud sync meaningful.
-//
-// This is the user-facing account, and it is deliberately not the administrator's
-// one. Signing in grants exactly what the row-level security policies grant
-// `authenticated`, and nothing else: elevation is decided by the policies in
-// `supabase/migrations` comparing one address, so there is no code path here by
-// which signing in could reach the console.
+// Account state — what the interface knows about the current signed-in person.
 
 /** Which credential the account signed in with. Null while signed out. */
 export type AccountProvider = "google" | "github" | "microsoft" | "email" | null;
@@ -73,7 +58,7 @@ export const PROVIDER_LABELS: Record<Exclude<AccountProvider, null>, string> = {
   google: "Google",
   github: "GitHub",
   microsoft: "Microsoft",
-  email: "email and password",
+  email: "email",
 };
 
 export function providerLabel(provider: AccountProvider): string {

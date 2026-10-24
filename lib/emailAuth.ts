@@ -1,31 +1,4 @@
-// ── Signing in with an email address and a password ──────────────────────────
-//
-// Supabase Auth owns the credential: the password is hashed and stored by the
-// project, never by this app, and the result is an ordinary Supabase session.
-// That is the whole reason this door exists rather than a bespoke user table:
-// `verifyCaller` in lib/serverControl.ts already turns that token into a uid,
-// the policies already scope every row to that uid, and the Dew wallet, the chat
-// history and the preferences already hang off it. An email account is therefore
-// the *same kind of account* as a Google one — only the credential differs.
-//
-// ── Registering creates an account ──────────────────────────────────────────
-// There is no anonymous user to upgrade any more. `signUp` creates a real
-// Supabase user with the address and the password, plus the name the form
-// collected as metadata, so the first browser and every later one can greet the
-// person by it.
-//
-// ── Verification ─────────────────────────────────────────────────────────────
-// Registering sends a confirmation mail when the project has confirmation on.
-// Nothing is gated on it: an unconfirmed account can still chat, and the
-// interface offers a resend rather than a wall. A person who cannot receive mail
-// at that address yet must not lose access to a product they are already using.
-// A project with confirmation switched off signs the person in immediately, and
-// `needsVerification` answers false.
-//
-// ── Password recovery ───────────────────────────────────────────────────────
-// The reset mail returns through the project's PKCE flow, which signs the person
-// in, and the account row then offers "Set a new password" through
-// `changePassword`. Nothing here ever sees or stores the password itself.
+// Sign in and register with an email address and a password, plus verification.
 
 import type { User } from "@supabase/supabase-js";
 import { accountViewOf } from "./account";

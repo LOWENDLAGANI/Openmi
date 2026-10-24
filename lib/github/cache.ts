@@ -1,13 +1,4 @@
-// ── A small, short-lived cache for repository reads ─────────────────────────
-//
-// A single agent turn reads the same tree for every step and often the same
-// files more than once. Without a cache that is several identical GitHub
-// requests per message, against a 5,000/hour limit that also serves the user's
-// other tools.
-//
-// The cache is in-process and deliberately modest: two minutes, bounded entry
-// counts, and a key that includes the repository. It is not a store of truth —
-// every entry expires, and a miss is always correct behaviour.
+// Short-lived cache for repository reads — two minutes, bounded.
 
 import { createHash } from "node:crypto";
 import { getBlobText, getTree, type GithubTree } from "./client";

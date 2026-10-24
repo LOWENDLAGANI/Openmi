@@ -1,26 +1,4 @@
-// ── Chat history, memories and the visitor registry, in Postgres ────────────
-//
-// This is Dexie's sync partner. It writes chat and message rows through the
-// caller's own session, so Postgres row-level security decides what may be
-// written — the same arrangement the access rules had, with tables instead
-// of a tree.
-//
-// ── Two-way, and a union ────────────────────────────────────────────────────
-// History used to be write-only, and that is why signing in on a second browser
-// showed the chats you had just asked to follow you: the data was being written
-// correctly all along and then deliberately never read back. Logging without
-// reading is fine for an audit trail and useless for a product that promises
-// "your chats follow you to any browser".
-//
-// Merging is a union, never a replace. Two browsers can each hold chats the
-// other has never seen, and a replace would silently delete one of them. Where
-// the same message exists on both sides the newer `updatedAt` wins, which is the
-// honest answer for two devices editing one thread.
-//
-// A pull must never resurrect something this device deleted, so deletions are
-// recorded locally and honoured on the way in. The bookkeeping lives in
-// lib/deletedChats.ts so the restore path can undo it and both directions can be
-// tested without a browser.
+// Chat history, memories and the visitor registry, in Postgres.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db } from "./db";
@@ -74,14 +52,7 @@ export function markChatDeleted(chatId: string): void {
   markDeleted(localStorageOrNull(), chatId);
 }
 
-/**
- * Forgets a deletion, for a chat put back from the trash.
- *
- * Without this the restored chat stays on the deleted list for ever: it is
- * visible in this browser, excluded from every upload, and missing on every
- * other device the person signs into. Restoring something must mean restoring it
- * everywhere it can be restored.
- */
+/** Forgets a deletion, for a chat put back from the trash. */
 export function unmarkChatDeleted(chatId: string): void {
   unmarkDeleted(localStorageOrNull(), chatId);
 }
@@ -93,8 +64,6 @@ function chatRow(owner: string, chat: Chat) {
     owner,
     title: chat.title,
     pinned: Boolean(chat.pinned),
-    // `/` for unfiled is `null` in the column; an empty string would be a
-    // folder id that cannot exist.
     folder_id: chat.folder ?? null,
     created_at: iso(chat.createdAt),
     updated_at: iso(chat.updatedAt ?? chat.createdAt),
@@ -103,7 +72,6 @@ function chatRow(owner: string, chat: Chat) {
 
 /** The stored column shape of one message. */
 function messageRow(owner: string, message: ChatMessage) {
-  // Images and document contents stay in Dexie; only text history is logged.
   return {
     id: message.id,
     chat_id: message.chatId,
@@ -115,14 +83,9 @@ function messageRow(owner: string, message: ChatMessage) {
     sources: message.sources ?? null,
     usage: message.usage ?? null,
     error: message.error ?? null,
-    // These three make the answer whole on another device. Without them a pull
-    // shows the text but loses the agent's reads, the review card for a change
-    // the person can still commit, and the warning that an answer was cut off.
     steps: message.steps ?? null,
     changeset_id: message.changesetId ?? null,
     truncated: Boolean(message.truncated),
-    // Earlier answers travel too, so the variant stepper means the same thing
-    // on a phone as it did on the computer the retry happened on.
     variants: message.variants ?? null,
     variant_index: message.variantIndex ?? null,
     created_at: iso(message.createdAt),

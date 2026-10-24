@@ -1,29 +1,4 @@
-// ── Dew — the product's pay-as-you-go currency ────────────────────────────────
-// Pure logic only: no database, no fetch. Everything about what a request costs,
-// what a balance means, and what a balance looks like on screen is decided here,
-// so the routes, the client and the tests cannot drift apart.
-//
-// One Dew is 1/100 of a US dollar in value. Balances are held and computed in
-// exactly three decimal places and stored rounded to that, so a balance a client
-// computes from the same node the server read is the same balance the server
-// enforced with.
-//
-// ── Flat pricing ──────────────────────────────────────────────────────────────
-// A request costs a fixed number of Dew for the model it runs on. Tokens are
-// still counted, reported to the client and stored on the message; they are
-// telemetry now, not the bill. Two reasons for the change:
-//
-//   1. Predictability. A chat whose price depends on how much the model decided
-//      to write is impossible to budget for, and users read a falling balance as
-//      a bug rather than as usage.
-//   2. A coding agent's turns vary by an order of magnitude. Billing by token
-//      makes the cheap turns subsidise nothing and the expensive ones feel like
-//      an accident; a flat price per model makes the trade-off legible up front.
-//
-// The price is per *completed request*, not per model call inside it. An agent
-// loop that takes several internal steps is still one request to the person who
-// sent one message — but the loop is capped elsewhere, so the flat price cannot
-// buy an unbounded number of calls. See MAX_STEPS in the agent specification.
+// Dew — the product's pay-as-you-go currency and flat per-request pricing.
 
 import type { ModeId } from "./models";
 

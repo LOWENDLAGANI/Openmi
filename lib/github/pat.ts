@@ -1,31 +1,4 @@
-// ── Personal access tokens, and the connections they make ───────────────────
-//
-// GitHub has two ways to give this app a credential. The OAuth App door asks
-// GitHub to hand one over; the token door asks the *person* to make one at
-// github.com/settings/tokens and paste it. The second door needs no client
-// secret, no callback URL and no round trip, which is exactly why it is here:
-// when the OAuth flow is the thing that is broken in an environment, a token
-// path that only needs a `GET /user` is a door that still opens.
-//
-// A token is not a better credential than an OAuth grant — it is a longer-lived
-// one, and the person revokes it on GitHub rather than in this app. What the two
-// share is the part that matters: the secret is sealed with the deployment key
-// before it is stored, never returned to the browser, and never chosen by the
-// client.
-//
-// Everything here is pure and dependency-free, because the repository panel
-// reads it in the browser as well as the server. The connection id is derived
-// from a SHA-256 hash, which needs `node:crypto`, so it lives in
-// `connections.ts` — a module a client component must never import.
-//
-// ── The scope question ───────────────────────────────────────────────────────
-// The agent reads repositories. A token that cannot read any is useless to it,
-// and a token that can only read public ones is useful for a smaller set of
-// repositories than the person probably meant. Both are worth saying out loud —
-// and neither is worth refusing, because the person may be about to add the
-// scope, or may only want this connection for a public repository. So the door
-// stores what it is given and returns a warning to put on screen. Blocking here
-// would turn a recoverable mistake into a dead end.
+// Personal access tokens — a stored GitHub credential the owner can paste in.
 
 /** The classic scope the agent needs. Fine-grained tokens use permissions instead. */
 export const PAT_SCOPE_HINT = "repo";

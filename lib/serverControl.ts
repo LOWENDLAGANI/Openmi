@@ -1,21 +1,7 @@
 import { isBanActive, normalizeConfig, DEFAULT_CONFIG, type AppConfig, type BanRecord } from "./appConfig";
 import { clientForToken, publicClient, supabaseConfigured } from "./supabase";
 
-// ── Server-side enforcement of the administrator's controls ─────────────────
-// The deployment holds no service key, so this module does exactly two things
-// with the database:
-//
-//   1. Reads `app_config` unauthenticated. That table is readable by `anon` on
-//      purpose — the server has to know whether chat is switched off before it
-//      knows who is asking — and reading it grants nothing: enforcement is here,
-//      not in the browser.
-//   2. Writes on behalf of a caller who has already proved who they are, by
-//      forwarding their own JWT. Postgres row-level security then judges that
-//      token, so the policies in `supabase/migrations` stay the only place
-//      access is decided.
-//
-// Nothing in this file can grant what a policy refuses, and nothing in it holds
-// a credential that could read the whole database.
+// Server-side enforcement of the administrator's controls.
 
 const adminEmail = process.env.OPENMI_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
 
@@ -154,17 +140,7 @@ async function tokenKey(token: string): Promise<string> {
   }
 }
 
-/**
- * Verifies a caller's Supabase access token and returns who it belongs to.
- *
- * `auth.getUser(jwt)` has the auth server verify the signature, the expiry and
- * the revocation state, so a token minted for another project — or one that has
- * been signed out — answers null here. The anon key used by the client below
- * identifies the project, not the user; identity comes from the token.
- *
- * The `email` claim is the one the administrator policies compare against, so it
- * is read from the verified user object rather than from the token's payload.
- */
+/** Verifies a caller's Supabase access token and returns who it belongs to. */
 export async function verifyCaller(authorization: string | null): Promise<CallerIdentity | null> {
   const token = bearerToken(authorization);
   if (!token) return fail("no-token");
@@ -363,14 +339,7 @@ function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): 
   return `ip:${address}`;
 }
 
-/**
- * One increment against the shared counter, or null when the store could not
- * be reached.
- *
- * Null is deliberately "no answer" rather than "allowed": the caller falls
- * back to the in-process bucket, so a Redis outage degrades the limiter to the
- * weaker backend instead of removing it entirely.
- */
+/** One increment against the shared counter, or null when the store could not be reached. */
 async function redisIncrement(key: string): Promise<{ count: number; ttlMs: number } | null> {
   try {
     const response = await fetch(`${redisUrl}/pipeline`, {

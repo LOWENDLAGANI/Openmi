@@ -1,27 +1,4 @@
-// ── GitHub OAuth, on the app's own OAuth App ─────────────────────────────────
-//
-// A GitHub OAuth App is created once by the deployment owner —
-// `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` — and then every visitor can
-// connect GitHub from the app itself, with no identity provider and no second
-// account. GitHub stays authorisation: the account is still the Supabase user,
-// and the access token is sealed with the deployment key before it is written
-// anywhere. The token-paste door in the repository panel is the fallback for a
-// deployment that has not created the app.
-//
-// The flow is a full-page round trip rather than a popup:
-//
-//   1. The browser posts to `/api/github/oauth/start` with its access token.
-//   2. The server signs a short-lived state containing the caller's uid and
-//      answers with the GitHub authorize URL.
-//   3. GitHub redirects to `/api/github/oauth/callback`, which exchanges the code
-//      for a token and seals it into an httpOnly cookie for this browser.
-//   4. The browser is sent back to the app, which opens the repository panel.
-//
-// The state is signed with the same key that seals tokens, so a callback cannot
-// name a different account: the uid in it is the uid the server minted it for,
-// and the cookie is only accepted by that uid (`resolveGithubLink`). A popup was
-// rejected because popup blockers and embedded views turn "connect GitHub" into
-// a dead button, which is the failure this module exists to remove.
+// GitHub OAuth, on the app's own OAuth App.
 
 import { sign, tokenKey, verify } from "./crypto";
 

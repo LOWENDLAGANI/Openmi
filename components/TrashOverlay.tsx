@@ -1,10 +1,6 @@
 "use client";
 
-// ── Trash overlay ────────────────────────────────────────────────────────────
-// Deleted chats, restorable for thirty days. The list is the honest shape of
-// the feature: what was deleted, when, and two buttons — put it back, or make
-// it permanent. Both decisions are written to the account, so the trash and
-// what happens to a chat in it are the same on every device.
+// Trash overlay.
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
@@ -119,13 +115,8 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
                           // uploaded — otherwise it is back on this browser but
                           // silently excluded from the account for ever.
                           unmarkChatDeleted(entry.id);
-                          // Upload first, then close the trash row: another
-                          // device reading the account between the two writes
-                          // must not see "purged with no live chat" and decide
-                          // the person deleted it for ever. If the upload does
-                          // not land, the decision stays queued for sign-in and
-                          // the row is left open — an open row is recoverable,
-                          // a misread one is not.
+                          // Upload first, then close the trash row so another device
+                          // does not read a purged row as deleted forever.
                           const uploaded = await syncCloudHistory().catch(() => null);
                           if (uploaded?.synced) void syncTrashRemove(entry.id);
                           onRestored(entry.id);
