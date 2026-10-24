@@ -207,18 +207,15 @@ export function subscribeAppConfig(onChange: (config: AppConfig) => void): () =>
   // the previous removal finished — in all of those we must not re-register.
   const channel = client.channel("openmi:app-config");
 
+  // `channel.state` is the public getter on RealtimeChannel (one of the
+  // REALTIME_CHANNEL_STATES values: closed / errored / joined / joining /
+  // leaving). The internal isJoined/isJoining helpers live in the phoenix
+  // adapter and are not exposed on the type in this realtime-js version, so
+  // we read state directly.
+  const channelState = (channel as { state?: string }).state;
   let alreadySubscribed = false;
-  try {
-    // isJoined / isJoining are the channel's own view of whether it has been
-    // subscribed; if either is true we must not add postgres_changes handlers
-    // or call subscribe() again.
-    if (channel.isJoined() || channel.isJoining()) {
-      alreadySubscribed = true;
-    }
-  } catch {
-    // Older realtime-js builds expose different / no introspection on the
-    // channel. Assume not-subscribed and let the subscribe() below be
-    // harmless-ish; the .on guard is the important part either way.
+  if (channelState === "joined" || channelState === "joining") {
+    alreadySubscribed = true;
   }
 
   if (!alreadySubscribed) {
