@@ -27,6 +27,7 @@
 
 import type { Provider, User } from "@supabase/supabase-js";
 import { currentUser, getSupabase, withTimeout } from "./supabase";
+import { isSupportedTimeZone } from "./dew";
 import {
   describeAccount as viewFromUser,
   normalizeName,
@@ -211,6 +212,49 @@ function readHashError(hash: string): string | null {
   return params.get("error_description") ?? params.get("error");
 }
 
+// ── The zone the account registered in ──────────────────────────────────────
+
+/** Accounts already asked in this page's lifetime, so a mount is one RPC. */
+const timeZoneClaimed = new Set<string>();
+
+/** The browser's IANA zone, when the runtime can actually format it. */
+function browserTimeZone(): string | null {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return isSupportedTimeZone(zone) ? zone : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Records the zone the account was registered in, once.
+ *
+ * `set_profile_timezone` keeps the first valid zone it is given: a later trip
+ * or a different browser cannot move the account's midnight. The daily Dew
+ * bucket in `deduct_dew()` reads the same column, so the browser and the ledger
+ * agree on when the day ends.
+ *
+ * Best effort. Until the write lands — or on a deployment without the
+ * migration — the server's default zone stands.
+ */
+async function claimAccountTimeZone(): Promise<void> {
+  const client = getSupabase();
+  const zone = browserTimeZone();
+  if (!client || !zone) return;
+  const { error } = await client.rpc("set_profile_timezone", { p_timezone: zone });
+  if (error) throw error;
+}
+
+function reportTimeZone(user: User): void {
+  if (timeZoneClaimed.has(user.id)) return;
+  timeZoneClaimed.add(user.id);
+  void claimAccountTimeZone().catch(() => {
+    // A failure is not remembered, so the next mount tries again.
+    timeZoneClaimed.delete(user.id);
+  });
+}
+
 /**
  * Subscribes to the signed-in identity.
  *
@@ -238,6 +282,7 @@ export function watchAccount(onChange: (view: AccountView) => void): () => void 
 
   let cancelled = false;
   const report = (user: User | null) => {
+    if (user) reportTimeZone(user);
     if (!cancelled) onChange(viewOf(user));
   };
 

@@ -29,6 +29,25 @@ import type { ModeId } from "./models";
 
 export const DEW_PER_UNIT = 100; // 100 Dew = $1.00 of value
 export const TRIAL_DEW = 25; // granted once at account creation
+/**
+ * Free Dew every account is given at the start of each day.
+ *
+ * The allotment is a bucket, not a stipend that accumulates: what is left at
+ * midnight is discarded and the bucket is full again, so it can never be saved
+ * up into a paid-sized balance. It is spent before any paid credit.
+ */
+export const DAILY_FREE_DEW = 5;
+/**
+ * The zone the day turns over in when the account has not named its own.
+ *
+ * The product prices in ringgit, so Kuala Lumpur is the sensible fallback for
+ * an account whose browser never reported a zone. A registered account stores
+ * its own IANA zone on `profiles.timezone` (see `set_profile_timezone()` in
+ * 20261024000300_dew_timezone.sql), and that is the zone the database and the
+ * server both use from then on. This constant is also the fallback in
+ * `deduct_dew()` when the stored zone is missing or not recognised.
+ */
+export const DEW_RESET_TIME_ZONE = "Asia/Kuala_Lumpur";
 /** Below this balance a request is refused before it reaches a model. */
 export const DUST_THRESHOLD = 0.05;
 /** The balance at which the UI chip turns amber, warning of a top-up. */
@@ -74,6 +93,52 @@ export interface TokenUsage {
 /** The flat price of one request in a given mode. */
 export function requestPrice(mode: ModeId): number {
   return DEW_PER_REQUEST[mode] ?? DEW_PER_REQUEST.auto;
+}
+
+const DAY_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+/** One ISO-date formatter per zone, built once. */
+function dayFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = DAY_FORMATTERS.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  DAY_FORMATTERS.set(timeZone, formatter);
+  return formatter;
+}
+
+/**
+ * True when the runtime understands this IANA zone.
+ *
+ * The zone arrives from the browser and from `profiles.timezone`, so it is
+ * always treated as untrusted: `Intl` is the judge, and an unknown zone is
+ * simply not used.
+ */
+export function isSupportedTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 64) return false;
+  try {
+    dayFormatter(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The day the free Dew belongs to at `at`, as YYYY-MM-DD.
+ *
+ * The formatter — not the host's local clock — decides the day, so a server in
+ * UTC and a browser anywhere agree on where midnight falls. `en-CA` is the
+ * locale that prints an ISO-shaped date. An unusable zone falls back to the
+ * product's default rather than throwing a balance out of existence.
+ */
+export function dewDay(at: number = Date.now(), timeZone: string = DEW_RESET_TIME_ZONE): string {
+  const zone = isSupportedTimeZone(timeZone) ? timeZone : DEW_RESET_TIME_ZONE;
+  return dayFormatter(zone).format(new Date(at));
 }
 
 /** Rounds away float drift so a balance never shows 0.2999999999999998. */
@@ -129,21 +194,72 @@ export function sumCredits(credits: Record<string, unknown> | null | undefined):
 }
 
 /**
- * One account's Dew state, read straight out of the database node.
+ * The ledger a balance is derived from.
  *
- * The stored shape is two numbers and a map of credits:
- *   dew/{uid} = { credits: { TRIAL: 25, CODE1: 100 }, spent: 12.375 }
- * The balance is always derived — credits minus spent — never read from a
- * single scalar a client could have written.
+ * `spent` is paid credit already used. `dailySpent` is free Dew already used on
+ * `dailyDay`, tracked apart from `spent` so the daily bucket can roll over
+ * without touching what somebody bought.
  */
-export function dewBalanceFrom(
-  raw: { credits?: Record<string, number>; spent?: number } | null | undefined
-): number {
+export interface DewLedger {
+  credits?: Record<string, number>;
+  spent?: number;
+  /** The day `dailySpent` belongs to, YYYY-MM-DD. */
+  dailyDay?: string | null;
+  /** Free Dew used on `dailyDay`; never part of `spent`. */
+  dailySpent?: number;
+}
+
+/**
+ * One account's paid Dew: credits minus spend, floored at zero.
+ *
+ * The stored shape is a map of credits and a spent total:
+ *   { credits: { TRIAL: 25, CODE1: 100 }, spent: 12.375 }
+ * The balance is always derived — credits minus spent — never read from a
+ * single scalar a client could have written. Free daily Dew is deliberately
+ * not folded in here: what somebody bought must not expire at midnight. Use
+ * `dewAvailableFrom` for the number that can be spent right now.
+ */
+export function dewBalanceFrom(raw: DewLedger | null | undefined): number {
   if (!raw || typeof raw !== "object") return 0;
   const credits = sumCredits((raw as Record<string, unknown>).credits as Record<string, number>);
   const spent = (raw as Record<string, unknown>).spent;
   const spentValue = typeof spent === "number" && Number.isFinite(spent) && spent > 0 ? toMillidew(spent) : 0;
   return roundDew(Math.max(0, (credits - spentValue) / 1000));
+}
+
+/**
+ * Free Dew still available on `today`.
+ *
+ * A bucket from an earlier day is not carried over: its leftover is gone and
+ * the new day starts full. A used-up bucket reports zero rather than a
+ * negative.
+ *
+ * Only a *later* day refills the bucket. A stored day ahead of `today` means
+ * the clock has moved backwards — the account changed zone, or somebody edited
+ * the column directly — and handing out another allotment would let that be
+ * done over and over. The bucket simply stays where it was until the real day
+ * catches up; `deduct_dew()` applies the same rule.
+ */
+export function dailyDewRemaining(
+  raw: DewLedger | null | undefined,
+  today: string = dewDay()
+): number {
+  const day = typeof raw?.dailyDay === "string" ? raw.dailyDay.slice(0, 10) : "";
+  if (!day || day < today) return DAILY_FREE_DEW;
+  const used = raw?.dailySpent;
+  const spent = typeof used === "number" && Number.isFinite(used) && used > 0 ? used : 0;
+  return roundDew(Math.max(0, DAILY_FREE_DEW - spent));
+}
+
+/**
+ * What this ledger can spend right now: paid Dew plus today's free allotment.
+ *
+ * This is the number the balance chip shows and the number a route pre-flights
+ * against. The charge itself spends the free bucket first (see `deduct_dew()`),
+ * so the two always agree.
+ */
+export function dewAvailableFrom(raw: DewLedger | null | undefined, today: string = dewDay()): number {
+  return roundDew(dewBalanceFrom(raw) + dailyDewRemaining(raw, today));
 }
 
 /**
@@ -166,5 +282,5 @@ export function canAfford(balance: number, price: number = DUST_THRESHOLD): bool
 
 /** The sentence the chat shows when somebody has run dry. */
 export function outOfDewMessage(): string {
-  return "**You're out of Dew.** Top up on the /plus page, or redeem a Dew code. Each message costs a fixed amount of Dew for the model you pick, so you can see the price before you send it.";
+  return `**You're out of Dew.** You get ${formatDew(DAILY_FREE_DEW)} free Dew every day — it refills at midnight in Malaysia, and whatever is left does not carry over. Top up on the /plus page, or redeem a Dew code. Each message costs a fixed amount of Dew for the model you pick, so you can see the price before you send it.`;
 }

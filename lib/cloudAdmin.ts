@@ -16,7 +16,14 @@
 // rather than a convenience.
 
 import { getSupabase } from "./supabase";
-import { dewBalanceFrom, roundDew } from "./dew";
+import {
+  DEW_RESET_TIME_ZONE,
+  dewAvailableFrom,
+  dewBalanceFrom,
+  dewDay,
+  isSupportedTimeZone,
+  roundDew,
+} from "./dew";
 import type { AppConfig } from "./appConfig";
 import {
   isValidCode,
@@ -324,15 +331,85 @@ export interface DewGrant {
   balance: number;
 }
 
+interface WalletSnapshot {
+  owner: string;
+  spent: number;
+  dailyDay: string | null;
+  dailySpent: number;
+}
+
+interface WalletSnapshots {
+  rows: WalletSnapshot[];
+  /** False before 20261024000200_daily_dew.sql is applied. */
+  dailyTracked: boolean;
+}
+
+/**
+ * Wallet rows with their daily free bucket.
+ *
+ * If the daily columns are not there yet — the console can be open while a
+ * migration is rolling out — the paid-only columns answer instead, so the
+ * People screen shows the balance that still exists rather than failing whole.
+ */
+async function readWalletSnapshots(uid?: string): Promise<WalletSnapshots> {
+  const client = requireClient();
+  const query = client.from("dew_wallets").select("owner, spent, daily_day, daily_spent");
+  const { data, error } = await (uid ? query.eq("owner", uid) : query);
+  if (!error) {
+    return {
+      dailyTracked: true,
+      rows: ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        owner: String(row.owner ?? ""),
+        spent: Number(row.spent ?? 0),
+        dailyDay: typeof row.daily_day === "string" ? row.daily_day : null,
+        dailySpent: Number(row.daily_spent ?? 0),
+      })),
+    };
+  }
+
+  const legacyQuery = client.from("dew_wallets").select("owner, spent");
+  const legacy = await (uid ? legacyQuery.eq("owner", uid) : legacyQuery);
+  if (legacy.error) rethrow(legacy.error);
+  return {
+    dailyTracked: false,
+    rows: ((legacy.data ?? []) as Record<string, unknown>[]).map((row) => ({
+      owner: String(row.owner ?? ""),
+      spent: Number(row.spent ?? 0),
+      dailyDay: null,
+      dailySpent: 0,
+    })),
+  };
+}
+
+/**
+ * The stored IANA zone for each profile, where one is readable and valid.
+ *
+ * An account that has not registered a zone — or a project that has not applied
+ * 20261024000300_dew_timezone.sql — contributes nothing here, and the caller
+ * falls back to the product's default day.
+ */
+async function readTimeZones(uid?: string): Promise<Map<string, string>> {
+  const client = requireClient();
+  const query = client.from("profiles").select("id, timezone");
+  const { data, error } = await (uid ? query.eq("id", uid) : query);
+  const zones = new Map<string, string>();
+  if (error) return zones;
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const id = typeof row.id === "string" ? row.id : "";
+    if (id && isSupportedTimeZone(row.timezone)) zones.set(id, row.timezone);
+  }
+  return zones;
+}
+
 /** One visitor's Dew, derived the same way the server derives it. */
 export async function readDewBalance(uid: string): Promise<number> {
   const client = requireClient();
-  const [credits, wallet] = await Promise.all([
+  const [credits, wallets, zones] = await Promise.all([
     client.from("dew_credits").select("code, amount").eq("owner", uid),
-    client.from("dew_wallets").select("spent").eq("owner", uid).maybeSingle(),
+    readWalletSnapshots(uid),
+    readTimeZones(uid),
   ]).catch(rethrow);
   if (credits.error) rethrow(credits.error);
-  if (wallet.error) rethrow(wallet.error);
 
   const map: Record<string, number> = {};
   for (const row of (credits.data ?? []) as Record<string, unknown>[]) {
@@ -340,7 +417,19 @@ export async function readDewBalance(uid: string): Promise<number> {
       map[row.code] = Number(row.amount);
     }
   }
-  return dewBalanceFrom({ credits: map, spent: Number(wallet.data?.spent ?? 0) });
+  const wallet = wallets.rows[0];
+  if (!wallets.dailyTracked) {
+    return dewBalanceFrom({ credits: map, spent: wallet?.spent ?? 0 });
+  }
+  return dewAvailableFrom(
+    {
+      credits: map,
+      spent: wallet?.spent ?? 0,
+      dailyDay: wallet?.dailyDay ?? null,
+      dailySpent: wallet?.dailySpent ?? 0,
+    },
+    dewDay(Date.now(), zones.get(uid) ?? DEW_RESET_TIME_ZONE)
+  );
 }
 
 /**
@@ -351,12 +440,12 @@ export async function readDewBalance(uid: string): Promise<number> {
  */
 export async function readDewBalances(): Promise<Record<string, number>> {
   const client = requireClient();
-  const [credits, wallets] = await Promise.all([
+  const [credits, wallets, zones] = await Promise.all([
     client.from("dew_credits").select("owner, code, amount"),
-    client.from("dew_wallets").select("owner, spent"),
+    readWalletSnapshots(),
+    readTimeZones(),
   ]).catch(rethrow);
   if (credits.error) rethrow(credits.error);
-  if (wallets.error) rethrow(wallets.error);
 
   const byOwner = new Map<string, Record<string, number>>();
   for (const row of (credits.data ?? []) as Record<string, unknown>[]) {
@@ -367,17 +456,27 @@ export async function readDewBalances(): Promise<Record<string, number>> {
     byOwner.set(uid, map);
   }
 
-  const spentByOwner = new Map<string, number>();
-  for (const row of (wallets.data ?? []) as Record<string, unknown>[]) {
-    spentByOwner.set(String(row.owner ?? ""), Number(row.spent ?? 0));
+  const walletsByOwner = new Map<string, WalletSnapshot>();
+  for (const row of wallets.rows) {
+    if (row.owner) walletsByOwner.set(row.owner, row);
   }
 
+  const now = Date.now();
   const balances: Record<string, number> = {};
-  for (const uid of new Set([...byOwner.keys(), ...spentByOwner.keys()])) {
-    balances[uid] = dewBalanceFrom({
-      credits: byOwner.get(uid) ?? {},
-      spent: spentByOwner.get(uid) ?? 0,
-    });
+  for (const uid of new Set([...byOwner.keys(), ...walletsByOwner.keys()])) {
+    const wallet = walletsByOwner.get(uid);
+    const map = byOwner.get(uid) ?? {};
+    balances[uid] = wallets.dailyTracked
+      ? dewAvailableFrom(
+          {
+            credits: map,
+            spent: wallet?.spent ?? 0,
+            dailyDay: wallet?.dailyDay ?? null,
+            dailySpent: wallet?.dailySpent ?? 0,
+          },
+          dewDay(now, zones.get(uid) ?? DEW_RESET_TIME_ZONE)
+        )
+      : dewBalanceFrom({ credits: map, spent: wallet?.spent ?? 0 });
   }
   return balances;
 }

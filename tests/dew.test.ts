@@ -13,15 +13,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  DAILY_FREE_DEW,
   DEW_PACKS,
   DEW_PER_REQUEST,
   DEW_PER_UNIT,
+  DEW_RESET_TIME_ZONE,
   DUST_THRESHOLD,
   LOW_BALANCE_THRESHOLD,
   canAfford,
+  dailyDewRemaining,
+  dewAvailableFrom,
   dewBalanceFrom,
+  dewDay,
   estimateTokenUsage,
   formatDew,
+  isSupportedTimeZone,
   nextSpent,
   requestPrice,
   roundDew,
@@ -82,6 +88,59 @@ assert.equal(sumCredits({ TRIAL: 25, CODE1: 100 }), 125_000);
 assert.equal(sumCredits({ TRIAL: 25, bad: "not a number", CODE1: 100 }), 125_000);
 assert.equal(sumCredits({ TRIAL: 25, negative: -10, CODE1: 100 }), 125_000);
 assert.equal(dewBalanceFrom({ credits: { TRIAL: 25, CODE1: 100 }, spent: 0 }), 125);
+
+// ── The daily free allotment ─────────────────────────────────────────────────
+//
+// Five free Dew per day, spent before paid credit, reset at midnight in the
+// account's own zone — Kuala Lumpur until the browser registers one. The bucket
+// is not carried over: a day with 4 Dew left hands out 5 the next day, never 9.
+
+assert.equal(DAILY_FREE_DEW, 5);
+assert.equal(DEW_RESET_TIME_ZONE, "Asia/Kuala_Lumpur");
+
+// Midnight is the account's, not the host's, and the date line really moves.
+const instant = Date.parse("2026-10-23T16:00:00Z");
+assert.equal(dewDay(instant, "Asia/Kuala_Lumpur"), "2026-10-24");
+assert.equal(dewDay(instant, "America/Los_Angeles"), "2026-10-23");
+assert.equal(dewDay(instant, "Pacific/Kiritimati"), "2026-10-24");
+assert.equal(
+  dewDay(instant, "Not/AZone"),
+  "2026-10-24",
+  "an unusable stored zone must fall back rather than remove a balance"
+);
+assert.equal(dewDay(Date.parse("2026-10-24T06:59:59Z"), "America/Los_Angeles"), "2026-10-23");
+assert.equal(dewDay(Date.parse("2026-10-24T07:00:00Z"), "America/Los_Angeles"), "2026-10-24");
+assert.equal(isSupportedTimeZone("Asia/Kuala_Lumpur"), true);
+assert.equal(isSupportedTimeZone("Not/AZone"), false);
+assert.equal(isSupportedTimeZone(""), false);
+assert.equal(isSupportedTimeZone(null), false);
+
+const today = "2026-10-24";
+assert.equal(dailyDewRemaining(null, today), 5, "a wallet that has never spent has the full bucket");
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 0 }, today), 5);
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 2.5 }, today), 2.5);
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 5 }, today), 0);
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 9 }, today), 0, "a bucket cannot owe Dew");
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: Number.NaN }, today), 5);
+assert.equal(
+  dailyDewRemaining({ dailyDay: "2026-10-23", dailySpent: 4 }, today),
+  5,
+  "yesterday's leftover must not carry over"
+);
+assert.equal(
+  dailyDewRemaining({ dailyDay: "2026-10-25", dailySpent: 5 }, today),
+  0,
+  "a day that has not arrived — or a clock moved backwards — must not refill"
+);
+assert.equal(dailyDewRemaining({ dailyDay: "2026-10-25", dailySpent: 2 }, today), 3);
+
+// Free Dew rides on top of what was bought and is spent first.
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 0 }, today), 30);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 24 }, today), 6);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 30 }, today), 5, "paid Dew floors at zero, the bucket does not");
+assert.equal(dewAvailableFrom({ credits: {}, spent: 0, dailyDay: today, dailySpent: 5 }, today), 0);
+// Paid Dew does not expire with the bucket.
+assert.equal(dewAvailableFrom({ credits: { CODE1: 100 }, spent: 0, dailyDay: "2026-10-20", dailySpent: 5 }, today), 105);
 
 // ── nextSpent ─────────────────────────────────────────────────────────────────
 
@@ -229,3 +288,87 @@ assert.ok(
   "a caller must be able to read their spend and not write it, or a modified client could reset its own balance"
 );
 assert.ok(deductDewSource.includes("reason:"), "a refusal is reported with its own diagnosis, not just a boolean");
+
+// ── The daily bucket in the database ────────────────────────────────────────
+//
+// The reset is a comparison against the stored day, not arithmetic on a
+// running credit, and the free bucket is spent before the paid wallet. Both
+// happen inside the same function so a charge cannot spend one and forget the
+// other.
+
+const dailySchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261024000200_daily_dew.sql"),
+  "utf8"
+);
+const timezoneSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261024000300_dew_timezone.sql"),
+  "utf8"
+);
+assert.ok(dewSource.includes("dailyDewRemaining("), "the server must report today's free Dew");
+assert.ok(dewSource.includes("dewDay(Date.now(), timeZone)"), "the server must read the account's day");
+assert.ok(
+  dewSource.includes("isSupportedTimeZone("),
+  "a stored zone is untrusted input and must be validated before it is used"
+);
+assert.ok(dailySchema.includes("daily_day"), "the wallet must remember which day its bucket belongs to");
+assert.ok(dailySchema.includes("daily_spent"), "the wallet must remember how much free Dew was used");
+assert.ok(
+  /free_per_day numeric := 5/.test(dailySchema) && /free_per_day numeric := 5/.test(timezoneSchema),
+  "the daily amount must match DAILY_FREE_DEW in lib/dew.ts"
+);
+assert.ok(
+  /free_charge := least\(charged, free_left\)/.test(timezoneSchema),
+  "free Dew must be spent before paid credit"
+);
+assert.ok(
+  /for update/.test(timezoneSchema),
+  "the wallet must be locked while the bucket and the spend are split, or two charges can both take the free Dew"
+);
+assert.ok(
+  /revoke all on function public\.deduct_dew\(numeric\) from public/.test(timezoneSchema) &&
+    /grant execute on function public\.deduct_dew\(numeric\) to authenticated/.test(timezoneSchema),
+  "the rewritten deduction must keep the same execute grants"
+);
+assert.ok(
+  !/grant (update|insert)[^;]*on public\.dew_wallets to authenticated/.test(timezoneSchema),
+  "the daily columns must only move through deduct_dew()"
+);
+
+// ── The account's own timezone in the database ──────────────────────────────
+//
+// The final `deduct_dew()` reads the account's stored zone instead of a fixed
+// one, refills only when a later day has actually arrived, and the RPC that
+// writes the zone refuses to overwrite one that is already set.
+
+assert.ok(timezoneSchema.includes("add column if not exists timezone"));
+assert.ok(timezoneSchema.includes("set_profile_timezone"), "the browser needs a door to report its zone");
+assert.ok(
+  /pg_timezone_names/.test(timezoneSchema),
+  "the zone must be validated against PostgreSQL's own list"
+);
+assert.ok(
+  /at time zone account_timezone/.test(timezoneSchema),
+  "the database must decide the day in the account's zone, not the caller's"
+);
+assert.ok(
+  /where public\.profiles\.timezone is null/.test(timezoneSchema),
+  "the registered zone must be write-once, or an account could ask for a new day at will"
+);
+assert.ok(
+  /daily_spent = case[\s\S]*?daily_day is null or daily_day < today then free_charge[\s\S]*?daily_spent \+ free_charge/.test(
+    timezoneSchema
+  ),
+  "a new day must discard the leftover bucket instead of adding to it"
+);
+assert.ok(
+  /daily_day = case[\s\S]*?then today[\s\S]*?else daily_day/.test(timezoneSchema),
+  "the bucket's day must never move backwards"
+);
+assert.ok(
+  !/daily_day is distinct from today/.test(timezoneSchema),
+  "the final reset must only refill on a later day"
+);
+assert.ok(
+  /grant execute on function public\.set_profile_timezone\(text\) to authenticated/.test(timezoneSchema),
+  "a signed-in account must be able to report its zone"
+);

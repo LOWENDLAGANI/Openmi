@@ -16,6 +16,8 @@ carry the rules it used to hold.
 | `migrations/20261023000500_dew_redeem.sql` | `redeem_codes`, `redeems`, the Dew ledger, and the functions that keep a claim from naming its own price. |
 | `migrations/20261024000000_user_preferences.sql` | `user_preferences`: the account-synced appearance, response length, reasoning effort, search mode, model, tour flag and display name. |
 | `migrations/20261024000100_folders_trash.sql` | `folders`, `trash`, and `chats.folder_id`: the sidebar follows the account, and deleted chats stay restorable for thirty days on every device. |
+| `migrations/20261024000200_daily_dew.sql` | The daily free Dew bucket on `dew_wallets`, and the rewritten `deduct_dew()` that spends it before paid credit and resets it at midnight in Kuala Lumpur. |
+| `migrations/20261024000300_dew_timezone.sql` | `profiles.timezone`, the write-once `set_profile_timezone()` the browser reports through, and the final `deduct_dew()` that resets the bucket at midnight in the account's own zone (Kuala Lumpur when none is stored). |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
@@ -84,6 +86,13 @@ session.
 - A Dew credit can only be written for the trial amount under `TRIAL`, or for
   exactly the amount a live code carries. `spent` only moves through
   `deduct_dew()`, which `authenticated` can call but not bypass.
+- `dew_wallets` also carries the daily free bucket (`daily_day`, `daily_spent`).
+  `deduct_dew()` spends that bucket before paid credit and discards what is left
+  when the day changes at midnight in the account's own timezone
+  (`profiles.timezone`, filled once by `set_profile_timezone()`; Kuala Lumpur
+  when none is stored). The bucket only moves forward, so a stored day in the
+  future never refills early. The columns are readable so a balance can be
+  derived, and writable only through the function.
 
 ## Admin sign-in
 

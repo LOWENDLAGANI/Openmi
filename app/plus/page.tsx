@@ -9,6 +9,7 @@ import { watchAccount } from "@/lib/account";
 import type { AccountView } from "@/lib/accountState";
 import { useDew } from "@/lib/useDew";
 import {
+  DAILY_FREE_DEW,
   DEW_PACKS,
   formatDew,
   formatRinggit,
@@ -16,7 +17,7 @@ import {
 } from "@/lib/dew";
 
 function DewPanel() {
-  const { ready, balance, refresh } = useDew();
+  const { ready, balance, dailyRemaining, dailyTimeZone, refresh } = useDew();
   useEffect(() => {
     void (async () => {
       try {
@@ -41,6 +42,13 @@ function DewPanel() {
         </span>
         <span className="text-[15px] font-normal text-white/50">Dew</span>
       </h2>
+      <p className="mt-2 text-[12px] leading-relaxed text-white/50">
+        {ready
+          ? `${formatDew(dailyRemaining)} of ${formatDew(DAILY_FREE_DEW)} free Dew left today.`
+          : `${formatDew(DAILY_FREE_DEW)} free Dew every day.`}{" "}
+        Free Dew refills at midnight in your account&apos;s timezone
+        {ready ? ` (${dailyTimeZone.replace(/_/g, " ")})` : ""} and whatever is left does not carry over.
+      </p>
     </section>
   );
 }

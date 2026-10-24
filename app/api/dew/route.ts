@@ -25,6 +25,12 @@ interface DewResponse {
   balance: number;
   spent: number;
   low: boolean;
+  daily: {
+    allowance: number;
+    remaining: number;
+    /** The IANA zone this account's day turns over in. */
+    timeZone: string;
+  };
 }
 
 async function respond(authorization: string | null, uid: string): Promise<Response> {
@@ -33,7 +39,15 @@ async function respond(authorization: string | null, uid: string): Promise<Respo
     {
       balance: state.balance,
       spent: state.spent,
-      low: state.balance < LOW_BALANCE_THRESHOLD,
+      // A bare balance under the warning threshold is normal now: a free account
+      // holds at most one day's allotment. Amber means the free Dew is gone and
+      // the paid wallet is low, which is the moment a top-up actually helps.
+      low: state.dailyRemaining <= 0 && state.balance < LOW_BALANCE_THRESHOLD,
+      daily: {
+        allowance: state.dailyAllowance,
+        remaining: state.dailyRemaining,
+        timeZone: state.timeZone,
+      },
     } satisfies DewResponse,
     { headers: { "Cache-Control": "no-store" } }
   );

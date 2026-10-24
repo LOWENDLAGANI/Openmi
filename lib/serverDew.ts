@@ -22,10 +22,15 @@
 // worse than an under-charge the caller can see.
 
 import {
+  DAILY_FREE_DEW,
+  DEW_RESET_TIME_ZONE,
   DUST_THRESHOLD,
   TRIAL_DEW,
   canAfford as balanceCovers,
+  dailyDewRemaining,
   dewBalanceFrom,
+  dewDay,
+  isSupportedTimeZone,
   roundDew,
   toMillidew,
   type TokenUsage,
@@ -34,13 +39,30 @@ import { clientForToken } from "./supabase";
 import type { ModeId } from "./models";
 
 export interface DewState {
-  /** Credits minus spent, in Dew, floored at zero. */
+  /** What can be spent now: paid Dew plus today's unused free Dew. */
   balance: number;
+  /** Paid credits minus spend, without the free daily allotment. */
+  paidBalance: number;
+  /** Free Dew still available today; resets at midnight in the reset zone. */
+  dailyRemaining: number;
+  /** Free Dew granted at the start of every day. */
+  dailyAllowance: number;
+  /** The IANA zone this account's day turns over in. */
+  timeZone: string;
   credits: Record<string, number>;
   spent: number;
 }
 
-const EMPTY: DewState = { balance: 0, credits: {}, spent: 0 };
+// A failed or unidentifiable read grants nothing — not even the daily bucket.
+const EMPTY: DewState = {
+  balance: 0,
+  paidBalance: 0,
+  dailyRemaining: 0,
+  dailyAllowance: DAILY_FREE_DEW,
+  timeZone: DEW_RESET_TIME_ZONE,
+  credits: {},
+  spent: 0,
+};
 
 function bearer(authorization: string | null): string {
   return authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
@@ -65,11 +87,44 @@ export async function readDewState(authorization: string | null, uid: string): P
   if (!client || !uid) return EMPTY;
 
   try {
-    const [credits, wallet] = await Promise.all([
+    const [credits, profile] = await Promise.all([
       client.from("dew_credits").select("code, amount").eq("owner", uid),
-      client.from("dew_wallets").select("spent").eq("owner", uid).maybeSingle(),
+      client.from("profiles").select("timezone").eq("id", uid).maybeSingle(),
     ]);
-    if (credits.error || wallet.error) return EMPTY;
+    if (credits.error) return EMPTY;
+
+    // Before 20261024000300_dew_timezone.sql the column does not exist; the
+    // default zone is what the database used in that window too.
+    const storedZone = (profile.data as { timezone?: unknown } | null)?.timezone;
+    const timeZone = isSupportedTimeZone(storedZone) ? storedZone : DEW_RESET_TIME_ZONE;
+
+    // The daily bucket arrives with 20261024000200_daily_dew.sql. If this code
+    // reaches a project before that migration, fall back to the paid-only
+    // wallet rather than reporting a zero balance to every account.
+    let spent = 0;
+    let dailyDay: string | null = null;
+    let dailySpent = 0;
+    let dailyTracked = true;
+    const wallet = await client
+      .from("dew_wallets")
+      .select("spent, daily_day, daily_spent")
+      .eq("owner", uid)
+      .maybeSingle();
+    if (wallet.error) {
+      dailyTracked = false;
+      const legacy = await client
+        .from("dew_wallets")
+        .select("spent")
+        .eq("owner", uid)
+        .maybeSingle();
+      if (legacy.error) return EMPTY;
+      spent = Number(legacy.data?.spent ?? 0);
+    } else {
+      const row = wallet.data as { spent?: unknown; daily_day?: unknown; daily_spent?: unknown } | null;
+      spent = Number(row?.spent ?? 0);
+      dailyDay = typeof row?.daily_day === "string" ? row.daily_day : null;
+      dailySpent = Number(row?.daily_spent ?? 0);
+    }
 
     const map: Record<string, number> = {};
     for (const row of (credits.data ?? []) as Array<{ code?: unknown; amount?: unknown }>) {
@@ -79,11 +134,19 @@ export async function readDewState(authorization: string | null, uid: string): P
         map[normalizeCreditKey(row.code)] = value;
       }
     }
-    const spent = Number(wallet.data?.spent ?? 0);
+    const paid = Number.isFinite(spent) && spent > 0 ? spent : 0;
+    const paidBalance = dewBalanceFrom({ credits: map, spent: paid });
+    const dailyRemaining = dailyTracked
+      ? dailyDewRemaining({ dailyDay, dailySpent }, dewDay(Date.now(), timeZone))
+      : 0;
     return {
-      balance: dewBalanceFrom({ credits: map, spent }),
+      balance: roundDew(paidBalance + dailyRemaining),
+      paidBalance,
+      dailyRemaining,
+      dailyAllowance: DAILY_FREE_DEW,
+      timeZone,
       credits: map,
-      spent: Number.isFinite(spent) && spent > 0 ? spent : 0,
+      spent: paid,
     };
   } catch {
     return EMPTY;

@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { authHeader } from "./supabase";
-import { LOW_BALANCE_THRESHOLD, roundDew } from "./dew";
+import { DEW_RESET_TIME_ZONE, LOW_BALANCE_THRESHOLD, roundDew } from "./dew";
 
 // ── The balance, as the interface sees it ────────────────────────────────────
 //
@@ -24,9 +24,13 @@ import { LOW_BALANCE_THRESHOLD, roundDew } from "./dew";
 export interface DewSnapshot {
   /** False until the first answer arrives, so nothing flashes first. */
   ready: boolean;
-  /** Current balance in Dew, derived credits − spent. */
+  /** Current spendable balance: paid Dew plus today's free Dew. */
   balance: number;
-  /** True under LOW_BALANCE_THRESHOLD, for the amber chip. */
+  /** Free Dew left today; resets at midnight and is not carried over. */
+  dailyRemaining: number;
+  /** The IANA zone this account's midnight falls in. */
+  dailyTimeZone: string;
+  /** True under LOW_BALANCE_THRESHOLD with no free Dew left, for the amber chip. */
   low: boolean;
   /** True when the caller has a verified identity. False when signed out,
    *  unidentified, or the deployment has no Supabase project — the balance is then
@@ -34,7 +38,14 @@ export interface DewSnapshot {
   signedIn: boolean;
 }
 
-const UNKNOWN: DewSnapshot = { ready: false, balance: 0, low: false, signedIn: false };
+const UNKNOWN: DewSnapshot = {
+  ready: false,
+  balance: 0,
+  dailyRemaining: 0,
+  dailyTimeZone: DEW_RESET_TIME_ZONE,
+  low: false,
+  signedIn: false,
+};
 
 let snapshot: DewSnapshot = UNKNOWN;
 const listeners = new Set<() => void>();
@@ -53,7 +64,14 @@ function publish(next: DewSnapshot): void {
 
 /** Signed out, unreachable, or unconfigured: no identity, no balance. */
 function publishUnknown(): void {
-  publish({ ready: true, balance: 0, low: false, signedIn: false });
+  publish({
+    ready: true,
+    balance: 0,
+    dailyRemaining: 0,
+    dailyTimeZone: DEW_RESET_TIME_ZONE,
+    low: false,
+    signedIn: false,
+  });
 }
 
 async function load(): Promise<void> {
@@ -72,12 +90,29 @@ async function load(): Promise<void> {
       publishUnknown();
       return;
     }
-    const data = (await response.json()) as { balance?: number; low?: boolean };
+    const data = (await response.json()) as {
+      balance?: number;
+      low?: boolean;
+      daily?: { remaining?: number; timeZone?: string };
+    };
     const value = typeof data.balance === "number" && Number.isFinite(data.balance) ? roundDew(data.balance) : 0;
+    const dailyRemaining =
+      typeof data.daily?.remaining === "number" && Number.isFinite(data.daily.remaining)
+        ? roundDew(data.daily.remaining)
+        : 0;
+    const dailyTimeZone =
+      typeof data.daily?.timeZone === "string" && data.daily.timeZone
+        ? data.daily.timeZone
+        : DEW_RESET_TIME_ZONE;
     publish({
       ready: true,
       balance: value,
-      low: typeof data.low === "boolean" ? data.low : value < LOW_BALANCE_THRESHOLD,
+      dailyRemaining,
+      dailyTimeZone,
+      low:
+        typeof data.low === "boolean"
+          ? data.low
+          : dailyRemaining <= 0 && value < LOW_BALANCE_THRESHOLD,
       signedIn: true,
     });
   } catch {
@@ -104,9 +139,13 @@ export function refreshDew(): Promise<void> {
 export interface UseDew {
   /** False until the first answer arrives, so nothing flashes first. */
   ready: boolean;
-  /** Current balance in Dew, derived credits − spent. */
+  /** Current spendable balance: paid Dew plus today's free Dew. */
   balance: number;
-  /** True under LOW_BALANCE_THRESHOLD, for the amber chip. */
+  /** Free Dew left today; resets at midnight and is not carried over. */
+  dailyRemaining: number;
+  /** The IANA zone this account's midnight falls in. */
+  dailyTimeZone: string;
+  /** True under LOW_BALANCE_THRESHOLD with no free Dew left, for the amber chip. */
   low: boolean;
   /** True when the caller has a verified identity. False when signed out. */
   signedIn: boolean;
@@ -136,6 +175,8 @@ export function useDew(): UseDew {
   return {
     ready: state.ready,
     balance: state.balance,
+    dailyRemaining: state.dailyRemaining,
+    dailyTimeZone: state.dailyTimeZone,
     low: state.low,
     signedIn: state.signedIn,
     refresh,
