@@ -17,9 +17,22 @@ type Mode = "checking" | "signin" | "denied" | "unavailable" | "notconfigured";
 
 /** Turns an auth or database error into something worth reading on a phone. */
 function describe(cause: unknown): { code: string; message: string } {
-  const error = cause as { code?: string; name?: string } | null;
-  const code = error?.code ?? error?.name ?? "unknown";
-  const message = cause instanceof Error ? cause.message : String(cause);
+  // Supabase's PostgREST errors are plain objects, not `Error` instances, so
+  // reading `message` off the object matters: `String(cause)` is literally
+  // "[object Object]" and throws away the sentence that names the problem.
+  const error = cause as { code?: unknown; name?: unknown; message?: unknown } | null;
+  const code =
+    typeof error?.code === "string"
+      ? error.code
+      : typeof error?.name === "string"
+        ? error.name
+        : "unknown";
+  const message =
+    typeof error?.message === "string" && error.message
+      ? error.message
+      : cause instanceof Error
+        ? cause.message
+        : String(cause);
 
   const hints: Record<string, string> = {
     signup_disabled:
@@ -35,6 +48,10 @@ function describe(cause: unknown): { code: string; message: string } {
     over_request_rate_limit: "Too many attempts. Wait a minute and try again.",
     "42501":
       "The database refused this account. Check that `app_admin` holds the administrator's address and that the migrations have been applied.",
+    PGRST202:
+      "The database does not know a function this screen needs yet. Apply the migrations with `supabase db push`, then reload the API schema cache: Supabase → Settings → API → Reload schema cache (or run `notify pgrst, 'reload schema';` in the SQL editor).",
+    PGRST204:
+      "The database is missing a column this screen reads. Apply the latest migrations with `supabase db push`, then reload the API schema cache: Supabase → Settings → API → Reload schema cache.",
   };
 
   return { code, message: hints[code] ?? describeLinkError(cause) ?? message };

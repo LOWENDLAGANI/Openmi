@@ -79,9 +79,12 @@ Open http://localhost:3000.
 
 The **About** page carries a setup banner: it lists exactly the keys this
 deployment is missing, what each one stops working, and where the value comes
-from. A key that has been set drops out of the list on the next read, and when
-nothing is missing the banner is a single line saying so. It reports presence
-only — `GET /api/setup` never returns a value — so it is safe on a public page.
+from. It also audits the database and names any migration that has not been
+applied, instead of leaving a `PGRST202` to decipher. A key that has been set or
+a migration that has been applied drops out of the list on the next read, and
+when nothing is missing the banner is a single line saying so. It reports
+presence only — `GET /api/setup` never returns a key value or a database row — so
+it is safe on a public page.
 
 | Script | What it does |
 |---|---|

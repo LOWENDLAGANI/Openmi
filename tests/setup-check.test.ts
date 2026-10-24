@@ -15,6 +15,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { setupReport, type SetupItem } from "../lib/setupChecks";
+import {
+  SCHEMA_HEALTH_MIGRATION,
+  isMissingFunction,
+  missingHealthFunction,
+  summarizeSchemaHealth,
+  type SchemaCheck,
+} from "../lib/schemaHealth";
 
 let failures = 0;
 let passes = 0;
@@ -153,9 +160,68 @@ test("the agent's turn secret is satisfied by the GitHub token key", () => {
 test("the endpoint returns the report and nothing else", () => {
   const source = readFileSync("app/api/setup/route.ts", "utf8");
   assert.match(source, /setupReport\(\)/);
+  assert.match(source, /databaseHealth\(\)/);
   // Spreading the environment would be the leak this endpoint exists to avoid.
   assert.doesNotMatch(source, /\.\.\.process\.env/);
   assert.doesNotMatch(source, /process\.env\[/);
+});
+
+// ── The schema audit ─────────────────────────────────────────────────────────
+//
+// The environment list cannot see a missing migration. These pin the half that
+// can: missing objects grouped by the migration that creates them, so the
+// banner names one command instead of a wall of table names.
+
+test("missing schema objects are grouped under the migration that adds them", () => {
+  const rows: SchemaCheck[] = [
+    { object_name: "profiles", kind: "table", present: true, migration: "20261023000100_identity" },
+    { object_name: "profiles.timezone", kind: "column", present: false, migration: "20261024000300_dew_timezone" },
+    { object_name: "set_profile_timezone(text)", kind: "function", present: false, migration: "20261024000300_dew_timezone" },
+    { object_name: "dew_wallets.daily_day", kind: "column", present: false, migration: "20261024000200_daily_dew" },
+  ];
+  const report = summarizeSchemaHealth(rows);
+  assert.equal(report.checked, true);
+  assert.equal(report.reachable, true);
+  assert.equal(report.checkedObjects, 4);
+  assert.deepEqual(report.missing, [
+    { migration: "20261024000200_daily_dew", objects: ["dew_wallets.daily_day"] },
+    {
+      migration: "20261024000300_dew_timezone",
+      objects: ["profiles.timezone", "set_profile_timezone(text)"],
+    },
+  ]);
+});
+
+test("a complete schema reports no gaps", () => {
+  const report = summarizeSchemaHealth([
+    { object_name: "profiles", kind: "table", present: true, migration: "a" },
+    { object_name: "is_admin()", kind: "function", present: true, migration: "b" },
+  ]);
+  assert.deepEqual(report.missing, []);
+  assert.equal(report.checkedObjects, 2);
+});
+
+test("a missing health function names its own migration rather than an outage", () => {
+  assert.equal(isMissingFunction({ code: "PGRST202" }), true);
+  assert.equal(isMissingFunction({ code: "PGRST204" }), false);
+  assert.equal(isMissingFunction(null), false);
+  const report = missingHealthFunction();
+  assert.equal(report.reachable, true);
+  assert.deepEqual(report.missing, [
+    { migration: SCHEMA_HEALTH_MIGRATION, objects: ["openmi_schema_health"] },
+  ]);
+});
+
+test("the audit is public, presence-only, and lists the load-bearing objects", () => {
+  const sql = readFileSync("supabase/migrations/20261024000400_schema_health.sql", "utf8");
+  assert.match(sql, /create or replace function public\.openmi_schema_health\(\)/);
+  assert.match(sql, /grant execute on function public\.openmi_schema_health\(\) to anon, authenticated/);
+  assert.match(sql, /revoke all on function public\.openmi_schema_health\(\) from public/);
+  for (const object of ["profiles.timezone", "dew_wallets.daily_day", "deduct_dew(numeric)", "is_admin()"]) {
+    assert.ok(sql.includes(object), `the audit must check ${object}`);
+  }
+  // It reports names only; a select of real data here would be a leak.
+  assert.doesNotMatch(sql, /select[^;]*from public\.(chats|chat_messages|dew_credits|profiles)\b/i);
 });
 
 console.log(`\n${passes + failures} checks`);

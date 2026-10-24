@@ -18,6 +18,7 @@ carry the rules it used to hold.
 | `migrations/20261024000100_folders_trash.sql` | `folders`, `trash`, and `chats.folder_id`: the sidebar follows the account, and deleted chats stay restorable for thirty days on every device. |
 | `migrations/20261024000200_daily_dew.sql` | The daily free Dew bucket on `dew_wallets`, and the rewritten `deduct_dew()` that spends it before paid credit and resets it at midnight in Kuala Lumpur. |
 | `migrations/20261024000300_dew_timezone.sql` | `profiles.timezone`, the write-once `set_profile_timezone()` the browser reports through, and the final `deduct_dew()` that resets the bucket at midnight in the account's own zone (Kuala Lumpur when none is stored). |
+| `migrations/20261024000400_schema_health.sql` | `openmi_schema_health()`: a public, presence-only audit that names the migration missing when a table, column or function is absent. Read by the About page's setup banner. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
