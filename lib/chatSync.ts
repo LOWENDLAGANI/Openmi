@@ -69,6 +69,7 @@ export function parseRemoteChat(value: unknown): RemoteChat | null {
     createdAt?: unknown;
     updatedAt?: unknown;
     pinned?: unknown;
+    folder?: unknown;
     messages?: unknown;
   };
   if (typeof entry.id !== "string" || !entry.id) return null;
@@ -79,6 +80,7 @@ export function parseRemoteChat(value: unknown): RemoteChat | null {
     createdAt: typeof entry.createdAt === "number" ? entry.createdAt : 0,
     updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : 0,
     pinned: Boolean(entry.pinned),
+    folder: typeof entry.folder === "string" && entry.folder ? entry.folder : undefined,
   };
 
   const messages: ChatMessage[] = [];
@@ -195,14 +197,25 @@ export function planChatMerge(remote: RemoteChat, localChat: Chat | undefined, l
     return { chat: remote.chat, addChat: true, chatUpdate: null, addMessages, updateMessages };
   }
 
+  const newer = remote.chat.updatedAt > (localChat.updatedAt ?? 0);
+  // Filing a chat into a folder deliberately does not touch `updatedAt` — it is
+  // organisation, not activity — so a folder change has to be carried on its own
+  // rather than waiting for the chat to be touched.
+  const folderChanged = (remote.chat.folder ?? undefined) !== (localChat.folder ?? undefined);
   const chatUpdate =
-    remote.chat.updatedAt > (localChat.updatedAt ?? 0)
+    newer || folderChanged
       ? {
-          title: remote.chat.title,
-          updatedAt: remote.chat.updatedAt,
-          // A pin made on either device is a pin. Unpinning is the one change
-          // that needs the newer side to win, and the timestamp is what decides.
-          pinned: remote.chat.pinned,
+          ...(newer
+            ? {
+                title: remote.chat.title,
+                updatedAt: remote.chat.updatedAt,
+                // A pin made on either device is a pin. Unpinning is the one
+                // change that needs the newer side to win, and the timestamp is
+                // what decides.
+                pinned: remote.chat.pinned,
+              }
+            : {}),
+          ...(folderChanged ? { folder: remote.chat.folder } : {}),
         }
       : null;
 

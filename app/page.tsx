@@ -15,7 +15,16 @@ import NotificationNag from "@/components/NotificationNag";
 import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
-import { loadChatsFromAccount, syncCloudHistory, syncVisitorProfile } from "@/lib/cloudHistory";
+import {
+  flushTrashDecisions,
+  loadChatsFromAccount,
+  loadFoldersFromAccount,
+  loadTrashFromAccount,
+  syncCloudHistory,
+  syncFoldersToAccount,
+  syncLocalTrash,
+  syncVisitorProfile,
+} from "@/lib/cloudHistory";
 import { consumeOAuthError, loadAccountName, saveAccountName, watchAccount } from "@/lib/account";
 import { describeLinkError, normalizeName, type AccountView } from "@/lib/accountState";
 import {
@@ -284,7 +293,21 @@ export default function HomePage() {
       saveLocalPreferences(merged);
       if (!cloud || !cloud.displayName) void saveCloudPreferences(merged);
 
-      void loadChatsFromAccount().catch(() => {});
+      // The sidebar is part of the account too. Decisions taken while offline
+      // are delivered first (otherwise the pull would undo them), then folders
+      // so a chat's folder resolves, then the trash before the live list so a
+      // chat parked on another device is not re-added here. Only then is this
+      // device's own state pushed up, because a pull may have removed a folder
+      // or purged a trashed chat and those decisions must not be undone by an
+      // upload.
+      void (async () => {
+        await flushTrashDecisions().catch(() => undefined);
+        await loadFoldersFromAccount().catch(() => null);
+        await loadTrashFromAccount().catch(() => null);
+        await loadChatsFromAccount().catch(() => null);
+        await syncFoldersToAccount().catch(() => undefined);
+        await syncLocalTrash().catch(() => undefined);
+      })();
       void syncVisitorProfile(chosen).catch((error: unknown) => {
         console.error("[Openmi] Could not log the visitor name", error);
       });

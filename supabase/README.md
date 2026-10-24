@@ -15,6 +15,7 @@ carry the rules it used to hold.
 | `migrations/20261023000400_changesets.sql` | `changesets`, `approvals`, `commits`, `admin_audit`. |
 | `migrations/20261023000500_dew_redeem.sql` | `redeem_codes`, `redeems`, the Dew ledger, and the functions that keep a claim from naming its own price. |
 | `migrations/20261024000000_user_preferences.sql` | `user_preferences`: the account-synced appearance, response length, reasoning effort, search mode, model, tour flag and display name. |
+| `migrations/20261024000100_folders_trash.sql` | `folders`, `trash`, and `chats.folder_id`: the sidebar follows the account, and deleted chats stay restorable for thirty days on every device. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

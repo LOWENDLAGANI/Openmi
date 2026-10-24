@@ -143,11 +143,13 @@ export interface Chat {
   folder?: string;
 }
 
-/** A user-named folder for chats. Local to this browser, like the sidebar. */
+/** A user-named folder for chats. It follows the account, like the chats. */
 export interface ChatFolder {
   id: string;
   name: string;
   createdAt: number;
+  /** When the name last changed, so a rename on another device can win. */
+  updatedAt?: number;
 }
 
 /**

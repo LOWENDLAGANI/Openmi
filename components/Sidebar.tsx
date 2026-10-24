@@ -15,7 +15,17 @@ import {
 } from "@/lib/db";
 import { moveChatToTrash } from "@/lib/trash";
 import type { Chat, ChatFolder } from "@/lib/types";
-import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/cloudHistory";
+import {
+  markChatDeleted,
+  syncChatDelete,
+  syncChatFolder,
+  syncChatWipe,
+  syncFolderDelete,
+  syncFolderUp,
+  syncTrashPut,
+} from "@/lib/cloudHistory";
+import { markFolderDeleted } from "@/lib/deletedFolders";
+import { localStorageOrNull } from "@/lib/deletedChats";
 import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import OpenmiMark from "@/components/OpenmiMark";
@@ -262,6 +272,9 @@ export default function Sidebar({
     const waiting = pendingChatId;
     closeFolderComposer();
     if (!folder) return;
+    // A folder is part of the sidebar, so it follows the account like the chats
+    // inside it. Best effort: a failed write is repaired by the next push.
+    void syncFolderUp(folder);
     // A folder created from a chat's menu exists to hold *that* chat, so the
     // move happens with the create — otherwise the folder appears and the
     // conversation is still sitting where it was.
@@ -270,11 +283,21 @@ export default function Sidebar({
 
   const fileInto = async (chatId: string, folderId: string | undefined) => {
     await setChatFolder(chatId, folderId);
+    void syncChatFolder(chatId, folderId);
     setFileChatId(null);
   };
 
   const removeFolder = async (id: string) => {
+    // Chats filed here return to the main list, which is a change to each of
+    // them: forgetting to send that would leave them filed under a folder that
+    // no longer exists on every other device.
+    const filed = (chats ?? []).filter((chat) => chat.folder === id).map((chat) => chat.id);
+    // Recorded before the delete so a pull landing mid-delete cannot add the
+    // folder straight back; cleared once the account accepts the soft delete.
+    markFolderDeleted(localStorageOrNull(), id);
     await deleteFolder(id);
+    void syncFolderDelete(id);
+    for (const chatId of filed) void syncChatFolder(chatId, undefined);
     if (folderFilter === id) setFolderFilter(null);
   };
 
@@ -331,7 +354,11 @@ export default function Sidebar({
   const handleDeleteChat = (chatId: string, active: boolean) => {
     markChatDeleted(chatId);
     void syncChatDelete(chatId);
-    void moveChatToTrash(chatId);
+    // The same snapshot goes into the account's trash, so the deletion is
+    // restorable from any device rather than only from this browser.
+    void moveChatToTrash(chatId).then((entry) => {
+      if (entry) void syncTrashPut(entry);
+    });
     if (active) onNewChat();
   };
 

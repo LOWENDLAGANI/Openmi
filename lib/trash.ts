@@ -1,13 +1,15 @@
 // ── Trash ────────────────────────────────────────────────────────────────────
-// A deleted chat is recoverable for thirty days on this device. Deletion still
-// happens immediately everywhere the reader can see — the chat leaves the list
-// and the account sync records the deletion — but the rows are parked here
-// first, because an accidental tap on a long conversation is exactly the kind
-// of loss a local-first product should be able to undo.
+// A deleted chat is recoverable for thirty days, on every device. Deletion
+// still happens immediately everywhere the reader can see — the chat leaves the
+// list — but the rows are parked here first, because an accidental tap on a
+// long conversation is exactly the kind of loss a product should be able to
+// undo.
 //
-// The trash is device-local and never synced: the account holds the deletion,
-// not the deleted thing, so restoring here cannot resurrect a chat on a phone
-// that also deleted it.
+// This module is the local holding pen; lib/cloudHistory.ts mirrors it to the
+// account's `trash` table so the overlay looks the same on a phone and on a
+// computer, and either one can put a chat back. A restore removes the account's
+// copy at the same time, so restoring does not resurrect a chat on a device
+// that deleted it again.
 
 import { db } from "./db";
 import type { ChatMessage } from "./types";
@@ -34,10 +36,16 @@ export function isTrashExpired(
   return now - entry.deletedAt > retentionMs;
 }
 
-/** Parks a chat and its messages in the trash, removing them from the live DB. */
-export async function moveChatToTrash(chatId: string): Promise<void> {
+/**
+ * Parks a chat and its messages in the trash, removing them from the live DB.
+ *
+ * Returns the parked entry so the caller can send the same snapshot to the
+ * account — the move has to be one object, or the two copies can disagree about
+ * what "deleted" left behind.
+ */
+export async function moveChatToTrash(chatId: string): Promise<TrashEntry | null> {
   const chat = await db.chats.get(chatId);
-  if (!chat) return;
+  if (!chat) return null;
   const messages = await db.messages.where("chatId").equals(chatId).toArray();
   const entry: TrashEntry = {
     id: chat.id,
@@ -54,6 +62,7 @@ export async function moveChatToTrash(chatId: string): Promise<void> {
     await db.chats.delete(chatId);
     await db.trash.put(entry);
   });
+  return entry;
 }
 
 /** Puts a trashed chat back with its messages. */

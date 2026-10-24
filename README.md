@@ -21,8 +21,14 @@ when you say so**, on a branch of its own.
 - **Dew**: one flat price per request, per model — `0.25` for Auto, `0.5` for
   Code. Token counts are still recorded and shown; they no longer price the
   request.
-- Temporary chats, folders, trash with a thirty-day restore, palette search,
-  branching replies, web search, attachments, push, PWA, admin console.
+- Temporary chats, folders, a thirty-day trash, palette search, branching
+  replies, web search, attachments, push, PWA, admin console.
+- **A sidebar that is part of the account.** Folders, the folder a chat is filed
+  under, and the trash are read and written through the same session as the
+  chats. A folder or a chat deleted here is soft-deleted in the database, so a
+  device that was offline cannot upload it back; a restore or a permanent delete
+  in the trash records the decision before it is delivered, so a decision made
+  offline is not undone by the next sign-in.
 - **GitHub connected with a personal access token.** A token pasted into the
   panel is checked against `GET /user` and one repository listing, then sealed
   with AES-256-GCM under the account's stored connections. An account can hold

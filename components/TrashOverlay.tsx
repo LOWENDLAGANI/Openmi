@@ -1,14 +1,21 @@
 "use client";
 
 // ── Trash overlay ────────────────────────────────────────────────────────────
-// Deleted chats, restorable for thirty days on this device. The list is the
-// honest shape of the feature: what was deleted, when, and two buttons —
-// put it back, or make it permanent.
+// Deleted chats, restorable for thirty days. The list is the honest shape of
+// the feature: what was deleted, when, and two buttons — put it back, or make
+// it permanent. Both decisions are written to the account, so the trash and
+// what happens to a chat in it are the same on every device.
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/db";
-import { syncCloudHistory, unmarkChatDeleted } from "@/lib/cloudHistory";
+import {
+  markChatDeleted,
+  markTrashDecision,
+  syncCloudHistory,
+  syncTrashRemove,
+  unmarkChatDeleted,
+} from "@/lib/cloudHistory";
 import { deleteForever, restoreFromTrash, TRASH_RETENTION_MS, type TrashEntry } from "@/lib/trash";
 
 interface TrashOverlayProps {
@@ -102,13 +109,25 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
                     <button
                       type="button"
                       onClick={() => {
-                        void restoreFromTrash(entry.id).then(() => {
+                        // Recorded before either write, so a restore made without
+                        // a network is delivered on the next sign-in instead of
+                        // the chat being handed back by the next pull.
+                        markTrashDecision(entry.id, "restore");
+                        void restoreFromTrash(entry.id).then(async () => {
                           // Restoring is the opposite of deleting, so the id has
                           // to leave the deleted list before this chat is
                           // uploaded — otherwise it is back on this browser but
                           // silently excluded from the account for ever.
                           unmarkChatDeleted(entry.id);
-                          void syncCloudHistory().catch(() => undefined);
+                          // Upload first, then close the trash row: another
+                          // device reading the account between the two writes
+                          // must not see "purged with no live chat" and decide
+                          // the person deleted it for ever. If the upload does
+                          // not land, the decision stays queued for sign-in and
+                          // the row is left open — an open row is recoverable,
+                          // a misread one is not.
+                          const uploaded = await syncCloudHistory().catch(() => null);
+                          if (uploaded?.synced) void syncTrashRemove(entry.id);
                           onRestored(entry.id);
                         });
                       }}
@@ -121,7 +140,14 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
                         <button
                           type="button"
                           onClick={() => {
+                            // The id stays on this device's deleted list so a
+                            // pull cannot hand the chat back, and the account's
+                            // trash row is closed for every other device. The
+                            // decision is queued in case the write is offline.
+                            markChatDeleted(entry.id);
+                            markTrashDecision(entry.id, "purge");
                             void deleteForever(entry.id);
+                            void syncTrashRemove(entry.id);
                             setConfirmId(null);
                           }}
                           className="shrink-0 rounded-lg bg-red-500/25 px-2.5 py-1 text-[10px] font-semibold text-red-200 transition-colors hover:bg-red-500/40"
@@ -154,8 +180,8 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
 
         <footer className="border-t border-white/[0.06] px-5 py-3">
           <p className="text-[10px] leading-relaxed text-white/30">
-            Kept on this device only. Restoring a chat here brings it back in this browser — not
-            on a phone that also deleted it.
+            Kept in your account for 30 days. A chat restored here comes back on your other devices
+            too; deleting it forever removes it everywhere.
           </p>
         </footer>
       </section>
