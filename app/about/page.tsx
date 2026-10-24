@@ -16,7 +16,7 @@ const PROGRESS: Array<{ label: string; state: "done" | "active" | "next" }> = [
   { label: "Resilient provider fallback", state: "done" },
   { label: "Web search", state: "done" },
   { label: "Camera and file attachments", state: "done" },
-  { label: "Anonymous history sync", state: "done" },
+  { label: "Account history sync", state: "done" },
   { label: "Settings panel", state: "done" },
   { label: "Admin console", state: "done" },
   { label: "Visitor names", state: "done" },

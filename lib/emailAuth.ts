@@ -4,23 +4,15 @@
 // project, never by this app, and the result is an ordinary Supabase session.
 // That is the whole reason this door exists rather than a bespoke user table:
 // `verifyCaller` in lib/serverControl.ts already turns that token into a uid,
-// the policies already scope every row to that uid, and the Dew wallet and the
-// chat history already hang off it. An email account is therefore the *same kind
-// of account* as a Google one — only the credential differs.
+// the policies already scope every row to that uid, and the Dew wallet, the chat
+// history and the preferences already hang off it. An email account is therefore
+// the *same kind of account* as a Google one — only the credential differs.
 //
-// ── Why registering upgrades instead of creating ────────────────────────────
-// The app signs every first-time visitor in anonymously, so they already have a
-// uid and possibly chats under it. Supabase's documented way to keep that is
-// `updateUser({ email, password })` on the anonymous user: the address and the
-// password are added to the account already in use, and the uid does not move.
-// Registering is therefore an upgrade, not a migration. Creating a fresh user
-// would hand back a different uid and orphan everything written so far, which is
-// exactly the failure the Google door in lib/account.ts avoids too.
-//
-// If the address already belongs to an account, the update is refused and the
-// right move is the opposite one: sign into that account, and let the caller
-// re-sync this device's chats onto it. Both paths end in the same outcome type,
-// so the interface can tell them apart without knowing why.
+// ── Registering creates an account ──────────────────────────────────────────
+// There is no anonymous user to upgrade any more. `signUp` creates a real
+// Supabase user with the address and the password, plus the name the form
+// collected as metadata, so the first browser and every later one can greet the
+// person by it.
 //
 // ── Verification ─────────────────────────────────────────────────────────────
 // Registering sends a confirmation mail when the project has confirmation on.
@@ -29,22 +21,26 @@
 // at that address yet must not lose access to a product they are already using.
 // A project with confirmation switched off signs the person in immediately, and
 // `needsVerification` answers false.
+//
+// ── Password recovery ───────────────────────────────────────────────────────
+// The reset mail returns through the project's PKCE flow, which signs the person
+// in, and the account row then offers "Set a new password" through
+// `changePassword`. Nothing here ever sees or stores the password itself.
 
 import type { User } from "@supabase/supabase-js";
-import { accountViewOf, isAnonymousUser, saveAccountName } from "./account";
-import { ensureUser, getSupabase } from "./supabase";
+import { accountViewOf } from "./account";
+import { getSupabase } from "./supabase";
 import type { AccountView } from "./accountState";
 
 /** What an email sign-in or registration actually did. */
 export interface EmailAuthResult {
+  /** The account as the interface should render it, when a session exists. */
+  view: AccountView | null;
   /**
-   * `linked` means the uid did not change (a guest was upgraded in place).
-   * `adopted` means it did, and the caller must re-sync local chats onto the
-   * account it just signed into.
+   * True while the address still has to be confirmed. With confirmation on,
+   * `signUp` returns a user but no session, so there is nothing to render until
+   * the link is followed.
    */
-  outcome: "linked" | "adopted";
-  view: AccountView;
-  /** True while the address is still unconfirmed. Never blocks anything. */
   needsVerification: boolean;
 }
 
@@ -55,10 +51,6 @@ export function emailAuthAvailable(): boolean {
 
 const UNCONFIGURED =
   "This deployment has no Supabase project configured, so accounts are not available.";
-
-function codeOf(cause: unknown): string {
-  return (cause as { code?: string } | null)?.code ?? "";
-}
 
 /**
  * The client, or a thrown error carrying a code the interface can describe.
@@ -73,40 +65,34 @@ function client() {
   return supabase;
 }
 
-/** Writes the name onto the user's metadata and remembers it for other browsers. */
-async function applyName(name?: string): Promise<void> {
-  const trimmed = (name ?? "").trim();
-  if (!trimmed) {
-    await saveAccountName(null);
-    return;
-  }
-  try {
-    await client().auth.updateUser({ data: { name: trimmed.slice(0, 40) } });
-  } catch {
-    // A display name is a convenience; the account is already signed in.
-  }
-  await saveAccountName(trimmed);
+/** The origin the confirmation or reset mail should come back to. */
+function returnUrl(): string | undefined {
+  return typeof window === "undefined" ? undefined : window.location.origin;
 }
 
 /**
- * True while a confirmation mail has been sent but not acted on.
+ * True while the signed-in account is unconfirmed.
  *
- * `new_email` is how Supabase reports "this address is waiting for its link" —
- * it happens only when confirmation is enabled for the project, and the user is
- * still the anonymous one until the link is followed.
+ * `new_email` is how Supabase reports "this address is waiting for its link"
+ * while an existing account changes address; otherwise the account's own
+ * `email_confirmed_at` is the answer.
  */
 function needsVerification(user: User | null): boolean {
   if (!user) return false;
   if (user.new_email) return true;
-  if (isAnonymousUser(user)) return false;
   return !user.email_confirmed_at;
 }
 
 /**
- * Creates an account for an address, or signs into the one that already exists.
+ * Creates an account for an address.
  *
- * The anonymous user is upgraded in place when it can be, which is what keeps
- * the chats already written under this browser's uid exactly where they are.
+ * With confirmation switched on the project returns the user and no session,
+ * which is not an error: the interface asks the person to open the mail. With it
+ * switched off a session comes back immediately and the product opens.
+ *
+ * An address that already has an account is answered with a deliberately empty
+ * user by Supabase. That is turned into `email_exists` here so the form can say
+ * "sign in instead" rather than appear to have registered a second person.
  */
 export async function registerWithEmail(
   email: string,
@@ -114,78 +100,46 @@ export async function registerWithEmail(
   name?: string
 ): Promise<EmailAuthResult> {
   const supabase = client();
-  const existing = await ensureUser();
   const address = email.trim();
+  const trimmedName = (name ?? "").trim().slice(0, 40);
 
-  if (existing && isAnonymousUser(existing)) {
-    const { data, error } = await supabase.auth.updateUser({
-      email: address,
-      password,
-      data: name ? { name: name.trim().slice(0, 40) } : undefined,
-    });
+  const { data, error } = await supabase.auth.signUp({
+    email: address,
+    password,
+    options: {
+      emailRedirectTo: returnUrl(),
+      data: trimmedName ? { name: trimmedName } : undefined,
+    },
+  });
+  if (error) throw error;
 
-    if (!error) {
-      const user = data.user ?? existing;
-      if (name) await saveAccountName(name);
-      return {
-        outcome: "linked",
-        view: accountViewOf(user),
-        needsVerification: needsVerification(user),
-      };
-    }
-
-    // The address already has an account. That is not a dead end: it is the
-    // signal to sign into it, which the block below does.
-    const alreadyExists =
-      codeOf(error) === "email_exists" ||
-      codeOf(error) === "user_already_exists" ||
-      /already (registered|exists)/i.test(error.message ?? "");
-    if (!alreadyExists) throw error;
+  // Supabase's anti-enumeration answer for an address that already exists: a
+  // user object with no identities. Signing in is the right next step.
+  if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    throw Object.assign(
+      new Error("An account already exists for that address."),
+      { code: "email_exists" }
+    );
   }
 
-  const signIn = await supabase.auth.signInWithPassword({ email: address, password });
-  if (signIn.error) throw signIn.error;
-  await applyName(name);
-  return {
-    outcome: signIn.data.user?.id === existing?.id ? "linked" : "adopted",
-    view: accountViewOf(signIn.data.user),
-    needsVerification: needsVerification(signIn.data.user),
-  };
+  if (!data.session) {
+    return { view: null, needsVerification: true };
+  }
+  return { view: accountViewOf(data.session.user), needsVerification: needsVerification(data.session.user) };
 }
 
 /** Signs into an existing email/password account. */
-export async function signInWithEmail(
-  email: string,
-  password: string,
-  name?: string
-): Promise<EmailAuthResult> {
+export async function signInWithEmail(email: string, password: string): Promise<EmailAuthResult> {
   const supabase = client();
-  const before = (await ensureUser())?.id ?? "";
   const { data, error } = await supabase.auth.signInWithPassword({
     email: email.trim(),
     password,
   });
   if (error) throw error;
-  await applyName(name);
   return {
-    outcome: data.user?.id === before ? "linked" : "adopted",
     view: accountViewOf(data.user),
     needsVerification: needsVerification(data.user),
   };
-}
-
-/**
- * Returns this device to an anonymous guest.
- *
- * Signing out and immediately signing in anonymously is the same move
- * `detachGoogleAccount` makes, and for the same reason: the account keeps its
- * history, and this browser simply stops being it. The account is not deleted —
- * nothing here deletes a user.
- */
-export async function signOutToGuest(): Promise<AccountView> {
-  const supabase = client();
-  await supabase.auth.signOut();
-  return accountViewOf(await ensureUser());
 }
 
 /**
@@ -211,15 +165,16 @@ export async function refreshVerification(): Promise<{
 }
 
 /** Sends the confirmation mail again. False when it could not be sent. */
-export async function resendVerificationEmail(): Promise<boolean> {
+export async function resendVerificationEmail(email: string): Promise<boolean> {
   const supabase = client();
-  const user = (await supabase.auth.getUser()).data.user;
-  if (!user) return false;
-  if (user.email_confirmed_at) return true;
-  const address = user.new_email ?? user.email;
+  const address = email.trim();
   if (!address) return false;
   try {
-    const { error } = await supabase.auth.resend({ type: "signup", email: address });
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: address,
+      options: { emailRedirectTo: returnUrl() },
+    });
     return !error;
   } catch {
     return false;
@@ -235,7 +190,20 @@ export async function resendVerificationEmail(): Promise<boolean> {
  */
 export async function requestPasswordReset(email: string): Promise<void> {
   const supabase = client();
-  const redirectTo = typeof window === "undefined" ? undefined : window.location.origin;
-  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: returnUrl(),
+  });
+  if (error) throw error;
+}
+
+/**
+ * Sets a new password on the signed-in account.
+ *
+ * Reachable after a reset mail has signed the person back in, and from the
+ * account row for an email account that simply wants a different password.
+ */
+export async function changePassword(password: string): Promise<void> {
+  const supabase = client();
+  const { error } = await supabase.auth.updateUser({ password });
   if (error) throw error;
 }

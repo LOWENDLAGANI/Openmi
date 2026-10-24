@@ -26,7 +26,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { db } from "./db";
 import { parseRemoteChat, planChatMerge } from "./chatSync";
 import { localStorageOrNull, markDeleted, readDeletedIds, unmarkDeleted } from "./deletedChats";
-import { ensureUser, getSupabase, supabaseConfigured } from "./supabase";
+import { currentUser, getSupabase, supabaseConfigured } from "./supabase";
 import { firstSeen } from "./visitorName";
 import type { Chat, ChatMessage, Memory } from "./types";
 
@@ -49,7 +49,7 @@ function ms(value: unknown): number {
 async function session(): Promise<{ client: SupabaseClient; uid: string } | null> {
   const client = getSupabase();
   if (!client) return null;
-  const user = await ensureUser();
+  const user = await currentUser();
   if (!user) return null;
   return { client, uid: user.id };
 }

@@ -12,18 +12,25 @@ import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
 import type { ProjectSummary } from "@/lib/projects";
 import NotificationNag from "@/components/NotificationNag";
-import NamePrompt from "@/components/NamePrompt";
+import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
-import { syncVisitorProfile } from "@/lib/cloudHistory";
-import { bindGoogleAccount, consumeGoogleSignIn, loadAccountName, type BindOutcome } from "@/lib/account";
-import { describeLinkError, greetingName, isDismissed, normalizeName, type AccountView } from "@/lib/accountState";
+import { loadChatsFromAccount, syncCloudHistory, syncVisitorProfile } from "@/lib/cloudHistory";
+import { consumeOAuthError, loadAccountName, saveAccountName, watchAccount } from "@/lib/account";
+import { describeLinkError, normalizeName, type AccountView } from "@/lib/accountState";
+import {
+  DEFAULT_PREFERENCES,
+  loadCloudPreferences,
+  loadLocalPreferences,
+  saveCloudPreferences,
+  saveLocalPreferences,
+  type UserPreferences,
+} from "@/lib/preferences";
 import {
   db,
   createChat,
   addMessage,
   maybeAutoTitle,
-  loadSelectedMode,
   saveSelectedMode,
 } from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
@@ -40,19 +47,12 @@ import type {
   SearchSource,
 } from "@/lib/types";
 import {
-  loadAppearance,
-  loadReasoningEffort,
-  loadResponseLength,
   saveAppearance,
-  saveReasoningEffort,
-  saveResponseLength,
   type Appearance,
   type ReasoningEffort,
   type ResponseLength,
 } from "@/lib/settings";
-import { authHeader, sessionUser, supabaseConfigured } from "@/lib/supabase";
-import { isAnonymousUser } from "@/lib/account";
-import { loadChatsFromAccount, syncCloudHistory } from "@/lib/cloudHistory";
+import { authHeader } from "@/lib/supabase";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
 import { TempThread, type MessageInput } from "@/lib/tempChat";
@@ -100,9 +100,11 @@ export default function HomePage() {
   const [project, setProject] = useState<ProjectSummary | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [hydrated, setHydrated] = useState(false);
-  const [resolvingAccount, setResolvingAccount] = useState(true);
-  const [googleBusy, setGoogleBusy] = useState(false);
-  const [googleError, setGoogleError] = useState<string | null>(null);
+  // Null while the first identity read is still in flight. `signedIn: false`
+  // after that is a real answer: the sign-in screen is the interface.
+  const [account, setAccount] = useState<AccountView | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const preferencesRef = useRef<UserPreferences>(DEFAULT_PREFERENCES);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
@@ -197,101 +199,106 @@ export default function HomePage() {
     };
   }, [hydrated]);
 
+  // ── Local preferences first ─────────────────────────────────────────────
+  // The browser's copy is what the first paint reads. It is instant and it
+  // works offline; the account's copy is adopted right after the session is
+  // known, below.
   useEffect(() => {
-    setSelectedMode(loadSelectedMode());
-    setResponseLength(loadResponseLength());
-    setReasoningEffort(loadReasoningEffort());
-    const nextAppearance = loadAppearance();
-    setAppearance(nextAppearance);
-    saveAppearance(nextAppearance);
-    const savedName = loadDisplayName();
-    setDisplayName(savedName);
+    const local = loadLocalPreferences();
+    preferencesRef.current = local;
+    setSelectedMode(local.model ?? DEFAULT_MODE_ID);
+    setResponseLength(local.responseLength);
+    setReasoningEffort(local.reasoningEffort);
+    setAppearance(local.appearance);
+    saveAppearance(local.appearance);
+    setSearchMode(local.searchMode);
+    setTutorialFinished(local.tutorialFinished);
+    setDisplayName(local.displayName ?? "");
     setHydrated(true);
-    // Refresh last-seen on every return visit so the console's visitor list
-    // stays live. On a first visit there is nothing to refresh yet — the name
-    // screen does that write.
-    if (savedName) {
-      void syncVisitorProfile(savedName).catch((error: unknown) => {
+  }, []);
+
+  // ── The account ─────────────────────────────────────────────────────────
+  // This is the gate. Until a session exists the sign-in screen is the whole
+  // interface, so `account` starts null ("still asking") and then means exactly
+  // what Supabase answered.
+  useEffect(() => watchAccount(setAccount), []);
+
+  // A provider that refused the round trip puts its reason in the URL. Read it
+  // once and show it on the sign-in screen; the parser removes the parameters.
+  useEffect(() => {
+    const failure = consumeOAuthError();
+    if (failure) setAuthError(describeLinkError({ message: failure }));
+  }, []);
+
+  // Signing out clears this device's copy of the name. The next account on this
+  // browser must not inherit the previous person's greeting; the account keeps
+  // its own name in `profiles` and `user_preferences`.
+  useEffect(() => {
+    if (account?.signedIn !== false) return;
+    saveDisplayName("");
+    setDisplayName("");
+  }, [account?.signedIn]);
+
+  // ── Once a session exists ───────────────────────────────────────────────
+  // Resolve the name, adopt the account's preferences, and pull the account's
+  // chat history. The history pull is unawaited: a long backfill must not hold
+  // the first paint, and the live Dexie query already watching `chats` puts the
+  // conversations on screen the moment they land.
+  useEffect(() => {
+    if (!hydrated || !account?.signedIn) return;
+    let cancelled = false;
+
+    void (async () => {
+      const localName = normalizeName(loadDisplayName());
+      let chosen = localName;
+      if (!chosen) {
+        const accountName = await Promise.race([
+          loadAccountName(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), ACCOUNT_NAME_TIMEOUT_MS)),
+        ]);
+        chosen = normalizeName(accountName) || normalizeName(account.name) || "Openmi user";
+      }
+      if (cancelled) return;
+      setDisplayName(saveDisplayName(chosen));
+      void saveAccountName(chosen);
+
+      const cloud = await loadCloudPreferences();
+      if (cancelled) return;
+      const current = preferencesRef.current;
+      const merged: UserPreferences = cloud
+        ? {
+            ...cloud,
+            displayName: chosen || cloud.displayName,
+            // Seeing the tour once is enough on any browser. The other choices
+            // follow the account exactly.
+            tutorialFinished: cloud.tutorialFinished || current.tutorialFinished,
+          }
+        : { ...current, displayName: chosen };
+      preferencesRef.current = merged;
+      setAppearance(merged.appearance);
+      setResponseLength(merged.responseLength);
+      setReasoningEffort(merged.reasoningEffort);
+      setSearchMode(merged.searchMode);
+      setTutorialFinished(merged.tutorialFinished);
+      setSelectedMode(merged.model ?? current.model ?? DEFAULT_MODE_ID);
+      saveLocalPreferences(merged);
+      if (!cloud || !cloud.displayName) void saveCloudPreferences(merged);
+
+      void loadChatsFromAccount().catch(() => {});
+      void syncVisitorProfile(chosen).catch((error: unknown) => {
         console.error("[Openmi] Could not log the visitor name", error);
       });
-    }
-  }, []);    // A name typed on this device is the authority, and a linked account brings
-    // both the name and the chat history with it. This runs on every visit rather
-    // than only on sign-in, so a conversation written on a phone while this
-    // browser was closed is here the next time it is opened.
-    //
-    // Only the *name* is allowed to hold the first paint, and only when this
-    // browser has none to greet someone by — a single small read, capped at a
-    // few seconds. Making the whole screen wait on that one read at most is
-    // deliberate; an earlier version held it open for the chat-history pull
-    // too, and on anything less than a perfect connection that left the gate
-    // open as long as history is long, while the history itself is needed by
-    // nobody who is looking at a loading screen. The pull now continues in the background instead, and the live
-    // database query already watching `chats` puts the conversations on screen
-    // the moment they land — visibly later, but usable from the first paint.
-    useEffect(() => {
-      if (!hydrated) return;
-      let cancelled = false;
-      const settle = () => {
-        if (!cancelled) setResolvingAccount(false);
-      };
+    })().catch((error: unknown) => {
+      console.error("[Openmi] Could not load the account", error);
+    });
 
-      if (!supabaseConfigured) {
-        settle();
-        return;
-      }
-
-      void (async () => {
-        try {
-          const user = await sessionUser();
-          // Nobody, or an anonymous visitor: there is no account to ask.
-          if (cancelled || !user || isAnonymousUser(user)) {
-            settle();
-            return;
-          }
-
-          // The chats that belong to this account are pulled on every visit, not
-          // only at the moment of sign-in: a phone that wrote history while this
-          // browser was closed has to be able to hand it over on the next open.
-          // It is deliberately unawaited — see the long comment above.
-          const pullChats = () => {
-            if (!cancelled) void loadChatsFromAccount().catch(() => {});
-          };
-
-          // A name this browser already knows is the fastest answer there is,
-          // and nothing remote can improve a greeting that exists. Settle on
-          // it straight away and let history arrive while the visitor is being
-          // welcomed back.
-          if (loadDisplayName()) {
-            settle();
-            pullChats();
-            return;
-          }
-
-          // No local name: the account's own is worth one bounded ask. If the
-          // network answers late or never, the gate opens anyway and the name
-          // prompt stands where it would have — nothing here can decide a
-          // greeting, so there is no reason to keep the screen dark for it.
-          const accountName = await Promise.race([
-            loadAccountName(),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), ACCOUNT_NAME_TIMEOUT_MS)),
-          ]);
-          if (!cancelled && accountName) setDisplayName(saveDisplayName(accountName));
-          settle();
-          pullChats();
-        } catch {
-          // No account, no rule for one, or offline. Local data stands.
-          settle();
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [hydrated]);
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, account?.signedIn, account?.id, account?.email, account?.name]);
 
   useEffect(() => {
-    if (!hydrated || !supabaseConfigured) return;
+    if (!hydrated || !account?.signedIn) return;
     if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     historyTimerRef.current = setTimeout(() => {
       void syncCloudHistory()
@@ -306,7 +313,7 @@ export default function HomePage() {
     return () => {
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     };
-  }, [hydrated, chats, messages]);
+  }, [hydrated, account?.signedIn, chats, messages]);
 
   // The administrator's announcement, read live from the same public node the
   // server enforces. A visitor who blocks the read simply never sees it.
@@ -318,91 +325,33 @@ export default function HomePage() {
     return () => clearTimeout(timeout);
   }, [loggingError]);
 
+  /** Saves the display name everywhere it is read: this browser, the profile, and the account's preferences. */
   const handleSaveName = useCallback((name: string) => {
     const saved = saveDisplayName(name);
     setDisplayName(saved);
+    const next = { ...preferencesRef.current, displayName: saved };
+    preferencesRef.current = next;
+    saveLocalPreferences(next);
+    void saveCloudPreferences(next);
+    void saveAccountName(saved);
     void syncVisitorProfile(saved).catch((error: unknown) => {
       console.error("[Openmi] Could not log the visitor name", error);
     });
   }, []);
 
   /**
-   * What a completed Google sign-in — popup or page redirect — leads to.
+   * Writes one preference to this browser and to the account.
    *
-   * Shared by the button on the name screen and the mount-time redirect
-   * consumer, so both entry points resolve a name the same way: the account's
-   * own name first, Google's second. A successful sign-in that produced no
-   * usable name is reported rather than waved through: letting someone in with
-   * no name would break the one thing the name is for.
+   * The local write happens first and always; the cloud write is best effort.
+   * A failure leaves the local value standing and is repaired by the next
+   * change, which is the right weight for a setting.
    */
-  const finishGoogleEntry = useCallback(
-    async (result: { outcome: BindOutcome | null; view: AccountView | null; cause?: unknown }) => {
-      if (result.outcome === "dismissed") return "dismissed";
-      if (!result.view) {
-        setGoogleError(describeLinkError((result as { cause?: unknown }).cause));
-        return "failed";
-      }
-      // Whatever the account already holds is adopted before this device's own
-      // history is written over the top of it, so the two are merged rather
-      // than one replacing the other.
-      await loadChatsFromAccount();
-      const accountName = await loadAccountName();
-      const resolved = normalizeName(
-        greetingName(loadDisplayName(), accountName, result.view.name)
-      );
-      if (!resolved) {
-        setGoogleError(
-          "You are signed in, but no name came with it. Type a name above to continue."
-        );
-        return "failed";
-      }
-      handleSaveName(resolved);
-      return "ready";
-    },
-    [handleSaveName]
-  );
-
-  /** The optional Google door on the name screen. */
-  const handleGoogleEntry = useCallback(async () => {
-    setGoogleBusy(true);
-    setGoogleError(null);
-    try {
-      await finishGoogleEntry(await bindGoogleAccount());
-    } catch (cause: unknown) {
-      if (isDismissed(cause)) return;
-      console.error("[Openmi] Google entry failed", cause);
-      setGoogleError(describeLinkError(cause));
-    } finally {
-      setGoogleBusy(false);
-    }
-  }, [finishGoogleEntry]);
-
-  // A sign-in that had to arrive as a full-page redirect comes back here.
-  // Consume it once on mount and run the same tail the popup path runs, so
-  // visitors whose browsers block the popup land signed in and named.
-  useEffect(() => {
-    if (!supabaseConfigured) return;
-    let cancelled = false;
-    void consumeGoogleSignIn()
-      .then(async (redirect) => {
-        if (cancelled || !redirect.completed) return;
-        setGoogleBusy(true);
-        try {
-          if (redirect.outcome === "linked") {
-            await finishGoogleEntry({ outcome: "linked", view: redirect.view });
-          } else if (redirect.cause) {
-            console.error("[Openmi] Google redirect failed", redirect.cause);
-            setGoogleError(describeLinkError(redirect.cause));
-          }
-        } finally {
-          if (!cancelled) setGoogleBusy(false);
-        }
-      })
-      .catch((cause: unknown) => console.error("[Openmi] Google redirect check failed", cause));
-    return () => {
-      cancelled = true;
-    };
-  }, [finishGoogleEntry]);
+  const persistPreferences = useCallback((patch: Partial<UserPreferences>) => {
+    const next = { ...preferencesRef.current, ...patch };
+    preferencesRef.current = next;
+    saveLocalPreferences(next);
+    void saveCloudPreferences(next);
+  }, []);
 
   // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {
@@ -461,6 +410,7 @@ export default function HomePage() {
     setSelectedMode(mode);
     setModelNotice(null);
     saveSelectedMode(mode);
+    persistPreferences({ model: mode });
 
     if (mode === selectedMode) return;
     if (!getMode(mode).separateSession) return;
@@ -473,17 +423,22 @@ export default function HomePage() {
 
   const handleResponseLengthChange = (value: ResponseLength) => {
     setResponseLength(value);
-    saveResponseLength(value);
+    persistPreferences({ responseLength: value });
   };
 
   const handleReasoningEffortChange = (value: ReasoningEffort) => {
     setReasoningEffort(value);
-    saveReasoningEffort(value);
+    persistPreferences({ reasoningEffort: value });
   };
 
   const handleAppearanceChange = (value: Appearance) => {
     setAppearance(value);
-    saveAppearance(value);
+    persistPreferences({ appearance: value });
+  };
+
+  const handleSearchModeChange = (value: SearchMode) => {
+    setSearchMode(value);
+    persistPreferences({ searchMode: value });
   };
 
   const handleNewChat = useCallback(() => {
@@ -544,7 +499,10 @@ export default function HomePage() {
   }, [handleNewChat]);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
-  const finishTutorial = useCallback(() => setTutorialFinished(true), []);
+  const finishTutorial = useCallback(() => {
+    setTutorialFinished(true);
+    persistPreferences({ tutorialFinished: true });
+  }, [persistPreferences]);
 
   // ── Where a message is written ─────────────────────────────────────────────
   // One set of calls for both kinds of chat, so the send path below has no
@@ -1120,12 +1078,10 @@ export default function HomePage() {
     );
   }
 
-  // A signed-in person arriving on a new browser has a name Openmi already knows
-  // and this one has not read yet. Holding the gate for that single read is the
-  // difference between being greeted by name and being asked to type it again.
-  // It settles on the first failure too, so a deployment with no account
-  // service, or one offline, is never stuck here.
-  if (hydrated && resolvingAccount) {
+  // The first identity read is in flight. A blank screen with the mark is the
+  // honest thing here: either the sign-in screen or the product follows, and
+  // guessing which would flash the wrong one.
+  if (!account) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-[#060a08] text-text-body">
         <OpenmiMark className="h-8 w-8 animate-pulse" />
@@ -1134,19 +1090,32 @@ export default function HomePage() {
     );
   }
 
-  // Entry gate: the name is what the admin console lists visitors by, so Openmi
-  // is not usable until one is given. There is no skip out of this screen.
+  // Openmi requires an account. There is no guest path and no skip: the sign-in
+  // screen is the whole interface until a provider or email returns a session.
+  if (!account.signedIn) {
+    return (
+      <>
+        <AuthScreen
+          initialError={authError}
+          unavailable={
+            account.status === "unconfigured"
+              ? "unconfigured"
+              : account.status === "unreachable"
+                ? "unreachable"
+                : null
+          }
+        />
+        <SplashScreen />
+      </>
+    );
+  }
+
+  // Signed in, and the name is being resolved from the account and written to
+  // this browser. This is a single bounded read, not a gate on the product.
   if (!displayName) {
     return (
-      <div className="flex h-[100dvh] overflow-hidden bg-[#060a08] text-text-body">
-        <NamePrompt
-          open
-          onSave={handleSaveName}
-          onGoogle={handleGoogleEntry}
-          googleAvailable={supabaseConfigured}
-          googleBusy={googleBusy}
-          googleError={googleError}
-        />
+      <div className="flex h-[100dvh] items-center justify-center bg-[#060a08] text-text-body">
+        <OpenmiMark className="h-8 w-8 animate-pulse" />
         <SplashScreen />
       </div>
     );
@@ -1309,8 +1278,9 @@ export default function HomePage() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         displayName={displayName}
+        onDisplayNameChange={handleSaveName}
         searchMode={searchMode}
-        onSearchModeChange={setSearchMode}
+        onSearchModeChange={handleSearchModeChange}
         searchAvailable={searchAvailable}
         responseLength={responseLength}
         onResponseLengthChange={handleResponseLengthChange}

@@ -94,7 +94,7 @@ export async function verifyAdminAccess(): Promise<boolean> {
 }
 
 /**
- * Signs in with Google, returning the resulting UID once the round trip lands.
+ * Signs in with Google, returning once the round trip has been requested.
  *
  * Supabase's OAuth is a full-page redirect, so this returns after the browser
  * has already left; the gate re-checks `verifyAdminAccess` when it comes back,
@@ -110,16 +110,11 @@ export async function signInAsAdmin(): Promise<string> {
   return "";
 }
 
-/** Ends the admin session and returns the browser to a guest identity. */
+/** Ends the admin session. The app then shows the sign-in screen. */
 export async function signOutAdmin(): Promise<void> {
   const client = getSupabase();
   if (!client) return;
   await client.auth.signOut();
-  try {
-    await client.auth.signInAnonymously();
-  } catch {
-    // A project without anonymous sign-ins simply has no one signed in.
-  }
 }
 
 /** The UID currently signed in, for the first-run setup hint. */

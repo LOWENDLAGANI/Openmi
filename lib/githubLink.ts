@@ -15,7 +15,7 @@
 // The token exists server-side for exactly one purpose. Nothing in this file can
 // read it back.
 
-import { authHeader, ensureUser, supabaseConfigured } from "./supabase";
+import { authHeader, currentUser, supabaseConfigured } from "./supabase";
 
 export type GithubLinkOutcome =
   /** The browser is leaving for github.com; the callback finishes the job. */
@@ -43,7 +43,7 @@ export async function linkGithubAccount(): Promise<GithubLinkOutcome> {
     };
   }
 
-  const user = await ensureUser();
+  const user = await currentUser();
   if (!user) {
     return { status: "error", message: "Accounts are not available on this deployment right now." };
   }

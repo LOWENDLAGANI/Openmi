@@ -3,13 +3,13 @@
 // ── "Why can't I sign in?" ──────────────────────────────────────────────────
 //
 // A collapsed row in Settings, not a permanent part of the interface. It exists
-// because the error the SDK shows (`anonymous_provider_disabled`) names no
-// cause and no fix, and the four possible causes live in four different places
-// in the Supabase dashboard. Opening this and pressing one button replaces that
-// guessing with the backend's own answer.
+// because the error the SDK shows (`provider_disabled`) names no cause and no
+// fix, and the four provider switches live in one place in the Supabase
+// dashboard. Opening this and pressing one button replaces that guessing with
+// the backend's own answer.
 //
 // Nothing here decides access. It reports which project this build talks to and
-// what that project said when asked to create an account.
+// which of the four doors that project has opened.
 
 import { useCallback, useState } from "react";
 import { diagnoseSignIn, type SignInDiagnosis } from "@/lib/authDiagnostics";
@@ -39,9 +39,8 @@ export default function AuthDiagnostics() {
 
       <div className="mt-2 space-y-2">
         <p className="text-[10.5px] leading-relaxed text-white/35">
-          Asks Google directly which project this build talks to and why it refused to create an
-          account. It also creates an anonymous account when the project allows one, which is what
-          Openmi does on every page load anyway.
+          Asks the project which of Google, GitHub, Microsoft and email sign-in it has switched on.
+          Nothing is created and no account is needed.
         </p>
 
         <button
@@ -71,6 +70,17 @@ export default function AuthDiagnostics() {
                 className={`truncate font-mono ${result.ok ? "text-[#a9d8bb]" : "text-amber-200/90"}`}
               >
                 {result.ok ? "OK" : (result.backendMessage ?? "no response")}
+              </dd>
+              <dt className="text-white/30">methods</dt>
+              <dd className="truncate font-mono text-white/70">
+                {[
+                  result.methods.google ? "google" : null,
+                  result.methods.github ? "github" : null,
+                  result.methods.microsoft ? "azure" : null,
+                  result.methods.email ? "email" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "none"}
               </dd>
             </dl>
 

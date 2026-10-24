@@ -1,40 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { watchAccount } from "@/lib/account";
-import { signOutToGuest } from "@/lib/emailAuth";
+import { signOutAccount, watchAccount } from "@/lib/account";
+import { changePassword } from "@/lib/emailAuth";
 import {
   accountExplanation,
   accountHeadline,
   describeLinkError,
+  providerLabel,
   type AccountView,
 } from "@/lib/accountState";
-import { loadChatsFromAccount, syncCloudHistory } from "@/lib/cloudHistory";
-import EmailAuthForm from "./EmailAuthForm";
 import AuthDiagnostics from "./AuthDiagnostics";
 
 interface AccountSectionProps {
   displayName: string;
+  /** Saves the name here, in `profiles`, in the account preferences and metadata. */
+  onDisplayNameChange: (name: string) => void;
 }
 
 /**
- * The account row in Settings: what this browser is signed in as, and the form
- * that changes it.
+ * The account row in Settings: what this browser is signed in as, the name the
+ * product greets you by, and the way out.
  *
- * This is the whole of the visitor's sign-in. It is kept away from the
- * administrator's prompt on purpose — that one is reached by tapping the logo ten
- * times, and the two share nothing but the Supabase project. Signing in here
- * grants a token; only row-level security decides what a token is worth, and it
- * grants one verified admin and no others.
- *
- * The credential is an email address and a password, held by Supabase Auth.
- * Registering upgrades the anonymous account this browser already has, so the
- * uid — and every chat written under it — stays exactly where it is. Nothing is
- * required: someone who never registers still has a name, a working Openmi, and
- * a chat history in their browser.
+ * This is kept away from the administrator's prompt on purpose — that one is
+ * reached by tapping the logo ten times, and the two share nothing but the
+ * Supabase project. Signing in here grants a token; only row-level security
+ * decides what a token is worth, and it grants one verified admin and no others.
  */
-export default function AccountSection({ displayName }: AccountSectionProps) {
+export default function AccountSection({ displayName, onDisplayNameChange }: AccountSectionProps) {
   const [view, setView] = useState<AccountView | null>(null);
+  const [name, setName] = useState(displayName);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -42,46 +37,35 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
   useEffect(() => watchAccount(setView), []);
 
   useEffect(() => {
+    setName(displayName);
+  }, [displayName]);
+
+  useEffect(() => {
     if (!notice) return;
     const timeout = setTimeout(() => setNotice(null), 6000);
     return () => clearTimeout(timeout);
   }, [notice]);
 
-  /**
-   * Brings the account's chats in, then writes this device's own back out.
-   *
-   * The order matters and is the whole point. Pulling first means a computer
-   * that signs in to an account holding a phone's history adopts it instead of
-   * uploading an empty library over the top of it; pushing afterwards means this
-   * device's chats exist on the account too. Doing it here rather than inside
-   * the auth module keeps that module free of chat logic and means a failed sync
-   * never blocks the sign-in itself.
-   */
-  const resync = useCallback(async (announce: boolean) => {
-    try {
-      const adopted = await loadChatsFromAccount();
-      await syncCloudHistory();
-      if (announce && adopted && adopted.chats > 0) {
-        setNotice(
-          `Pulled ${adopted.chats} chat${adopted.chats === 1 ? "" : "s"} from your account.`
-        );
-      }
-    } catch (cause: unknown) {
-      console.error("[Openmi] Could not sync this device's chats with the account", cause);
+  const saveName = useCallback(() => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("A name needs at least one character.");
+      return;
     }
-  }, []);
+    setError(null);
+    onDisplayNameChange(trimmed);
+    setNotice("Name saved to this account.");
+  }, [name, onDisplayNameChange]);
 
   const signOut = useCallback(async () => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await signOutToGuest();
-      setNotice("This device is back to a name on its own. Your account is untouched.");
+      await signOutAccount();
     } catch (cause) {
       console.error("[Openmi] Could not sign out", cause);
       setError(describeLinkError(cause));
-    } finally {
       setBusy(false);
     }
   }, []);
@@ -90,17 +74,9 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
   // than one that arrives a frame later.
   if (!view) return null;
 
-  // `unconfigured` and `unreachable` used to return null here, which removed the
-  // whole row and left people looking for an Account section that had silently
-  // gone. The explanation for both states was written and never rendered. A
-  // state the visitor cannot see is a state they cannot fix, so both now render
-  // the row with the reason and without the controls they cannot use.
   const unconfigured = view.status === "unconfigured";
   const unreachable = view.status === "unreachable";
-  const linked = view.isLinked;
-  // Signing in is only possible when there is a project to sign in against and
-  // a session to upgrade; an unreachable project would fail at the click.
-  const canSignIn = view.status === "guest";
+  const signedIn = view.status === "signed-in";
 
   return (
     <section>
@@ -118,7 +94,7 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
             aria-hidden
             className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-white/60"
           >
-            {linked ? (
+            {signedIn ? (
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20 6L9 17l-5-5" />
               </svg>
@@ -137,46 +113,62 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
             <p className="mt-1 text-[11px] leading-relaxed text-white/40">
               {accountExplanation(view)}
             </p>
-            {linked && view.provider === "email" && !view.emailVerified && (
-              <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
-                Email not confirmed yet. Nothing is blocked — confirm it whenever the link arrives.
+            {signedIn && (
+              <p className="mt-1 text-[10.5px] text-white/30">
+                Signed in with {providerLabel(view.provider)}
+                {view.emailVerified ? "" : " · address not confirmed"}
               </p>
             )}
-            {(unconfigured || unreachable) && (
+            {signedIn && view.provider === "email" && !view.emailVerified && (
               <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
-                {unconfigured
-                  ? "Sign-in appears here once this deployment has a Supabase project. Until then everything else about Openmi keeps working."
-                  : "Sign-in is hidden while the account service is unreachable — it would fail at the click."}
+                Email not confirmed yet. Nothing is blocked — confirm it whenever the link arrives.
               </p>
             )}
           </div>
         </div>
 
-        {canSignIn && (
-          <div className="mt-3">
-            <EmailAuthForm
-              name={displayName}
-              onSignedIn={(_next, outcome) => {
-                // An upgraded guest keeps its uid and only needs the push half;
-                // an adopted account brought its history with it and needs the
-                // pull too. Both are safe to run, so the difference is only what
-                // is said about it.
-                void resync(outcome === "adopted");
-                setError(null);
-              }}
-            />
+        {signedIn && (
+          <div className="mt-3 space-y-2">
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] text-white/35">Display name</span>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={name}
+                  maxLength={40}
+                  onChange={(event) => setName(event.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-white/[0.09] bg-black/25 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+                />
+                <button
+                  type="button"
+                  onClick={saveName}
+                  disabled={!name.trim() || name.trim() === displayName}
+                  className="shrink-0 rounded-lg border border-white/[0.12] px-3 py-2 text-[11.5px] font-medium text-white/75 transition hover:bg-white/[0.06] disabled:opacity-40"
+                >
+                  Save
+                </button>
+              </div>
+            </label>
+
+            {view.provider === "email" && <PasswordForm />}
+
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              disabled={busy}
+              className="w-full rounded-xl border border-white/[0.09] py-2.5 text-[13px] font-medium text-white/70 transition hover:bg-white/[0.06] disabled:opacity-50"
+            >
+              {busy ? "Signing out…" : "Sign out"}
+            </button>
           </div>
         )}
 
-        {linked && (
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            disabled={busy}
-            className="mt-3 w-full rounded-xl border border-white/[0.09] py-2.5 text-[13px] font-medium text-white/70 transition hover:bg-white/[0.06] disabled:opacity-50"
-          >
-            {busy ? "Working…" : "Use this device without an account"}
-          </button>
+        {(unconfigured || unreachable) && (
+          <p className="mt-2 text-[10.5px] leading-relaxed text-amber-100/60">
+            {unconfigured
+              ? "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for this deployment, then rebuild."
+              : "Sign-in is unavailable while the account service is unreachable."}
+          </p>
         )}
 
         {error && <p className="mt-2.5 text-[11px] leading-relaxed text-red-200/80">{error}</p>}
@@ -186,5 +178,76 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
       {/* Collapsed by default: it is a diagnostic, not part of the account row. */}
       <AuthDiagnostics />
     </section>
+  );
+}
+
+/**
+ * Sets a new password on an email account.
+ *
+ * The reset mail signs the person back in through the PKCE flow, so this is also
+ * the last step of "forgot password": after following the link, choose the new
+ * password here.
+ */
+function PasswordForm() {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await changePassword(password);
+      setPassword("");
+      setNotice("Password updated.");
+    } catch (cause) {
+      setError(describeLinkError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[11px] text-white/40 transition-colors hover:text-white/65"
+      >
+        Change password
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-1.5">
+      <span className="block text-[10.5px] text-white/35">New password</span>
+      <div className="flex gap-1.5">
+        <input
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="6+ characters"
+          autoComplete="new-password"
+          minLength={6}
+          required
+          className="min-w-0 flex-1 rounded-lg border border-white/[0.09] bg-black/25 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+        />
+        <button
+          type="submit"
+          disabled={busy || password.length < 6}
+          className="shrink-0 rounded-lg border border-white/[0.12] px-3 py-2 text-[11.5px] font-medium text-white/75 transition hover:bg-white/[0.06] disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Set"}
+        </button>
+      </div>
+      {error && <p className="text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}
+      {notice && <p className="text-[10.5px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}
+    </form>
   );
 }

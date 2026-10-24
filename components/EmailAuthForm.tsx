@@ -2,10 +2,10 @@
 
 // ── The email and password form ──────────────────────────────────────────────
 //
-// One component, two modes, used wherever an account is offered: the Settings
-// row and the repository panel. It is self-contained on purpose — a second copy
-// of these fields would be the kind of duplicate that drifts, and the failure
-// modes below are exactly the ones worth fixing in one place.
+// One component, two modes, used by the sign-in screen. It is self-contained on
+// purpose — a second copy of these fields would be the kind of duplicate that
+// drifts, and the failure modes below are exactly the ones worth fixing in one
+// place.
 //
 // The form never decides who may sign in. It hands a credential to Supabase and
 // reports what came back; `describeLinkError` turns the code into a sentence
@@ -23,16 +23,17 @@ import {
 import { describeLinkError, type AccountView } from "@/lib/accountState";
 
 interface EmailAuthFormProps {
-  /** The name typed on this device, carried onto the new account. */
+  /** The name typed into the registration form, carried onto the new account. */
   name?: string;
-  /** Called once the account is signed in. */
-  onSignedIn?: (view: AccountView, outcome: "linked" | "adopted") => void;
+  /** Called once a session exists and the account is ready to render. */
+  onSignedIn?: (view: AccountView) => void;
 }
 
 type Mode = "signin" | "register";
 
-export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) {
+export default function EmailAuthForm({ name: initialName, onSignedIn }: EmailAuthFormProps) {
   const [mode, setMode] = useState<Mode>("signin");
+  const [name, setName] = useState(initialName ?? "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,26 +49,27 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
       setError(null);
       setNotice(null);
       try {
-        const result =
-          mode === "register"
-            ? await registerWithEmail(email.trim(), password, name)
-            : await signInWithEmail(email.trim(), password, name);
-
-        if (result.needsVerification) {
-          setVerifyEmail(email.trim());
-          setNotice(
-            "Account ready. Check your inbox to confirm the address — you can keep using Openmi now."
-          );
-        } else {
+        if (mode === "register") {
+          const result = await registerWithEmail(email.trim(), password, name);
+          setPassword("");
+          if (result.needsVerification) {
+            setVerifyEmail(email.trim());
+            setNotice(
+              "Account created. Check your inbox to confirm the address — the link finishes signing you in."
+            );
+            return;
+          }
           setVerifyEmail(null);
-          setNotice(
-            result.outcome === "linked"
-              ? "Signed in. Your chats are with this account."
-              : "Signed in to your existing account."
-          );
+          setNotice("Account created. Welcome to Openmi.");
+          if (result.view) onSignedIn?.(result.view);
+          return;
         }
+
+        const result = await signInWithEmail(email.trim(), password);
         setPassword("");
-        onSignedIn?.(result.view, result.outcome);
+        setVerifyEmail(result.needsVerification ? email.trim() : null);
+        setNotice("Signed in.");
+        if (result.view) onSignedIn?.(result.view);
       } catch (cause) {
         setError(describeLinkError(cause));
       } finally {
@@ -105,8 +107,8 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
   }
 
   return (
-    <form onSubmit={submit} className="space-y-2">
-      <div className="flex gap-1.5">
+    <form onSubmit={submit} className="space-y-2.5">
+      <div className="flex gap-1.5 rounded-xl border border-white/[0.07] bg-white/[0.02] p-1">
         {(["signin", "register"] as const).map((value) => (
           <button
             key={value}
@@ -116,7 +118,7 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
               setError(null);
               setNotice(null);
             }}
-            className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition ${
+            className={`flex-1 rounded-lg px-2 py-2 text-[12px] font-medium transition ${
               mode === value
                 ? "bg-white/[0.11] text-white"
                 : "text-white/45 hover:bg-white/[0.05] hover:text-white/70"
@@ -127,6 +129,21 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
         ))}
       </div>
 
+      {mode === "register" && (
+        <label className="block">
+          <span className="sr-only">Your name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Your name (optional)"
+            autoComplete="name"
+            maxLength={40}
+            className="w-full rounded-xl border border-white/[0.09] bg-black/30 px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+          />
+        </label>
+      )}
+
       <label className="block">
         <span className="sr-only">Email address</span>
         <input
@@ -136,7 +153,7 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
           placeholder="you@example.com"
           autoComplete="email"
           required
-          className="w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+          className="w-full rounded-xl border border-white/[0.09] bg-black/30 px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
         />
       </label>
 
@@ -150,14 +167,14 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
           autoComplete={mode === "register" ? "new-password" : "current-password"}
           required
           minLength={6}
-          className="w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+          className="w-full rounded-xl border border-white/[0.09] bg-black/30 px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
         />
       </label>
 
       <button
         type="submit"
         disabled={busy || !email.trim() || !password}
-        className="w-full rounded-xl bg-white/[0.08] py-2.5 text-[12.5px] font-medium text-white transition hover:bg-white/[0.12] disabled:opacity-50"
+        className="w-full rounded-xl bg-white py-3 text-[13px] font-semibold text-black transition hover:opacity-90 disabled:opacity-40"
       >
         {busy ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
       </button>
@@ -171,7 +188,7 @@ export default function EmailAuthForm({ name, onSignedIn }: EmailAuthFormProps) 
         >
           Forgot password?
         </button>
-        <span className="text-[10px] text-white/20">Supabase Auth stores the password</span>
+        <span className="text-[10px] text-white/20">Secured by Supabase Auth</span>
       </div>
 
       {error && <p className="text-[11px] leading-relaxed text-red-200/80">{error}</p>}
@@ -201,7 +218,7 @@ function VerificationHint({ email, onError }: { email: string; onError: (message
         setState("confirmed");
         return;
       }
-      await resendVerificationEmail();
+      await resendVerificationEmail(email);
       setState("sent");
     } catch (cause) {
       onError(describeLinkError(cause));

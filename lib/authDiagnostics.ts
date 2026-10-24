@@ -1,19 +1,26 @@
-// ── Why can this browser not get an account? ────────────────────────────────
+// ── Why can this browser not sign in? ───────────────────────────────────────
 //
-// `anonymous_provider_disabled` is a poor clue, and a 401 from the auth server
-// is worse. Both mean the same thing to the person reading them: nothing tells
-// them which toggle to change, or which project the key belongs to.
+// A provider that is switched off answers with `provider_disabled`, and a
+// project that refuses new accounts answers with `signup_disabled`. Both are
+// poor clues: nothing in either says which toggle to change, or which project
+// the key belongs to.
 //
 // Supabase answers the question directly. `GET /auth/v1/settings` returns the
-// provider switches for the project the key names — including whether anonymous
-// sign-ins and email sign-ups are on — so this module asks it and prints the
-// answer instead of guessing from an error code. The mapping from the settings
-// to a fix is pure and tested; the request is one unauthenticated call and
-// creates nothing, which is better than the old probe that signed a user in to
-// find out whether signing in worked.
+// provider switches for the project the key names — including Email, Google,
+// GitHub and Azure — so this module asks it and prints the answer instead of
+// guessing from an error code. The mapping from the settings to a fix is pure
+// and tested; the request is one unauthenticated call and creates nothing.
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "";
+
+/** The doors this build offers, in the order the sign-in screen shows them. */
+export interface SignInMethods {
+  google: boolean;
+  github: boolean;
+  microsoft: boolean;
+  email: boolean;
+}
 
 export interface SignInDiagnosis {
   /** False when this build has no Supabase values at all. */
@@ -26,12 +33,33 @@ export interface SignInDiagnosis {
   keyHint: string | null;
   /** The host the browser is actually running on, which must be allowed by CORS. */
   origin: string;
-  /** True when the project accepts anonymous sign-ins, which this build needs. */
+  /** True when at least one of the four doors is open. */
   ok: boolean;
   /** The auth server's own answer. Null when there was none. */
   backendMessage: string | null;
+  /** Which providers the project has switched on. */
+  methods: SignInMethods;
   verdict: string;
   nextStep: string;
+}
+
+const NO_METHODS: SignInMethods = {
+  google: false,
+  github: false,
+  microsoft: false,
+  email: false,
+};
+
+function methodNames(methods: SignInMethods): string {
+  const open = [
+    methods.google ? "Google" : null,
+    methods.github ? "GitHub" : null,
+    methods.microsoft ? "Microsoft" : null,
+    methods.email ? "email and password" : null,
+  ].filter((name): name is string => Boolean(name));
+  if (open.length === 0) return "none";
+  if (open.length === 1) return open[0]!;
+  return `${open.slice(0, -1).join(", ")} and ${open[open.length - 1]}`;
 }
 
 /**
@@ -43,31 +71,32 @@ export interface SignInDiagnosis {
  */
 export function explainSignInError(
   backendMessage: string | null,
-  ok: boolean
+  ok: boolean,
+  methods: SignInMethods = NO_METHODS
 ): { verdict: string; nextStep: string } {
   if (ok) {
     return {
-      verdict:
-        "This project accepts anonymous sign-in. Account creation is not the problem on this deployment.",
+      verdict: `This project accepts sign-in with ${methodNames(methods)}. The provider side is not the problem on this deployment.`,
       nextStep:
-        "If a sign-in still fails, it is the method you are using — open the account form and note which message it shows.",
+        "If a sign-in still fails, it is the method you picked — open the sign-in screen and note which message it shows.",
     };
   }
 
   const message = backendMessage ?? "";
 
-  if (message === "ANONYMOUS_DISABLED") {
+  if (message === "NO_PROVIDERS") {
     return {
-      verdict: "The Anonymous provider is switched off for this project.",
+      verdict:
+        "None of the four sign-in methods is switched on for this project, so nobody can create a session.",
       nextStep:
-        "Supabase dashboard → Authentication → Sign In / Providers → Anonymous sign-ins → Enable, then run the check again.",
+        "Supabase dashboard → Authentication → Sign In / Providers: turn on Google, GitHub, Azure (Microsoft) and Email, then run the check again.",
     };
   }
 
   if (message === "SIGNUP_DISABLED") {
     return {
       verdict:
-        "The project refuses new accounts, so a first-time visitor cannot be signed in as a guest.",
+        "The project refuses new accounts, so a first-time visitor cannot register.",
       nextStep:
         "Authentication → Sign In / Providers: turn on Allow new users to sign up, then run the check again.",
     };
@@ -109,7 +138,8 @@ export function explainSignInError(
  * Asks the project for its auth settings.
  *
  * No session is needed and nothing is created. `disable_signup` and the
- * `external` map are the two things the verdict is built from.
+ * `external` map are the two things the verdict is built from. `azure` is
+ * Supabase's name for the Microsoft door.
  */
 export async function diagnoseSignIn(): Promise<SignInDiagnosis> {
   const host = (() => {
@@ -129,6 +159,7 @@ export async function diagnoseSignIn(): Promise<SignInDiagnosis> {
     origin,
     ok: false,
     backendMessage: null,
+    methods: NO_METHODS,
     verdict: "",
     nextStep: "",
   };
@@ -143,6 +174,7 @@ export async function diagnoseSignIn(): Promise<SignInDiagnosis> {
     };
   }
 
+  let methods = NO_METHODS;
   let ok = false;
   let backendMessage: string | null = null;
 
@@ -155,10 +187,18 @@ export async function diagnoseSignIn(): Promise<SignInDiagnosis> {
       const settings = (await response.json().catch(() => null)) as
         | { external?: Record<string, boolean>; disable_signup?: boolean }
         | null;
-      ok = settings?.external?.anonymous === true;
-      // Sign-ups being off is the more specific answer: a guest session cannot
-      // exist at all if the project refuses to create the user behind it.
-      backendMessage = ok ? null : settings?.disable_signup === true ? "SIGNUP_DISABLED" : "ANONYMOUS_DISABLED";
+      methods = {
+        google: settings?.external?.google === true,
+        github: settings?.external?.github === true,
+        microsoft: settings?.external?.azure === true,
+        email: settings?.external?.email === true,
+      };
+      ok = methods.google || methods.github || methods.microsoft || methods.email;
+      backendMessage = ok
+        ? null
+        : settings?.disable_signup === true
+          ? "SIGNUP_DISABLED"
+          : "NO_PROVIDERS";
     } else {
       backendMessage = response.status === 401 || response.status === 403
         ? "INVALID_API_KEY"
@@ -168,6 +208,6 @@ export async function diagnoseSignIn(): Promise<SignInDiagnosis> {
     backendMessage = null;
   }
 
-  const explanation = explainSignInError(backendMessage, ok);
-  return { ...base, ok, backendMessage, ...explanation };
+  const explanation = explainSignInError(backendMessage, ok, methods);
+  return { ...base, ok, backendMessage, methods, ...explanation };
 }

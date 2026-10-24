@@ -25,15 +25,8 @@ export const serverControlsConfigured = supabaseConfigured;
 /** Result of authenticating a caller, resolved from the token itself. */
 export interface CallerIdentity {
   uid: string;
-  /** Empty for an anonymous visitor, who has no account attached. */
+  /** The address on the account. Empty only if a provider withheld it. */
   email: string;
-  /**
-   * Whether the verified account carries a Google identity as opposed to being
-   * an anonymous guest. Read from the token itself, so a caller cannot claim it.
-   * The Google tools gate on this: acting on someone's repositories requires a
-   * real account, not a guest session.
-   */
-  googleLinked: boolean;
 }
 
 let cached: { config: AppConfig; at: number } | null = null;
@@ -199,21 +192,12 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
   }
   if (!user?.id) return fail("lookup-returned-no-user");
 
-  // An anonymous visitor has no email, and that is the normal case: almost every
-  // caller is a guest. Demanding an address here would identify nobody, which
-  // silently disables the ban list and the daily caps as well. The uid is what
-  // those controls act on; only the admin check needs an address.
-  //
-  // `identities` lists every credential on the account, so a google entry is
-  // exactly the "signed up with Google" signal the repository panel needs.
-  const googleLinked = Array.isArray(user.identities)
-    ? user.identities.some((identity) => identity.provider === "google")
-    : user.app_metadata?.provider === "google";
-
+  // An address is not guaranteed: a provider that withholds it leaves the
+  // account without one. The uid is what the ban list and the daily caps act on,
+  // so those keep working; only the administrator check needs an address.
   const identity: CallerIdentity = {
     uid: user.id,
     email: typeof user.email === "string" ? user.email.toLowerCase() : "",
-    googleLinked,
   };
 
   // Only a verified identity is cached. A failure is not, because the next
@@ -333,7 +317,7 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
       status: 403,
       error: identity.email
         ? "This account is not the Openmi administrator."
-        : "This session is still anonymous. Sign in inside the console before using the controls.",
+        : "This account has no verified email address, so it cannot be the administrator. Sign in with the address in app_admin.",
     };
   }
   return { allowed: true, identity };

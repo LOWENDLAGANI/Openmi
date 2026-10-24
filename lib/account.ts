@@ -1,77 +1,113 @@
-// ── The visitor's account ────────────────────────────────────────────────────
-// Signing a Google account onto Openmi, detaching it, and carrying a name across
-// browsers. This is the user's account and not the administrator's: nothing here
-// can grant console access, and nothing here reads the console's data.
+// ── The account ──────────────────────────────────────────────────────────────
+// Signing in with Google, GitHub, Microsoft or email, signing out, and carrying
+// a name and preferences across browsers. This is the user's account and not the
+// administrator's: nothing here can grant console access, and nothing here reads
+// the console's data.
 //
-// The whole design rests on one Supabase behaviour. The app signs every
-// first-time visitor in anonymously, and Supabase lets that same user be turned
-// into a permanent one in place — `linkIdentity` attaches a Google identity to
-// the *existing* user, so the UID does not change. That makes binding a
-// migration rather than a copy: the chats already logged under that UID stay
-// exactly where they are, and no chat is ever moved, duplicated, or re-uploaded.
-// The same is true in the other direction — an account that already exists
-// somewhere else is signed into rather than merged into, because merging two
-// histories is the one operation here that could lose someone's words.
+// ── Every visitor has an account ────────────────────────────────────────────
+// The guest-first build is gone. There is no anonymous Supabase user, so a first
+// visit lands on the sign-in screen and the product is only usable once one of
+// the four doors has produced a session. That is what makes the rest of the
+// promise honest: every chat, preference and push subscription belongs to a real
+// `auth.users` row and follows the person to another browser.
+//
+// ── OAuth is a redirect, not a popup ────────────────────────────────────────
+// Supabase's OAuth is a full-page round trip. That is the shape most large sites
+// use, and it removes a class of failure the popup path had: extensions, strict
+// pop-up settings and embedded views that block `window.open` no longer matter.
+// `detectSessionInUrl` in lib/supabase.ts exchanges the returned code for a
+// session when the page loads again, and `watchAccount` reports it. A provider
+// that refuses the sign-in puts its reason in the URL, which
+// `consumeOAuthError` reads once and the sign-in screen shows.
 //
 // Elevation is decided entirely by the policies in `supabase/migrations`, which
-// compare one address seeded in `app_admin`. Signing in with Google grants a
-// token and nothing else, so there is no path from this file to the admin
-// console even for the person who owns it.
-//
-// ── Why the redirect ────────────────────────────────────────────────────────
-// Supabase's OAuth is a full-page round trip rather than a popup. That is the
-// shape most large sites use, and it removes a whole class of failure the popup
-// path had: extensions, strict pop-up settings and embedded views that block
-// `window.open` no longer matter. The intent is written to `sessionStorage`
-// before the browser leaves, and `consumeGoogleSignIn` reads it at the next
-// mount, so the caller is told what actually happened rather than what was
-// attempted.
+// compare one address seeded in `app_admin`. Signing in grants a token and
+// nothing else, so there is no path from this file to the admin console even for
+// the person who owns it.
 
-import type { User } from "@supabase/supabase-js";
-import { ensureUser, getSupabase, withTimeout } from "./supabase";
-import { isDismissed, normalizeName, type AccountProvider, type AccountView } from "./accountState";
+import type { Provider, User } from "@supabase/supabase-js";
+import { currentUser, getSupabase, withTimeout } from "./supabase";
+import {
+  describeAccount as viewFromUser,
+  normalizeName,
+  type AccountProvider,
+  type AccountView,
+} from "./accountState";
 
-/** What a bind actually did, which the interface needs to describe it honestly. */
-export type BindOutcome =
-  /** The anonymous user gained a Google identity. The UID never changed. */
-  | "linked"
-  /**
-   * That Google account already had an Openmi history elsewhere, so Openmi
-   * signed into it instead. The UID changed, and the caller must re-sync local
-   * chats onto it.
-   */
-  | "adopted"
-  /** The person closed the window. Nothing happened and nothing is wrong. */
-  | "dismissed";
+/** The three OAuth doors the interface offers. */
+export type OAuthProvider = "google" | "github" | "microsoft";
 
-export interface BindResult {
-  outcome: BindOutcome;
-  view: AccountView;
-}
+/** Supabase's provider id for each door. Microsoft is `azure` in the dashboard. */
+const PROVIDER_IDS: Record<OAuthProvider, Provider> = {
+  google: "google",
+  github: "github",
+  microsoft: "azure",
+};
 
-/** Supabase marks a guest with this flag; older tokens are told apart by having
- *  no identities at all, which is what an anonymous user carries. */
-export function isAnonymousUser(user: User | null): boolean {
-  if (!user) return false;
-  if (user.is_anonymous === true) return true;
-  return Array.isArray(user.identities) && user.identities.length === 0;
-}
+/**
+ * The scopes each provider needs.
+ *
+ * Google's defaults already carry the address and profile. GitHub needs
+ * `user:email` before it will release a verified address, and Microsoft needs
+ * `email` before the account has one at all. Supabase asks for nothing beyond
+ * these, so the consent screen stays as small as the product needs.
+ */
+const PROVIDER_SCOPES: Record<OAuthProvider, string | undefined> = {
+  google: undefined,
+  github: "read:user user:email",
+  microsoft: "email openid profile",
+};
 
 /**
  * Which credential signed this account in.
  *
- * Read from `identities`, which lists every credential on the user. A guest has
- * none and answers null. Supabase names the email/password provider `email`,
- * which is not obvious enough to leave unexplained at the call site.
+ * Read from `identities`, which lists every credential on the user, and then
+ * from `app_metadata.provider`, which is what a token minted by an older SDK
+ * carries. Supabase calls Microsoft `azure`; the product calls it Microsoft,
+ * because that is the word on the button the person pressed.
  */
 function providerOf(user: User | null): AccountProvider {
-  if (!user || isAnonymousUser(user)) return null;
+  if (!user) return null;
   const providers = (user.identities ?? []).map((identity) => identity.provider);
-  if (providers.includes("google")) return "google";
-  if (providers.includes("email")) return "email";
-  if (user.app_metadata?.provider === "google") return "google";
-  if (user.app_metadata?.provider === "email") return "email";
+  const primary = user.app_metadata?.provider as string | undefined;
+
+  if (providers.includes("google") || primary === "google") return "google";
+  if (providers.includes("github") || primary === "github") return "github";
+  if (providers.includes("azure") || primary === "azure") return "microsoft";
+  if (providers.includes("email") || primary === "email") return "email";
   return null;
+}
+
+/**
+ * The provider's own idea of the person's name.
+ *
+ * Each provider puts it somewhere slightly different: Google sends `full_name`
+ * and `name`, GitHub sends `user_name` and sometimes `full_name`, Microsoft sends
+ * `name` or `preferred_username`. All of them are weaker than a name the person
+ * typed here, which is why this is only ever a fallback.
+ */
+function providerNameOf(user: User | null): string | null {
+  const meta = (user?.user_metadata ?? {}) as Record<string, unknown>;
+  for (const key of ["name", "full_name", "display_name", "user_name", "preferred_username"]) {
+    const value = meta[key];
+    if (typeof value === "string" && value.trim()) return normalizeName(value);
+  }
+  return null;
+}
+
+/**
+ * The name to greet this account by before it has chosen one.
+ *
+ * The provider's name is preferred over the address, because "Rani" reads better
+ * than "rani.k". When the provider supplied nothing at all, the local part of the
+ * address is the only human-shaped thing available.
+ */
+export function displayNameFromUser(user: User | null): string | null {
+  const fromProvider = providerNameOf(user);
+  if (fromProvider) return fromProvider;
+  const address = user?.email ?? "";
+  const local = address.split("@")[0]?.trim();
+  return local ? normalizeName(local) : null;
 }
 
 /**
@@ -81,23 +117,20 @@ function providerOf(user: User | null): AccountProvider {
  * rest of the interface already reads. A second implementation of this mapping
  * would be the kind of duplicate that drifts: one of the two would learn about
  * a new field and the other would silently keep reporting the old shape.
- *
- * `emailVerified` reads `email_confirmed_at`. A Google identity is confirmed by
- * Google, so it is only ever false for an email/password account that has not
- * clicked the link yet — and nothing is gated on it.
  */
 export function accountViewOf(user: User | null): AccountView {
-  const anonymous = isAnonymousUser(user);
-  const linked = Boolean(user) && !anonymous;
-  return {
-    status: linked ? "linked" : "guest",
-    email: linked ? user?.email ?? null : null,
-    name: (user?.user_metadata?.name as string | undefined) ?? (user?.user_metadata?.display_name as string | undefined) ?? null,
-    isLinked: linked,
-    canBind: !linked,
-    emailVerified: Boolean(user?.email_confirmed_at || user?.confirmed_at),
-    provider: providerOf(user),
-  };
+  const provider = providerOf(user);
+  return viewFromUser({
+    configured: true,
+    signedIn: Boolean(user),
+    id: user?.id ?? null,
+    email: user?.email ?? null,
+    name: displayNameFromUser(user),
+    emailVerified: user
+      ? provider !== "email" || Boolean(user.email_confirmed_at || user.confirmed_at)
+      : false,
+    provider,
+  });
 }
 
 const viewOf = accountViewOf;
@@ -108,207 +141,95 @@ function oauthReturnUrl(): string {
   return window.location.origin;
 }
 
-/** What a pending round trip is trying to do, remembered across the redirect. */
-type OAuthIntent = "link" | "signin";
-const INTENT_KEY = "openmi:oauth-intent";
-
-function markOAuthIntent(intent: OAuthIntent): void {
-  try {
-    window.sessionStorage.setItem(INTENT_KEY, intent);
-  } catch {
-    // A browser with storage blocked loses the intent, not the sign-in.
-  }
-}
-
-function readOAuthIntent(): OAuthIntent | null {
-  try {
-    const value = window.sessionStorage.getItem(INTENT_KEY);
-    return value === "link" || value === "signin" ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function clearOAuthIntent(): void {
-  try {
-    window.sessionStorage.removeItem(INTENT_KEY);
-  } catch {
-    // Nothing to clear.
-  }
-}
-
 /**
- * Attaches a Google account to whoever is using Openmi.
+ * Opens one of the three OAuth doors.
  *
- * A guest is upgraded in place and keeps their UID, so nothing they have written
- * moves: `linkIdentity` is handed the account already in use, and in-place
- * linking is what leaves the UID alone. A browser whose Google account is
- * already known to Openmi signs into that account instead, because a second copy
- * of the same person's history would be worse than none — the existing history
- * is the real one.
+ * The browser leaves for the provider and comes back to this origin, where the
+ * Supabase client exchanges the returned code for a session. The promise
+ * resolves once the navigation has been requested; the answer is reported by
+ * `watchAccount` at the next mount, so the caller does not need separate wiring.
  *
- * The browser leaves for google.com and comes back; the answer is reported by
- * `consumeGoogleSignIn` at the next mount, so the caller does not need separate
- * wiring. The returned promise resolves with the intended shape because the
- * navigation usually beats it.
+ * A provider that is switched off is refused before the navigation, and the
+ * thrown error carries Supabase's code so `describeLinkError` can name the
+ * toggle in the dashboard.
  */
-export async function bindGoogleAccount(name?: string): Promise<BindResult> {
+export async function signInWithProvider(provider: OAuthProvider): Promise<void> {
   const client = getSupabase();
   if (!client) throw unconfigured();
-  const existing = await ensureUser();
-  if (!existing) throw unconfigured();
-
-  if (!isAnonymousUser(existing)) {
-    await saveAccountName(name ?? null);
-    return { outcome: "linked", view: viewOf(existing) };
-  }
-
-  await saveAccountName(name ?? null);
-
-  // In-place linking needs "Manual linking" enabled in the project's auth
-  // settings. When it is not, the refusal arrives here and before any
-  // navigation, so the fallback below is a real fallback rather than a guess.
-  markOAuthIntent("link");
-  try {
-    const link = await client.auth.linkIdentity({
-      provider: "google",
-      options: { redirectTo: oauthReturnUrl() },
-    });
-    if (!link.error) {
-      // The browser is navigating to google.com. The shape is for the typing.
-      return { outcome: "linked", view: viewOf(existing) };
-    }
-  } catch {
-    // Fall through to the plain sign-in below.
-  }
-
-  const signIn = await client.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: oauthReturnUrl() },
-  });
-  if (signIn.error) {
-    clearOAuthIntent();
-    throw signIn.error;
-  }
-  return { outcome: "adopted", view: viewOf(existing) };
-}
-
-/**
- * Returns this device to a name on its own.
- *
- * Signing out and back in anonymously is deliberate. Detaching the only identity
- * a user has would leave an account with no way back into it, so the session is
- * ended and a fresh guest identity takes its place; the history that belonged to
- * the old account stays with it and is waiting for the next browser that signs
- * into it.
- */
-export async function detachGoogleAccount(): Promise<AccountView> {
-  const client = getSupabase();
-  if (!client) throw unconfigured();
-  const user = await ensureUser();
-  if (isAnonymousUser(user)) return viewOf(user);
-  await client.auth.signOut();
-  const next = await ensureUser();
-  return viewOf(next);
-}
-
-/** Signs back into a Google account without touching the existing one first. */
-export async function signInWithGoogle(name?: string): Promise<BindResult> {
-  const client = getSupabase();
-  if (!client) throw unconfigured();
-  const existing = await ensureUser();
-  await saveAccountName(name ?? null);
-
-  markOAuthIntent("signin");
   const { error } = await client.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: oauthReturnUrl() },
+    provider: PROVIDER_IDS[provider],
+    options: {
+      redirectTo: oauthReturnUrl(),
+      scopes: PROVIDER_SCOPES[provider],
+    },
   });
-  if (error) {
-    clearOAuthIntent();
-    throw error;
-  }
-  return {
-    // The UID is only known after the round trip. Reporting "adopted" makes the
-    // caller merge this device's chats onto whatever account comes back, which
-    // is the safe direction: an extra union costs a write, a missed one costs
-    // the person their history.
-    outcome: "adopted",
-    view: viewOf(existing),
-  };
+  if (error) throw error;
 }
 
 /**
- * Completes a Google sign-in that arrived as a page redirect.
+ * Ends the session on this browser.
  *
- * A full-page round trip can return while the component that started it is long
- * gone, so the outcome is consumed once here, at any mount. Nothing is lost by
- * calling it on every load: with no intent recorded this resolves immediately
- * with `completed: false`.
- *
- * The outcome carries whether the account is now linked — an anonymous user that
- * kept its UID through `linkIdentity` still owns everything it wrote — and the
- * raw error, so the caller can describe it in its own words.
+ * The account and everything under it stay exactly where they are; this browser
+ * simply stops being it, and the sign-in screen comes back. The caller clears
+ * the device-local name so the next account is not greeted by the previous
+ * person's.
  */
-export interface GoogleRedirectResult {
-  /** False when no redirect was in progress. */
-  completed: boolean;
-  outcome: BindOutcome | null;
-  view: AccountView | null;
-  /** The underlying auth error, for `describeLinkError`. */
-  cause?: unknown;
+export async function signOutAccount(): Promise<void> {
+  const client = getSupabase();
+  if (!client) throw unconfigured();
+  const { error } = await client.auth.signOut();
+  if (error) throw error;
 }
 
-export async function consumeGoogleSignIn(): Promise<GoogleRedirectResult> {
-  if (typeof window === "undefined") return { completed: false, outcome: null, view: null };
-  const intent = readOAuthIntent();
-  if (!intent) return { completed: false, outcome: null, view: null };
-  clearOAuthIntent();
-
-  const client = getSupabase();
-  if (!client) return { completed: false, outcome: null, view: null };
-
-  // The OAuth error, when there is one, is put in the URL by the callback.
+/**
+ * Reads the provider's refusal, if the last page load was a failed round trip.
+ *
+ * Supabase puts `error` and `error_description` in the query string when the
+ * provider refuses. The parameters are removed from the address bar after they
+ * are read, so a reload does not report the same failure for ever. Other query
+ * parameters (such as the GitHub panel's `?github=`) are kept.
+ */
+export function consumeOAuthError(): string | null {
+  if (typeof window === "undefined") return null;
   const url = new URL(window.location.href);
-  const callbackError = url.searchParams.get("error_description") ?? url.searchParams.get("error");
-  if (callbackError) {
-    return { completed: true, outcome: null, view: null, cause: new Error(callbackError) };
-  }
+  const error =
+    url.searchParams.get("error_description") ??
+    url.searchParams.get("error") ??
+    readHashError(url.hash);
+  if (!error) return null;
 
-  try {
-    const { data } = await withTimeout(client.auth.getSession(), 10_000);
-    const user = data.session?.user ?? null;
-    if (!user) return { completed: true, outcome: null, view: null };
-    if (isAnonymousUser(user)) return { completed: false, outcome: null, view: null };
-    return {
-      completed: true,
-      outcome: intent === "link" ? "linked" : "adopted",
-      view: viewOf(user),
-    };
-  } catch (cause: unknown) {
-    if (isDismissed(cause)) return { completed: false, outcome: null, view: null };
-    return { completed: true, outcome: null, view: null, cause };
+  for (const key of ["error", "error_code", "error_description"]) {
+    url.searchParams.delete(key);
   }
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  return error.replace(/\+/g, " ");
+}
+
+function readHashError(hash: string): string | null {
+  if (!hash || hash.length < 2) return null;
+  const params = new URLSearchParams(hash.slice(1));
+  return params.get("error_description") ?? params.get("error");
 }
 
 /**
  * Subscribes to the signed-in identity.
  *
- * `onAuthStateChange` reports the restored session, a link, a refresh and a
- * sign-out through the same callback, which is what this needs: the moment the
- * account is not the one it was, the interface is told. `TOKEN_REFRESHED` is
- * folded into the same answer because nothing on screen changes when a token is
- * renewed — only who is signed in does.
+ * `onAuthStateChange` reports the restored session, a completed OAuth round trip,
+ * an email confirmation, a token refresh and a sign-out through the same
+ * callback, which is what this needs: the moment the account is not the one it
+ * was, the interface is told. `TOKEN_REFRESHED` is folded into the same answer
+ * because nothing on screen changes when a token is renewed — only who is
+ * signed in does.
  */
 export function watchAccount(onChange: (view: AccountView) => void): () => void {
   const client = getSupabase();
   if (!client || typeof window === "undefined") {
     onChange({
       status: "unconfigured",
+      id: null,
       email: null,
       name: null,
-      isLinked: false,
-      canBind: false,
+      signedIn: false,
       emailVerified: false,
       provider: null,
     });
@@ -328,10 +249,10 @@ export function watchAccount(onChange: (view: AccountView) => void): () => void 
       if (!cancelled) {
         onChange({
           status: "unreachable",
+          id: null,
           email: null,
           name: null,
-          isLinked: false,
-          canBind: false,
+          signedIn: false,
           emailVerified: false,
           provider: null,
         });
@@ -361,52 +282,66 @@ function unconfigured(): Error & { code?: string } {
 /**
  * Records the name against the account.
  *
- * Best effort by design: a failed write loses cross-browser names, never the
- * binding. The name itself is already saved locally, so nothing is lost by the
- * write failing — and an anonymous user has a `profiles` row like anyone else,
- * so a guest's name follows them the moment they sign in on another browser.
+ * Two writes, both best effort. `profiles` is the readable copy the interface
+ * loads on a new browser, and the auth metadata is what the provider-independent
+ * fallbacks read before `profiles` has loaded. A failed write loses
+ * cross-browser names, never the account.
  */
 export async function saveAccountName(name: string | null | undefined): Promise<void> {
   const trimmed = normalizeName(name);
   if (!trimmed) return;
   const client = getSupabase();
   if (!client) return;
-  const user = await ensureUser();
+  const user = await currentUser();
   if (!user) return;
+
   try {
-    await client
-      .from("profiles")
-      .upsert(
-        { id: user.id, name: trimmed, email: user.email ?? null, updated_at: new Date().toISOString() },
-        { onConflict: "id" }
-      );
+    await client.from("profiles").upsert(
+      {
+        id: user.id,
+        name: trimmed,
+        email: user.email ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
   } catch {
     // Offline, or the policies are not applied yet. The local name still stands.
+  }
+
+  try {
+    await client.auth.updateUser({ data: { name: trimmed } });
+  } catch {
+    // The profile row is the copy other browsers read first.
   }
 }
 
 /**
  * Reads the name this account chose on another browser.
  *
- * Returns null on any failure — including a deployment whose migrations have not
- * been applied — so the caller treats it as "no name to adopt" and keeps
- * whatever this browser already knows.
+ * `profiles` first, then the auth metadata. Returns null on any failure — so the
+ * caller treats it as "no name to adopt" and keeps whatever this browser already
+ * knows.
  */
 export async function loadAccountName(): Promise<string | null> {
   const client = getSupabase();
   if (!client) return null;
-  const user = await ensureUser();
+  const user = await currentUser();
   if (!user) return null;
+
   try {
     const { data, error } = await client
       .from("profiles")
       .select("name")
       .eq("id", user.id)
       .maybeSingle();
-    if (error) return null;
-    const name = (data as { name?: unknown } | null)?.name;
-    return typeof name === "string" ? normalizeName(name) || null : null;
+    if (!error) {
+      const name = (data as { name?: unknown } | null)?.name;
+      if (typeof name === "string" && normalizeName(name)) return normalizeName(name);
+    }
   } catch {
-    return null;
+    // Fall through to the metadata copy.
   }
+
+  return providerNameOf(user);
 }

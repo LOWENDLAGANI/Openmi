@@ -852,7 +852,7 @@ export default function Sidebar({
           />
           <div className="mt-3 flex items-center gap-2.5 border-t border-white/[0.06] pt-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "Guest"}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "You"}</span>
             <span className="flex shrink-0 items-center gap-1">
               <Link href="/notes" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="News from the developers">News</Link>
               <Link href="/about" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="About Openmi">About</Link>

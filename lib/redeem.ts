@@ -20,7 +20,7 @@
 // service key — and it is safe precisely because the amount it carries is
 // checked against the code by the policy.
 
-import { ensureUser, getSupabase, supabaseConfigured } from "./supabase";
+import { currentUser, getSupabase, supabaseConfigured } from "./supabase";
 import { isValidCode, normalizeCode, redeemCodeFromRow } from "./redeemState";
 
 export interface ClaimResult {
@@ -45,6 +45,12 @@ function notConfigured(): Error & { code?: string } {
   return error;
 }
 
+function notSignedIn(): Error & { code?: string } {
+  const error = new Error("Sign in to claim a code.") as Error & { code?: string };
+  error.code = "auth/required";
+  return error;
+}
+
 /**
  * Records that this visitor used a code.
  *
@@ -60,8 +66,8 @@ function notConfigured(): Error & { code?: string } {
 export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
   const client = getSupabase();
   if (!client) throw notConfigured();
-  const user = await ensureUser();
-  if (!user) throw notConfigured();
+  const user = await currentUser();
+  if (!user) throw notSignedIn();
 
   const code = normalizeCode(rawCode);
   if (!isValidCode(code)) {
@@ -128,7 +134,7 @@ export async function hasClaimed(rawCode: string): Promise<boolean> {
   try {
     const client = getSupabase();
     if (!client) return false;
-    const user = await ensureUser();
+    const user = await currentUser();
     if (!user) return false;
     const { data } = await client
       .from("redeems")

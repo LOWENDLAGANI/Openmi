@@ -14,6 +14,7 @@ carry the rules it used to hold.
 | `migrations/20261023000300_github_projects.sql` | `github_links`, `github_connections`, `github_default`, `projects`. |
 | `migrations/20261023000400_changesets.sql` | `changesets`, `approvals`, `commits`, `admin_audit`. |
 | `migrations/20261023000500_dew_redeem.sql` | `redeem_codes`, `redeems`, the Dew ledger, and the functions that keep a claim from naming its own price. |
+| `migrations/20261024000000_user_preferences.sql` | `user_preferences`: the account-synced appearance, response length, reasoning effort, search mode, model, tour flag and display name. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
@@ -33,18 +34,33 @@ it cannot make.
 
 ## Enable the sign-in methods
 
-In **Authentication → Sign In / Providers**:
+Openmi requires an account and offers four doors. In **Authentication → Sign In /
+Providers**:
 
-- **Email** — the sign-in the app already offers. Turn off "Confirm email" if you
-  want registration to sign a person in immediately; leave it on and the app
-  offers a resend instead of blocking.
-- **Anonymous sign-ins** — **required**. This build is guest-first, exactly as
-  the Firebase one was: a first-time visitor is signed in anonymously so they
-  can write a chat before they have an account, and registering upgrades that
-  same user in place. Without this toggle nobody can use the app.
-- **Google** — optional. The account screen and the admin gate both offer it; it
-  does nothing until a Google OAuth client id and secret are pasted into the
-  provider settings and the project's callback URL is registered with Google.
+- **Email** — register and sign in with an address and password. Turn off
+  "Confirm email" if you want registration to sign a person in immediately;
+  leave it on and the form offers a resend instead of blocking.
+- **Google** — create an OAuth client in Google Cloud Console. Its authorized
+  redirect URI is `https://<project-ref>.supabase.co/auth/v1/callback`. Paste
+  the client id and secret into the provider settings.
+- **GitHub** — create an OAuth App at GitHub → Settings → Developer settings →
+  OAuth Apps. The authorization callback URL is
+  `https://<project-ref>.supabase.co/auth/v1/callback`. Paste the client id and
+  secret into the provider settings.
+- **Azure** — this is the Microsoft door. Create an app registration in
+  Microsoft Entra ID with the same
+  `https://<project-ref>.supabase.co/auth/v1/callback` redirect URI, and paste
+  the application (client) id and secret into the provider settings.
+
+Then set **Authentication → URL Configuration**: the Site URL is the deployed
+origin, and the Redirect URLs list must contain that origin plus
+`http://localhost:3000` for local development. The app returns from every
+authentication round trip to its own origin, where the Supabase client exchanges
+the PKCE code for a session.
+
+**Anonymous sign-ins is not used and should stay off.** There is no guest mode:
+the sign-in screen is the whole interface until one of the four doors returns a
+session.
 
 ## What the policies promise
 
@@ -59,6 +75,8 @@ In **Authentication → Sign In / Providers**:
 - `visitor_registry` is writable by its owner and readable only by the
   administrator. That asymmetry is deliberate and is what the old rules did: a
   visitor may say who they are, not see who else is here.
+- `user_preferences` is owner-only like every other user table, so the settings a
+  person chose on one browser are readable on another and by nobody else.
 - A Dew credit can only be written for the trial amount under `TRIAL`, or for
   exactly the amount a live code carries. `spent` only moves through
   `deduct_dew()`, which `authenticated` can call but not bypass.

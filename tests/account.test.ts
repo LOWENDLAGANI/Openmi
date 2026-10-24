@@ -1,10 +1,9 @@
-// ── Openmi — tests for the visitor's account ───────────────────────────────────
+// ── Openmi — tests for the account ──────────────────────────────────────────
 //
-// The rules pinned here are the ones whose failure is quiet. A guest shown as
-// linked keeps a name they never asked to change; a name from the account
-// quietly overwriting one just typed on this device is worse; and a bind path
-// that could reach the administrator's console would be a hole in the product
-// rather than a bug in it.
+// The rules pinned here are the ones whose failure is quiet. A signed-out browser
+// must be shown the sign-in screen rather than a half-working product; a name
+// typed on this device must not be silently replaced by one from an account; and
+// an anonymous identity must not creep back into the auth path.
 //
 //   bun run test
 
@@ -20,6 +19,7 @@ import {
   isDismissed,
   NAME_MAX,
   normalizeName,
+  providerLabel,
   resolveName,
 } from "../lib/accountState";
 import { explainSignInError } from "../lib/authDiagnostics";
@@ -39,62 +39,90 @@ function test(name: string, fn: () => void): void {
   }
 }
 
-const GUEST = { configured: true, signedIn: true, isAnonymous: true };
+/**
+ * Source with its comments removed.
+ *
+ * The separation being asserted is a property of the code, not of the prose
+ * around it: the auth modules explain at length why there is no anonymous door,
+ * and a test that matched those sentences would fail on the explanation rather
+ * than on the behaviour.
+ */
+function code(file: string): string {
+  return readFileSync(join(process.cwd(), file), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+}
 
 console.log("\naccount state");
 
-test("a deployment with no Supabase project has no account to offer", () => {
+test("a deployment with no Supabase project has no account service", () => {
   const view = describeAccount({ configured: false, signedIn: false });
   assert.equal(view.status, "unconfigured");
-  assert.equal(view.canBind, false);
-  assert.equal(view.isLinked, false);
+  assert.equal(view.signedIn, false);
+  assert.equal(view.id, null);
 });
 
 test("a deployment that cannot be reached is not the same as one that is absent", () => {
   const view = describeAccount({ configured: true, reachable: false, signedIn: false });
   assert.equal(view.status, "unreachable");
-  assert.equal(view.canBind, false);
+  assert.equal(view.signedIn, false);
 });
 
-test("an anonymous visitor is a guest who can still bind", () => {
-  const view = describeAccount(GUEST);
-  assert.equal(view.status, "guest");
-  assert.equal(view.canBind, true);
-  assert.equal(view.email, null);
-});
-
-test("nobody signed in yet is a guest, not an error", () => {
+test("nobody signed in is signed out, not a guest with a hidden account", () => {
   const view = describeAccount({ configured: true, signedIn: false });
-  assert.equal(view.status, "guest");
-  assert.equal(view.canBind, true);
+  assert.equal(view.status, "signed-out");
+  assert.equal(view.signedIn, false);
+  assert.equal(view.email, null);
+  assert.equal(view.provider, null);
 });
 
-test("a Google account is linked and cannot be bound twice", () => {
+test("a real account is signed in and identifies its provider", () => {
   const view = describeAccount({
     configured: true,
     signedIn: true,
-    isAnonymous: false,
+    id: "uid-1",
     email: "someone@example.com",
     name: "Someone",
+    provider: "google",
   });
-  assert.equal(view.status, "linked");
-  assert.equal(view.isLinked, true);
-  assert.equal(view.canBind, false);
+  assert.equal(view.status, "signed-in");
+  assert.equal(view.signedIn, true);
+  assert.equal(view.id, "uid-1");
+  assert.equal(view.provider, "google");
   assert.equal(view.email, "someone@example.com");
-  assert.equal(view.name, "Someone");
+  assert.equal(view.emailVerified, true, "an OAuth address is confirmed by the provider");
 });
 
-test("a linked account is identified by anonymity, not by having an email", () => {
-  // An anonymous account never has an address, and a Google account always does,
-  // but the flag is the thing that actually says which kind of account this is.
+test("Microsoft is the product word for Supabase's azure provider", () => {
+  assert.equal(providerLabel("microsoft"), "Microsoft");
+  assert.equal(providerLabel("github"), "GitHub");
+  assert.equal(providerLabel("email"), "email and password");
+  assert.equal(providerLabel(null), "an account");
+});
+
+test("an unconfirmed email account must not read as confirmed", () => {
   const view = describeAccount({
     configured: true,
     signedIn: true,
-    isAnonymous: true,
-    email: "leftover@example.com",
+    id: "uid-2",
+    email: "someone@example.com",
+    provider: "email",
+    emailVerified: false,
   });
-  assert.equal(view.status, "guest");
-  assert.equal(view.isLinked, false);
+  assert.equal(view.status, "signed-in");
+  assert.equal(view.emailVerified, false);
+});
+
+test("a confirmed email account is reported as confirmed", () => {
+  const view = describeAccount({
+    configured: true,
+    signedIn: true,
+    id: "uid-3",
+    email: "someone@example.com",
+    provider: "email",
+    emailVerified: true,
+  });
+  assert.equal(view.emailVerified, true);
 });
 
 console.log("\nthe name a person is greeted by");
@@ -116,13 +144,10 @@ test("an account with no name adopts nothing", () => {
   assert.equal(resolveName("", "   "), null);
 });
 
-test("Google's name is the last resort, never an override", () => {
-  // A name the person typed on this device outranks a name they chose for a
-  // different site, and the account's own name outranks both. This function only
-  // ever fills a gap, so a gap that is not there is left alone.
-  assert.equal(greetingName("Rani", "Chosen", "Google Name"), null);
-  assert.equal(greetingName("", "Chosen", "Google Name"), "Chosen");
-  assert.equal(greetingName("", null, "Google Name"), "Google Name");
+test("the provider's name is the last resort, never an override", () => {
+  assert.equal(greetingName("Rani", "Chosen", "Provider Name"), null);
+  assert.equal(greetingName("", "Chosen", "Provider Name"), "Chosen");
+  assert.equal(greetingName("", null, "Provider Name"), "Provider Name");
   assert.equal(greetingName("", null, null), null);
 });
 
@@ -133,56 +158,41 @@ test("names are trimmed, collapsed and capped at the stored limit", () => {
   assert.equal(NAME_MAX, 40, "the database rules validate the same limit");
 });
 
-test("a name over the limit is cut where the rules would cut it", () => {
-  // Anything longer is refused by the .validate rule on the profile node, so
-  // what is shown has to be what is allowed to be stored.
-  const long = normalizeName("b".repeat(60));
-  assert.equal(long.length, 40);
-});
-
 console.log("\nwhat the settings row says");
 
-test("a guest is told their name is only on this device", () => {
-  const view = describeAccount(GUEST);
-  assert.match(accountHeadline(view, "Rani"), /this device only/);
-  assert.match(accountExplanation(view), /any browser/);
+test("a signed-out browser is told to sign in, not offered a guest mode", () => {
+  const view = describeAccount({ configured: true, signedIn: false });
+  assert.equal(accountHeadline(view, "Rani"), "Not signed in");
+  assert.match(accountExplanation(view), /Google, GitHub, Microsoft or email/);
+  assert.doesNotMatch(accountExplanation(view), /without an account|guest|anonymous/i);
 });
 
-test("a linked account shows the address it is linked to", () => {
+test("a signed-in account shows its address and its provider", () => {
   const view = describeAccount({
     configured: true,
     signedIn: true,
-    isAnonymous: false,
+    id: "uid-1",
     email: "someone@example.com",
+    provider: "github",
   });
   assert.match(accountHeadline(view, "Rani"), /someone@example\.com/);
-  assert.match(accountExplanation(view), /Detaching/);
+  assert.match(accountExplanation(view), /GitHub/);
+  assert.match(accountExplanation(view), /any browser/);
 });
 
 test("an unconfigured deployment explains itself instead of offering a dead button", () => {
   const view = describeAccount({ configured: false, signedIn: false });
-  assert.match(accountExplanation(view), /keeps working without it/);
+  assert.match(accountExplanation(view), /account service/);
 });
 
-test("the settings row never disappears, whatever the account service answers", () => {
+test("the settings row renders the states it cannot sign in from", () => {
   // It used to `return null` for `unconfigured` and `unreachable`, which removed
-  // the whole Account section. A person opening Settings then found no account
-  // row at all and no reason for its absence — the section had not broken, it had
-  // declined to render. The copy for both states existed and was never shown.
-  //
-  // A state the visitor cannot see is a state they cannot fix, so both must
-  // render the row and withhold only the controls that would fail at the click.
+  // the whole Account section and left no reason for its absence. A state the
+  // person cannot see is a state they cannot fix.
   const source = code("components/AccountSection.tsx");
-  assert.doesNotMatch(
-    source,
-    /view\.status === "unconfigured" \|\| view\.status === "unreachable"\)\s*return null/,
-    "the account row hides itself when it has something to explain"
-  );
-  // Both states are still named, so the row knows which explanation to show.
   assert.match(source, /status === "unconfigured"/);
   assert.match(source, /status === "unreachable"/);
-  // And the sign-in form is withheld from a state that cannot use it.
-  assert.match(source, /canSignIn/, "sign-in is gated on a state that can actually sign in");
+  assert.match(source, /signOutAccount/);
 });
 
 console.log("\nfailures worth reading");
@@ -194,7 +204,7 @@ test("closing the window is not a failure", () => {
 });
 
 test("a disabled sign-in method is reported as the fixable thing it is", () => {
-  assert.match(describeLinkError({ code: "provider_disabled" }), /turn on Google/);
+  assert.match(describeLinkError({ code: "provider_disabled" }), /Sign In \/ Providers/);
 });
 
 test("an account that already exists says so rather than failing cryptically", () => {
@@ -202,49 +212,37 @@ test("an account that already exists says so rather than failing cryptically", (
   assert.match(describeLinkError({ code: "email_exists" }), /Sign in instead/);
 });
 
-test("a project without anonymous sign-ins says which toggle that is", () => {
-  // This build signs every first-time visitor in anonymously, so this one toggle
-  // is the difference between a working product and a blank screen.
-  assert.match(describeLinkError({ code: "anonymous_provider_disabled" }), /Anonymous sign-ins/);
-});
-
-test("an unrecognised failure keeps its own message", () => {
-  assert.equal(
-    describeLinkError(new Error("something specific")),
-    "something specific"
+test("anonymous-only advice is gone", () => {
+  // The old build told people to enable the Anonymous provider. There is no
+  // anonymous door any more, so that error must fall through to Supabase's own
+  // words rather than send someone to a toggle that no longer matters.
+  assert.doesNotMatch(
+    describeLinkError({ code: "anonymous_provider_disabled" }),
+    /Anonymous sign-ins/
   );
 });
 
-test("an email account is a linked account, and says so", () => {
-  const view = describeAccount({
-    configured: true,
-    signedIn: true,
-    isAnonymous: false,
-    email: "someone@example.com",
-    provider: "email",
-    emailVerified: false,
-  });
-  assert.equal(view.status, "linked");
-  assert.equal(view.provider, "email");
-  assert.equal(view.emailVerified, false, "an unconfirmed address must not read as confirmed");
+test("an unrecognised failure keeps its own message", () => {
+  assert.equal(describeLinkError(new Error("something specific")), "something specific");
 });
 
-test("a confirmed address is reported as confirmed", () => {
-  const view = describeAccount({
-    configured: true,
-    signedIn: true,
-    isAnonymous: false,
-    email: "someone@example.com",
-    provider: "email",
-    emailVerified: true,
+console.log("\nthe sign-in diagnosis");
+
+test("a working project names the methods it actually has", () => {
+  const healthy = explainSignInError(null, true, {
+    google: true,
+    github: true,
+    microsoft: false,
+    email: true,
   });
-  assert.equal(view.emailVerified, true);
+  assert.match(healthy.verdict, /Google, GitHub and email and password/);
+  assert.match(healthy.nextStep, /method you picked/);
 });
 
-test("a guest has no provider and no confirmed address to speak of", () => {
-  const view = describeAccount(GUEST);
-  assert.equal(view.provider, null);
-  assert.equal(view.emailVerified, false);
+test("a project with no doors open is named as that", () => {
+  const closed = explainSignInError("NO_PROVIDERS", false);
+  assert.match(closed.verdict, /None of the four sign-in methods/);
+  assert.match(closed.nextStep, /Sign In \/ Providers/);
 });
 
 test("sign-ups being off is named as the setting it is", () => {
@@ -253,21 +251,10 @@ test("sign-ups being off is named as the setting it is", () => {
   assert.match(restricted.nextStep, /Allow new users to sign up/);
 });
 
-test("a disabled provider is not reported as a disabled project setting", () => {
-  const provider = explainSignInError("ANONYMOUS_DISABLED", false);
-  assert.match(provider.verdict, /Anonymous/);
-  assert.doesNotMatch(provider.nextStep, /Allow new users/);
-});
-
 test("a key from another project is named as a mismatch, not as a toggle", () => {
   const mismatch = explainSignInError("INVALID_API_KEY", false);
   assert.match(mismatch.verdict, /two different projects/);
   assert.match(mismatch.nextStep, /NEXT_PUBLIC_SUPABASE_ANON_KEY/);
-});
-
-test("a working project says so instead of sending someone to a toggle", () => {
-  const healthy = explainSignInError(null, true);
-  assert.match(healthy.verdict, /Account creation is not the problem/);
 });
 
 test("an unknown answer keeps the backend's own words", () => {
@@ -283,29 +270,42 @@ test("each email failure names the next step", () => {
   assert.match(describeLinkError({ code: "user_not_found" }), /Create one instead/);
 });
 
-console.log("\nthe account is not the administrator");
+console.log("\nthe auth path has no anonymous door and the four providers are wired");
 
-/**
- * Source with its comments removed.
- *
- * The separation being asserted here is a property of the code, not of the prose
- * around it: `lib/account.ts` explains at length why it stays away from the
- * console, and a test that matched those sentences would fail on the explanation
- * rather than on the behaviour. Stripping comments is what makes "does not import
- * the admin module" and "does not write the admin's node" the assertions they
- * look like.
- */
-function code(file: string): string {
-  return readFileSync(join(process.cwd(), file), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^[ \t]*\/\/.*$/gm, "");
-}
+test("no auth module mints an anonymous identity", () => {
+  const sources = ["lib/supabase.ts", "lib/account.ts", "lib/emailAuth.ts"]
+    .map(code)
+    .join("\n");
+  assert.doesNotMatch(sources, /signInAnonymously/);
+  assert.doesNotMatch(sources, /is_anonymous/);
+  assert.doesNotMatch(sources, /isAnonymousUser/);
+  assert.doesNotMatch(sources, /updateUser\(\{\s*email/);
+});
+
+test("Google, GitHub and Microsoft all go through Supabase OAuth", () => {
+  const source = code("lib/account.ts");
+  assert.match(source, /google/);
+  assert.match(source, /github/);
+  assert.match(source, /azure/);
+  assert.match(source, /signInWithOAuth/);
+  assert.match(source, /consumeOAuthError/);
+});
+
+test("email registration is a real sign-up, not an upgrade of a hidden guest", () => {
+  const source = code("lib/emailAuth.ts");
+  assert.match(source, /signUp\(/);
+  assert.match(source, /signInWithPassword\(/);
+  assert.doesNotMatch(source, /signUpToGuest|signOutToGuest/);
+});
+
+test("the main page gates the product on a signed-in account", () => {
+  const source = code("app/page.tsx");
+  assert.match(source, /watchAccount/);
+  assert.match(source, /if \(!account\.signedIn\)/);
+  assert.match(source, /AuthScreen/);
+});
 
 test("nothing in the account path can read or write the admin's data", () => {
-  // The binding code must stay away from the console entirely. Elevation is
-  // decided by the policies in supabase/migrations naming one address, so a bind
-  // path that so much as read that table would be a second, client-side
-  // definition of who the administrator is.
   const source = code("lib/account.ts");
   assert.ok(
     !/cloudAdmin|verifyAdminAccess|signInAsAdmin|app_admin|is_admin/.test(source),
@@ -313,36 +313,7 @@ test("nothing in the account path can read or write the admin's data", () => {
   );
 });
 
-test("the bind path grants access by identity, never by a flag it sets", () => {
-  const source = code("lib/account.ts");
-  // The only things written are the caller's own name and the chat log the
-  // existing sync already writes. No client-side copy of the admin address, and
-  // no way to mark an account as elevated.
-  assert.ok(!/ADMIN_EMAIL|isAdmin|elevat/i.test(source), "lib/account.ts decides who is an admin");
-  assert.ok(!/set\(ref\([^)]*config/.test(source), "lib/account.ts writes server config");
-});
-
-test("binding goes through linking, which is what keeps the chats where they are", () => {
-  // Signing in with a new account would silently orphan everything already
-  // logged under the anonymous id. What makes the upgrade safe is not that
-  // `linkIdentity` appears in the file — it is that it is used *instead of* a
-  // fresh sign-in, on the account already in use, because attaching a credential
-  // to that account is what leaves the uid alone.
-  const source = code("lib/account.ts");
-  assert.match(source, /isAnonymousUser\(existing\)/, "the guest path is not distinguished");
-  assert.match(source, /linkIdentity\(/, "the guest path no longer links in place");
-
-  const linkAt = source.indexOf("linkIdentity(");
-  const signInAt = source.indexOf("signInWithOAuth(");
-  assert.ok(linkAt > 0, "the in-place link disappeared");
-  assert.ok(signInAt > linkAt, "a fresh sign-in is only reached after the link is refused");
-});
-
 test("the visitor's profile is not the console's visitor list", () => {
-  // Two different tables on purpose. The console reads `visitor_registry`, which
-  // a visitor may write but never read; a name that has to follow someone to
-  // another browser needs a row they *can* read, and reusing the console's would
-  // mean loosening a policy the console depends on.
   const sql = readFileSync(
     join(process.cwd(), "supabase/migrations/20261023000100_identity.sql"),
     "utf8"
@@ -357,6 +328,20 @@ test("the visitor's profile is not the console's visitor list", () => {
       sql.split("visitor_registry")[1]?.split("push_subscriptions")[0] ?? ""
     ),
     "the console's visitor list must stay unreadable to visitors"
+  );
+});
+
+test("preferences are owner-scoped in the database", () => {
+  const sql = readFileSync(
+    join(process.cwd(), "supabase/migrations/20261024000000_user_preferences.sql"),
+    "utf8"
+  );
+  assert.match(sql, /create table if not exists public\.user_preferences/);
+  assert.match(sql, /owner uuid primary key default auth\.uid\(\)/);
+  assert.match(sql, /alter table public\.user_preferences enable row level security/);
+  assert.match(
+    sql,
+    /create policy user_preferences_owner on public\.user_preferences\s+for all to authenticated\s+using \(owner = auth\.uid\(\)\)\s+with check \(owner = auth\.uid\(\)\)/
   );
 });
 

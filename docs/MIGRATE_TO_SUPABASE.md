@@ -1,5 +1,13 @@
 # Migrate Openmi to Supabase
 
+> **Later change — accounts are required.** The guest-first decision recorded in
+> this document was reversed after the migration: Openmi no longer creates
+> anonymous users. Sign-in is Google, GitHub, Microsoft (Supabase `azure`) or
+> email and password, and `lib/account.ts`, `lib/emailAuth.ts` and
+> `components/AuthScreen.tsx` implement that. Preferences now sync through
+> `user_preferences` (see `supabase/migrations/20261024000000_user_preferences.sql`).
+> Everything else below remains the accurate record of the Firebase → Supabase move.
+
 > **Status: done.** Firebase is out of `package.json`, `lib/firebaseAdmin.ts`,
 > `lib/firebaseHistory.ts`, `lib/rtdb.ts` and `database.rules.json` are deleted, and
 > the whole persistence surface is Postgres with row-level security. Everything below

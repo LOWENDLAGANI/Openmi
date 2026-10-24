@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import AuthWarmup from "@/components/AuthWarmup";
 import ServiceWorker from "@/components/ServiceWorker";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
@@ -79,9 +78,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className="h-[100dvh]">
-        {/* Signs this browser in anonymously on mount, so the first request
-            already carries an identity. See the component. */}
-        <AuthWarmup />
         {children}
         <ServiceWorker />
       </body>

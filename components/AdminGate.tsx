@@ -22,16 +22,13 @@ function describe(cause: unknown): { code: string; message: string } {
   const message = cause instanceof Error ? cause.message : String(cause);
 
   const hints: Record<string, string> = {
-    anonymous_provider_disabled:
-      "Anonymous sign-ins are switched off. The app signs every first-time visitor in anonymously, so open Supabase → Authentication → Sign In / Providers and turn it on.",
     signup_disabled:
       "This project refuses new accounts. Supabase → Authentication → Sign In / Providers: turn on Allow new users to sign up.",
     email_provider_disabled:
       "Email sign-in is switched off. Supabase → Authentication → Sign In / Providers: turn on Email.",
     provider_disabled:
       "Google sign-in is switched off. Supabase → Authentication → Sign In / Providers: turn on Google, or sign in with the administrator's email and password instead.",
-    manual_linking_disabled:
-      "This project cannot attach a second sign-in method. Supabase → Authentication → Settings: turn on manual linking.",
+
     invalid_credentials: "That email and password do not match an account.",
     email_not_confirmed:
       "That address has not been confirmed yet. Follow the link in the inbox, or confirm the user in the dashboard.",

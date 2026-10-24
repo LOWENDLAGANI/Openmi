@@ -12,7 +12,7 @@
 
 import { db } from "./db";
 import { syncChatWipe } from "./cloudHistory";
-import { ensureUser, getSupabase } from "./supabase";
+import { currentUser, getSupabase } from "./supabase";
 
 export interface DeleteDataResult {
   /** The local wipe always runs; false only if Dexie itself refused. */
@@ -41,9 +41,9 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
 
   let remote = 0;
   const client = getSupabase();
-  // Anonymous or signed in, the data lives under whatever id this browser
-  // holds — and the policies let that id clear exactly its own rows.
-  const user = client ? await ensureUser() : null;
+  // The data lives under the signed-in account's id, and the policies let that
+  // id clear exactly its own rows.
+  const user = client ? await currentUser() : null;
   if (client && user) {
     // The registry row has no SELECT grant, so a direct delete would silently
     // match nothing — the one door is the function that scopes itself.

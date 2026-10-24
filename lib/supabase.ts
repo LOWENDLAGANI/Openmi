@@ -3,25 +3,22 @@
 // One client for the whole tab. It holds the session (persisted, refreshed) and
 // it is the thing every authenticated read and write goes through, so the
 // database sees the caller's own JWT and Postgres row-level security is the only
-// judge. That is the property the app was written around, and it is
-// the property that survives: there is no service-role key in this file, in the
-// server routes, or in the deployment environment.
+// judge. There is no service-role key in this file, in the server routes, or in
+// the deployment environment.
 //
-// ── Guest-first ─────────────────────────────────────────────────────────────
-// The build is unchanged in one important way: a first-time visitor is signed in
-// anonymously, so the product has no sign-up wall. Supabase supports that, but
-// only when **Anonymous sign-ins** is enabled for the project — a dashboard
-// toggle, not a build setting, which is why an empty session is not an error
-// here. Registering then upgrades that same user in place (lib/emailAuth.ts), so
-// the chats written before sign-up keep their owner and nothing is moved.
+// ── Accounts are required ───────────────────────────────────────────────────
+// Openmi no longer creates anonymous visitors. A browser has either signed in
+// with Google, GitHub, Microsoft or an email address and password, or it has no
+// session at all and the interface shows the sign-in screen. Nothing in this
+// module ever mints an identity: `currentUser` reads the stored session, so a
+// signed-out browser answers null and the gate decides what to render.
 //
 // ── Why the timeouts ────────────────────────────────────────────────────────
-// `signInAnonymously` and `getSession` are ordinary network awaits. They resolve
-// in milliseconds when the network is fine, and never resolve at all when a
-// captive portal or a company SSL box is holding the connection open. Callers
-// awaited them bare, so a stuck request kept the whole page on its loading gate
-// for good. Every await below that answers "who is this?" is bounded, and a
-// missing answer degrades to "nobody yet" rather than to a spinner.
+// `getSession` is an ordinary network await when the stored session needs
+// refreshing. It resolves in milliseconds on a healthy connection, and never
+// resolves at all when a captive portal or a company SSL box is holding the
+// connection open. Every await below that answers "who is this?" is bounded, and
+// a missing answer degrades to "nobody yet" rather than to a spinner.
 
 import {
   createClient,
@@ -69,6 +66,11 @@ let browserClient: SupabaseClient | null = null;
  * Created once. Supabase's client owns the session, the refresh timer and the
  * realtime socket; a second instance would be a second session, which is how two
  * copies of a signed-in app end up disagreeing about who is using it.
+ *
+ * PKCE is what the OAuth and email-confirmation redirects come back through.
+ * With `detectSessionInUrl` on, the client exchanges the code the provider put
+ * in the URL for a session on creation, so the sign-in completes as soon as any
+ * page mounts — there is no callback route to maintain.
  */
 export function getSupabase(): SupabaseClient | null {
   if (!supabaseConfigured) return null;
@@ -86,32 +88,13 @@ export function getSupabase(): SupabaseClient | null {
 }
 
 /**
- * The signed-in user, signing this browser in anonymously if it has nobody.
+ * The signed-in user, restoring the stored session but never creating one.
  *
  * Null covers three cases the callers already handle the same way, because for
  * all three there is simply no identity to attach to a request: no project
- * configured, no browser (a server render), and an anonymous sign-in the project
- * has switched off or could not answer in time.
+ * configured, no browser (a server render), and nobody signed in.
  */
-export async function ensureUser(): Promise<User | null> {
-  const client = getSupabase();
-  if (!client || typeof window === "undefined") return null;
-  try {
-    const session = await withTimeout(client.auth.getSession());
-    if (session.data.session?.user) return session.data.session.user;
-    const created = await withTimeout(client.auth.signInAnonymously());
-    return created.data.user ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The user signed in right now, restoring the stored session but never creating
- * one. Null when nobody is signed in, which is a real answer rather than an
- * error: a first visit has no session until the warm-up signs it in.
- */
-export async function sessionUser(): Promise<User | null> {
+export async function currentUser(): Promise<User | null> {
   const client = getSupabase();
   if (!client || typeof window === "undefined") return null;
   try {

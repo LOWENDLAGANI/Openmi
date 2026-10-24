@@ -11,6 +11,7 @@ interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
   displayName: string;
+  onDisplayNameChange: (name: string) => void;
   searchMode: SearchMode;
   onSearchModeChange: (mode: SearchMode) => void;
   searchAvailable: boolean;
@@ -86,6 +87,7 @@ export default function SettingsPanel({
   open,
   onClose,
   displayName,
+  onDisplayNameChange,
   searchMode,
   onSearchModeChange,
   searchAvailable,
@@ -137,7 +139,7 @@ export default function SettingsPanel({
         </header>
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 stagger-children">
-          <AccountSection displayName={displayName} />
+          <AccountSection displayName={displayName} onDisplayNameChange={onDisplayNameChange} />
           <DataControls />
 
           <div className="grid grid-cols-1 gap-4" style={{ ['--stagger' as string]: 3 }}>

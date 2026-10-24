@@ -15,9 +15,9 @@ when you say so**, on a branch of its own.
 
 - Chat with **Auto** and **Code** modes, streamed over SSE with provider
   fallback and continuation when a model hits its output limit.
-- Local-first history in IndexedDB (Dexie), synced to Supabase when configured.
-- **An account with an email address and a password**, held by the sign-in
-  backend.
+- Local-first history in IndexedDB (Dexie), synced to the signed-in account.
+- **An account is required.** Sign in or register with Google, GitHub, Microsoft
+  or an email address and password, all held by Supabase Auth.
 - **Dew**: one flat price per request, per model — `0.25` for Auto, `0.5` for
   Code. Token counts are still recorded and shown; they no longer price the
   request.
@@ -104,7 +104,7 @@ the honest inventory of what actually causes it:
 
 | Backend answer | What it actually means |
 |---|---|
-| `anonymous_provider_disabled` | **Anonymous sign-ins** is switched off, so a first visit cannot be given a guest identity. Authentication → Sign In / Providers → Anonymous sign-ins. |
+| `provider_disabled` | The provider you tapped is switched off for this project. Authentication → Sign In / Providers → turn on Google, GitHub, Azure (Microsoft) or Email. |
 | `email_provider_disabled` | **Email** is switched off, so register and sign in have no provider. Authentication → Sign In / Providers → Email. |
 | `invalid_api_key` / `Invalid API key` | the build is holding a value the project does not accept — the wrong project, or variables set after the last build. |
 | `relation "…" does not exist` | the migrations in `supabase/migrations/` were never pushed to this project. Run `supabase db push`. |
@@ -140,22 +140,36 @@ server routes carry the caller's token, exactly as the browser does.
 
 ## Signing in
 
-Signing in is an email address and a password, and the password is Supabase
-Auth's to hold — this app never sees or stores it. Two switches in the dashboard
-make it work (Authentication → Sign In / Providers): **Email**, and **Anonymous
-sign-ins**. `supabase/README.md` has the click-by-click version.
+Openmi requires an account. There is no guest mode and no anonymous identity:
+the sign-in screen is the whole interface until one of these doors returns a
+session.
 
-A first visit is signed in **anonymously**, so the app has an identity and a
-cloud history from the first message. Registering then upgrades that same user in
-place — the UID does not change, so every chat written before sign-up keeps its
-owner and nothing has to be moved. If the address already belongs to an account,
-the app signs into that account instead: the existing history is the real one. A
-confirmation mail goes out on registration and can be resent from the account
-row; nothing is blocked while it is unconfirmed.
+- **Google**, **GitHub**, **Microsoft** (Supabase's `azure` provider) — full-page
+  OAuth round trips handled by Supabase Auth.
+- **Email and password** — registering creates a real Supabase user; the password
+  is hashed and held by Supabase, never by this app.
 
-Anonymous accounts are simply guests: they keep working for as long as the
-browser keeps its session, and they hold no more of the database than a
-registered account does.
+The same provider buttons register a first-time account, because Supabase creates
+the user when the provider returns one it has not seen. A confirmation mail goes
+out on email registration when the project has confirmation on, and can be
+resent from the form; nothing is blocked while it is unconfirmed. Password reset
+uses Supabase's recovery mail, and the returned session offers **Change
+password** in Settings.
+
+All four methods are dashboard switches (Authentication → Sign In / Providers),
+not build settings. `supabase/README.md` has the click-by-click version,
+including the callback URLs each provider needs.
+
+### What follows the account
+
+Chats, messages, memories, GitHub connections, projects, change sets, Dew, push
+subscriptions and **preferences** are all owned by `auth.uid()` and protected by
+row-level security. Preferences — appearance, response length, reasoning effort,
+search mode, the last model, whether the tour has been seen, and the display name
+— live in `user_preferences` and are written as they change. localStorage is
+still the first read, so the interface paints instantly and works offline; the
+account's copy is adopted right after the session is known, which is what makes
+a second browser open with the same settings.
 
 ## Connecting GitHub
 
@@ -210,8 +224,9 @@ lib/                 dew.ts (pricing), providers.ts (server-only chains),
                      models.ts (client-visible catalog), db.ts (Dexie),
                      supabase.ts (the client and the per-request clients),
                      serverControl.ts (identity, bans, rate limits),
-                     account.ts, emailAuth.ts (register, sign in, verify,
-                     reset), cloudHistory.ts (chats), cloudAdmin.ts (console),
+                     account.ts, emailAuth.ts (OAuth, register, sign in,
+                     verify, reset), preferences.ts (account-synced settings),
+                     cloudHistory.ts (chats), cloudAdmin.ts (console),
                      serverDew.ts, serverRedeem.ts (the ledgers)
 lib/github/          client.ts (REST, read-only), pat.ts (token scopes and ids),
                      connections.ts (the token collection and its default),
@@ -224,7 +239,8 @@ lib/agent/           tools.ts (the four tools), edits.ts (staging and unified
 lib/changesets.ts    change-set ids, hashes, branch naming, signed change sets
                      and approvals, the commit gate, the stored records
 components/ChangeReview.tsx  the diff cards and Approve & commit
-components/EmailAuthForm.tsx  register, sign in, resend, reset
+components/AuthScreen.tsx  the required sign-in/register screen
+components/EmailAuthForm.tsx  email register, sign in, resend, reset
 docs/OVERHAUL_SPEC.md  the contract for the repo agent
 docs/legacy/         the previous Openmi product docs, kept for reference
 docs/MIGRATE_TO_SUPABASE.md  the record of the Firebase → Supabase migration
