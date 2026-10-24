@@ -21,6 +21,7 @@ carry the rules it used to hold.
 | `migrations/20261024000400_schema_health.sql` | `openmi_schema_health()`: a public, presence-only audit that names the migration missing when a table, column or function is absent. Read by the About page's setup banner. |
 | `migrations/20261024000500_dew_activity.sql` | `free_dew`/`paid_dew` on `dew_transactions`, `deduct_dew_split()` which reports both halves of a charge, and the audit learning about them. |
 | `migrations/20261024000600_referrals.sql` | `referral_codes`, `referrals`, the write-once `ensure_referral_code()`, the capped `claim_referral(text)`, and the table-driven `schema_expected` list behind the health audit. |
+| `migrations/20261024000700_shares.sql` | `shared_chats` (owner-only, thirty-day expiry, revocable) and the anonymous `shared_public` view, which has no owner column and hides revoked or expired rows. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

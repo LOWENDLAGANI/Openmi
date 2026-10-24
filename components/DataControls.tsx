@@ -7,6 +7,7 @@
 // keeps the paid plan — a purchase is not chat history.
 
 import { useState } from "react";
+import Link from "next/link";
 import { exportBackup } from "@/lib/db";
 import { deleteAllMyData } from "@/lib/privacy";
 
@@ -92,6 +93,13 @@ export default function DataControls() {
           {busy ? "Deleting…" : confirmDelete ? "Tap again to erase everything" : "Delete all my data"}
         </button>
       </div>
+
+      <Link
+        href="/shares"
+        className="mt-2 inline-flex text-[11px] font-medium text-[#a9d8bb]/75 transition-colors hover:text-[#a9d8bb]"
+      >
+        Manage shared links →
+      </Link>
 
       {notice && (
         <p role="status" className="animate-rise mt-2 text-[11px] leading-relaxed text-white/55">

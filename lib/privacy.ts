@@ -56,7 +56,11 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
 
     // Chat messages first: a chat row that outlives its messages opens as an
     // empty thread, which reads as data loss. The rest is order-independent.
+    // Shared links are public copies of chat text, not history to keep: they
+    // are deleted with the conversations they came from. The Dew ledger below
+    // is deliberately absent.
     for (const table of [
+      "shared_chats",
       "chat_messages",
       "chats",
       "memories",

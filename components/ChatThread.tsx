@@ -3,6 +3,9 @@
 import type { ChatMessage } from "@/lib/types";
 import { getModelDisplayName } from "@/lib/models";
 import { displayedContent, variantCount, variantPosition } from "@/lib/variants";
+import { authHeader } from "@/lib/supabase";
+import { isShareId, shareUrl, type ShareMessage, type ShareSnapshot } from "@/lib/share";
+import Link from "next/link";
 import Markdown from "./Markdown";
 import OpenmiMark from "./OpenmiMark";
 import ChangeReview from "./ChangeReview";
@@ -57,6 +60,97 @@ function CopyMessageButton({ text }: { text: string }) {
         </svg>
       )}
     </button>
+  );
+}
+
+// ── Sharing one answer ──────────────────────────────────────────────────────
+//
+// The button publishes a copy of the question and the answer that is on screen,
+// copies the link, and offers the two things worth having afterwards: open it,
+// or manage (and revoke) it. The copy is made server-side with the caller's
+// token; the snapshot is validated again there, so a modified client cannot
+// publish something this button would not have produced.
+
+function ShareAnswerButton({ title, messages }: { title: string; messages: ShareMessage[] }) {
+  const [busy, setBusy] = useState(false);
+  const [link, setLink] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const create = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/share", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ title, messages }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { id?: unknown; error?: unknown };
+      if (!response.ok || !isShareId(data.id)) {
+        setError(
+          typeof data.error === "string" && data.error.trim()
+            ? data.error
+            : "The link could not be created."
+        );
+        return;
+      }
+      const url = shareUrl(window.location.origin, data.id);
+      setLink(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2_500);
+      } catch {
+        // The link is on screen below; the clipboard is a convenience.
+      }
+    } catch {
+      setError("The link could not be created. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <button
+        type="button"
+        onClick={() => void create()}
+        disabled={busy}
+        className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+        aria-label="Share this answer"
+        title="Share"
+      >
+        {copied ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m4.5 12.5 5 5 10-11" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" />
+            <path d="M8.2 10.9 15.8 7m-7.6 6.1 7.6 3.9" />
+          </svg>
+        )}
+        <span className="hidden sm:inline">{busy ? "Sharing…" : copied ? "Copied" : "Share"}</span>
+      </button>
+      {link && (
+        <>
+          <a
+            href={link}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[10.5px] text-[#a9d8bb]/80 transition-colors hover:text-[#a9d8bb]"
+          >
+            Open link
+          </a>
+          <Link href="/shares" className="text-[10.5px] text-white/35 transition-colors hover:text-white/70">
+            Manage
+          </Link>
+        </>
+      )}
+      {error && <span className="text-[10.5px] text-red-200/75">{error}</span>}
+    </span>
   );
 }
 
@@ -179,12 +273,13 @@ function VariantNav({
   );
 }
 
-function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVariant }: {
+function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVariant, share }: {
   msg: ChatMessage;
   streaming: boolean;
   onRegenerate: () => void;
   onEditMessage: (content: string) => void;
   onSwitchVariant: (index: number | null) => void;
+  share: ShareSnapshot;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
@@ -329,9 +424,10 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
           explanation below says why. A header button could not carry that
           meaning, because it would be missing for unrelated reasons. */}
       {msg.content && !streaming && !msg.truncated && !msg.error && (
-        <div className="mt-2 flex items-center gap-1">
+        <div className="mt-2 flex flex-wrap items-center gap-1">
           <MessageActions onRegenerate={onRegenerate} />
           <CopyMessageButton text={displayText} />
+          <ShareAnswerButton title={share.title} messages={share.messages} />
         </div>
       )}
 
@@ -520,6 +616,27 @@ const EMPTY_STATE_HEADLINES = [
 
 const HEADLINE_CURSOR_KEY = "openmi:empty-headline-cursor";
 
+/**
+ * The copy of one exchange that a share button publishes.
+ *
+ * The question is the nearest previous user message, and the answer is what is
+ * on screen — the variant the reader chose, not necessarily the newest. Keeping
+ * both together is what makes a link readable on its own; the rest of the
+ * conversation is deliberately absent.
+ */
+function shareSnapshotAt(messages: ChatMessage[], index: number): ShareSnapshot {
+  const msg = messages[index];
+  const answer = msg ? displayedContent(msg) : "";
+  const previous = [...messages.slice(0, index)]
+    .reverse()
+    .find((entry) => entry.role === "user" && entry.content.trim().length > 0);
+  const shared: ShareMessage[] = [];
+  if (previous) shared.push({ role: "user", content: previous.content });
+  if (answer.trim()) shared.push({ role: "assistant", content: answer });
+  const firstLine = previous?.content.trim().split("\n")[0]?.trim() ?? "";
+  return { title: firstLine.slice(0, 100) || "Shared answer", messages: shared };
+}
+
 /** Walks the list in order so two refreshes in a row never show the same line. */
 function nextHeadline(): string {
   let cursor = 0;
@@ -611,7 +728,7 @@ export default function ChatThread({  messages,
         </div>
         {showSourceHistory && <div className="mb-5 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-white/35">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-white/55 hover:text-white/85">{source.title} <span className="text-white/25">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-8">
-          {messages.map((msg) => (
+          {messages.map((msg, index) => (
             <MessageRow
               key={msg.id}
               msg={msg}
@@ -619,6 +736,7 @@ export default function ChatThread({  messages,
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
               onSwitchVariant={(index) => onSwitchVariant(msg.id, index)}
+              share={shareSnapshotAt(messages, index)}
             />
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (

@@ -62,6 +62,10 @@ when you say so**, on a branch of its own.
   commit → commit → `agent/<repo>-<id>` branch → pull request. A moved default
   branch is refused with a re-diff, a double submit returns the first commit,
   and another account's change set cannot be read or committed.
+- **A shared answer.** A finished answer can be published as a read-only link:
+  a copy of the question and the answer, no account or chat attached, expiring
+  after thirty days and revocable from Settings → Your data. The public view has
+  no owner column, and a revoked link stops answering on the next read.
 
 ## What is not here yet
 
