@@ -14,6 +14,7 @@
 
 import { currentUser, getSupabase } from "./supabase";
 import {
+  DEFAULT_APPEARANCE,
   loadAppearance,
   loadReasoningEffort,
   loadResponseLength,
@@ -44,7 +45,7 @@ export interface UserPreferences {
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   displayName: null,
-  appearance: "dark",
+  appearance: DEFAULT_APPEARANCE,
   responseLength: "balanced",
   reasoningEffort: "low",
   searchMode: "auto",
@@ -101,7 +102,7 @@ export function saveLocalPreferences(preferences: UserPreferences): void {
 
 /** The row shape read from `user_preferences`. */
 function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
-  const appearance = row.appearance === "light" ? "light" : "dark";
+  const appearance: Appearance = row.appearance === "dark" ? "dark" : DEFAULT_APPEARANCE;
   const responseLength: ResponseLength =
     row.response_length === "short" || row.response_length === "detailed"
       ? row.response_length

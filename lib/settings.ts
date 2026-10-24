@@ -1,5 +1,10 @@
 export type ResponseLength = "short" | "balanced" | "detailed";
 export type Appearance = "dark" | "light";
+
+/** Openmi opens in light mode. Dark is a choice somebody makes, not the state
+ *  a first-time visitor is dropped into, so anything unset resolves to light. */
+export const DEFAULT_APPEARANCE: Appearance = "light";
+
 /** How hard the model thinks before answering. Openmi defaults to the cheapest. */
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -31,8 +36,12 @@ export function saveReasoningEffort(value: ReasoningEffort): void {
 }
 
 export function loadAppearance(): Appearance {
-  if (typeof window === "undefined") return "dark";
-  return window.localStorage.getItem(APPEARANCE_KEY) === "light" ? "light" : "dark";
+  if (typeof window === "undefined") return DEFAULT_APPEARANCE;
+  try {
+    return window.localStorage.getItem(APPEARANCE_KEY) === "dark" ? "dark" : DEFAULT_APPEARANCE;
+  } catch {
+    return DEFAULT_APPEARANCE;
+  }
 }
 
 /** The colour of the browser's own chrome, which cannot follow a CSS class.
@@ -40,7 +49,7 @@ export function loadAppearance(): Appearance {
 function applyThemeColor(value: Appearance): void {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
-  meta.setAttribute("content", value === "light" ? "#fbf9f2" : "#0b1310");
+  meta.setAttribute("content", value === "light" ? "#f8f9fa" : "#0b1310");
 }
 
 export function saveAppearance(value: Appearance): void {

@@ -67,17 +67,28 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b1310",
+  themeColor: "#f8f9fa",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
 };
 
+/** Runs before the first paint, while the body above it is still empty.
+ *
+ *  Openmi opens light for everyone who has not asked for otherwise, and the
+ *  server has no way to know which appearance this browser chose: reading it
+ *  after hydration would paint a full sheet of paper for a dark-mode reader
+ *  and then snap to night. The marker is therefore read here, synchronously,
+ *  and the class is already correct when the first pixel is drawn. A browser
+ *  with storage blocked keeps the light default rather than failing. */
+const APPEARANCE_BOOT = `try{if(localStorage.getItem("openmi:appearance")==="dark"){document.documentElement.classList.remove("light");document.documentElement.classList.add("dark")}}catch(e){}`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="light">
       <body className="h-[100dvh]">
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_BOOT }} />
         {children}
         <ServiceWorker />
       </body>

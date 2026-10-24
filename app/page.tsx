@@ -56,6 +56,7 @@ import type {
   SearchSource,
 } from "@/lib/types";
 import {
+  DEFAULT_APPEARANCE,
   saveAppearance,
   type Appearance,
   type ReasoningEffort,
@@ -120,7 +121,7 @@ export default function HomePage() {
   const [tutorialFinished, setTutorialFinished] = useState(false);
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
-  const [appearance, setAppearance] = useState<Appearance>("dark");
+  const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
   const [loggingError, setLoggingError] = useState(false);
   // Epoch ms until the server has asked the composer to hold off, set from the
   // wait the server itself names in a 429 — never guessed locally.
@@ -1106,7 +1107,7 @@ export default function HomePage() {
   // guessing which would flash the wrong one.
   if (!account) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-[#060a08] text-text-body">
+      <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
         <OpenmiMark className="h-8 w-8 animate-pulse" />
         <SplashScreen />
       </div>
@@ -1137,7 +1138,7 @@ export default function HomePage() {
   // this browser. This is a single bounded read, not a gate on the product.
   if (!displayName) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-[#060a08] text-text-body">
+      <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
         <OpenmiMark className="h-8 w-8 animate-pulse" />
         <SplashScreen />
       </div>
@@ -1145,7 +1146,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-[#060a08] text-text-body">
+    <div className="flex h-[100dvh] overflow-hidden bg-canvas text-text-body">
       <Sidebar
         activeChatId={activeChatId}
         onSelectChat={handleSelectChat}
@@ -1168,7 +1169,7 @@ export default function HomePage() {
       <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden animate-view-in">
         <div className="surface-glow pointer-events-none absolute inset-0" aria-hidden />
 
-        <header className="safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6">
+        <header className="safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-card px-4 md:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
             className="lift flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"

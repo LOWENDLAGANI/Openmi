@@ -5,6 +5,7 @@ import { secondsRemaining } from "@/lib/rateLimit";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
+import QuickActions from "./QuickActions";
 
 // ── ChatInput: floating composer with attachments — minimal, mobile-first ───
 
@@ -236,8 +237,11 @@ export default function ChatInput({
   };
 
   return (
-    <div className="relative z-20 shrink-0 px-3 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3" data-tutorial="composer">
-      <div className="mx-auto w-full max-w-4xl">
+    <footer
+      className="composer-dock sticky bottom-0 z-20 shrink-0 border-t border-line px-3 pb-3 pt-2 md:px-6"
+      data-tutorial="composer"
+    >
+      <div className="mx-auto w-full max-w-3xl">
         {/* Errors */}
         {errors.length > 0 && (
           <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-1.5 text-[12px] text-red-300 animate-rise">
@@ -309,7 +313,20 @@ export default function ChatInput({
           </div>
         )}
 
-        {/* Composer */}
+        {/* Suggestions sit directly above the dock, one swipeable row. They are
+            hidden once somebody is writing, so the composer stays uncluttered
+            for the actual message. */}
+        {!hasContent && !compressing && (
+          <QuickActions
+            onPick={(prompt) => {
+              handleTextChange(prompt);
+              textareaRef.current?.focus();
+            }}
+          />
+        )}
+
+        {/* Composer: one capsule, attachment on the left, the message in the
+            middle, voice and tools on the right. */}
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -317,30 +334,70 @@ export default function ChatInput({
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`flex min-h-16 items-end gap-1.5 rounded-[26px] border bg-[#1a2620]/95 p-2 pl-2 shadow-[0_18px_55px_rgba(0,0,0,0.38)] backdrop-blur-xl transition-all ${
-            dragOver
-              ? "border-[#3f7d5c]/60 shadow-[0_18px_60px_rgba(47,107,72,0.22)]"
-              : "border-white/[0.09] focus-within:border-white/[0.16]"
+          className={`composer-capsule flex items-end gap-0.5 px-2 py-1.5 transition-all ${
+            dragOver ? "ring-2 ring-blue-400/30" : ""
           }`}
         >
-          {/* Tools: Gallery + Web search */}
+          {/* Camera / attachment — the first thing on the left of the capsule */}
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-mid transition-colors hover:bg-card hover:text-text-hi"
+            aria-label="Take a photo or add an image"
+            type="button"
+            title="Camera"
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3.5 8.5A2 2 0 0 1 5.5 6.5h1.7l1.2-2h7.2l1.2 2h1.7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
+              <circle cx="12" cy="13" r="3.4" />
+            </svg>
+          </button>
+
+          {/* Textarea — 16px on mobile to prevent iOS zoom */}
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => handleTextChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            rows={1}
+            placeholder={compressing ? "Compressing…" : "Message Openmi…"}
+            className="max-h-[180px] flex-1 resize-none border-none bg-transparent px-1 py-2.5 text-[16px] leading-snug text-text-hi placeholder:text-text-low focus:outline-none md:text-[15px]"
+          />
+
+          {/* Voice */}
+          <button
+            onClick={toggleVoice}
+            className={`mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
+              isListening ? "bg-red-500/10 text-red-500" : "text-text-mid hover:bg-card hover:text-text-hi"
+            }`}
+            aria-label={isListening ? "Stop voice input" : "Start voice input"}
+            aria-pressed={isListening}
+            type="button"
+            title={isListening ? "Listening…" : "Voice input"}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="11" rx="3" />
+              <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
+            </svg>
+          </button>
+
+          {/* Tools: the + menu */}
           <div ref={toolsRef} className="relative shrink-0">
             <button
               onClick={() => setShowTools((value) => !value)}
               data-tutorial="gallery-button"
-              className="lift mb-1 flex h-12 w-12 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+              className="mb-0.5 flex h-10 w-10 items-center justify-center rounded-full text-text-mid transition-colors hover:bg-card hover:text-text-hi"
               aria-label="Open tools menu"
               aria-expanded={showTools}
               type="button"
               title="Open message tools"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="8.5" className="opacity-40" />
-                <path d="M12 8v8M8 12h8" />
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 5.5v13M5.5 12h13" />
               </svg>
             </button>
             {showTools && (
-              <div className="animate-pop absolute bottom-14 left-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-[26px] border border-white/[0.08] bg-[#141f1a]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl">
+              <div className="animate-pop absolute bottom-14 right-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-xl shadow-black/10 backdrop-blur-xl">
                 <button
                   type="button"
                   onClick={() => {
@@ -414,7 +471,7 @@ export default function ChatInput({
                       <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">{isListening ? "Listening…" : "Voice input"}</span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">{isListening ? "Listening…" : "Voice input"}</span>
                 </button>
               </div>
             )}
@@ -455,28 +512,16 @@ export default function ChatInput({
             />
           </div>
 
-          {/* Textarea — 16px on mobile to prevent iOS zoom */}
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            rows={1}
-            placeholder={compressing ? "Compressing…" : "Ask Openmi anything…"}
-            className="max-h-[180px] flex-1 resize-none bg-transparent py-3.5 text-[16px] leading-snug text-white/90 placeholder-white/32 outline-none md:text-[17px]"
-          />
-
-          {/* Send / Stop */}
+          {/* Send / Stop — the one filled control in the capsule. */}
           {disabled ? (
             <button
               onClick={onStop}
-              className="mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/70 transition-colors hover:bg-white/[0.13] hover:text-white"
+              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-mid transition-colors hover:text-text-hi"
               aria-label="Stop generating"
               type="button"
               title="Stop generating"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
               </svg>
             </button>
@@ -484,10 +529,10 @@ export default function ChatInput({
             <button
               onClick={handleSend}
               disabled={!canSend}
-              className={`lift mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${
+              className={`mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
                 canSend
-                  ? "bg-[#2a6142] text-white shadow-[0_8px_24px_rgba(63,125,92,0.35)] hover:bg-[#35744f]"
-                  : "text-white/25 hover:bg-white/[0.05]"
+                  ? "on-accent bg-accent shadow-sm hover:opacity-90"
+                  : "text-text-low hover:bg-card"
               }`}
               aria-label="Send message"
               type="button"
@@ -499,17 +544,23 @@ export default function ChatInput({
           )}
         </div>
 
+        {/* The one piece of small print the design asks for, directly under the
+            capsule where it belongs. */}
+        <p className="mt-1.5 text-center text-[10px] leading-relaxed text-text-low">
+          Content generated by Openmi AI. Might not be accurate.
+        </p>
+
         {/* Creator credit — kept deliberately; the keyboard hint was the
             redundant part, not the attribution. The heart is the one place
             a donation is offered without a menu: people who like Openmi are
             looking right here. Desktop only, so it never crowds the phone
             composer; phones get it from the tools menu and the sidebar. */}
-        <p className="hidden pt-2.5 text-center text-[10px] text-white/25 md:block">
+        <p className="hidden pt-1 text-center text-[10px] text-text-low md:block">
           Created by Minetallest
-          <span className="mx-1.5 text-white/15">·</span>
+          <span className="mx-1.5 text-text-low">·</span>
           <Link
             href="/donate"
-            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-white/35 transition-colors hover:text-rose-200"
+            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-text-mid transition-colors hover:text-rose-500"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
@@ -519,7 +570,6 @@ export default function ChatInput({
         </p>
         <div className="safe-bottom md:hidden" />
       </div>
-
-    </div>
+    </footer>
   );
 }

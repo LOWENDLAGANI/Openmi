@@ -31,6 +31,55 @@ const STREAMING_MESSAGES = [
   "Please wait while we're staying your data",
 ] as const;
 
+/**
+ * An image in the thread, framed the way a gallery frames one.
+ *
+ * The card is a fixed square so a row of them stays a row, and the controls
+ * float over the picture instead of adding a footer under it: a download pill
+ * bottom-left in frosted glass, the Openmi AI mark bottom-right. Both are on
+ * the dark glass, so they keep their white text in the light appearance too.
+ */
+function MediaCard({
+  url,
+  name,
+  watermark = false,
+}: {
+  url: string;
+  name?: string;
+  watermark?: boolean;
+}) {
+  return (
+    <figure className="media-card h-36 w-36 shrink-0 sm:h-40 sm:w-40">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={name || "Attached image"}
+        className="h-full w-full cursor-zoom-in object-cover"
+        onClick={() => window.open(url, "_blank")}
+      />
+      <a
+        href={url}
+        download={name || "openmi-image"}
+        className="frosted on-media absolute bottom-2 left-2 flex h-8 w-8 items-center justify-center rounded-full transition-transform active:scale-95"
+        aria-label={`Download ${name || "image"}`}
+        title="Download"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 3.5v11" />
+          <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+          <path d="M4.5 19.5h15" />
+        </svg>
+      </a>
+      {watermark && (
+        <figcaption className="media-watermark pointer-events-none absolute bottom-2.5 right-2.5 text-[10px] font-medium tracking-[0.02em]">
+          Openmi AI
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
 function CopyMessageButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -157,8 +206,8 @@ function ShareAnswerButton({ title, messages }: { title: string; messages: Share
 function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"]> }) {
   if (sources.length === 0) return null;
   return (
-    <div className="mt-4 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3">
-      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">
+    <div className="mt-3 rounded-xl border border-line bg-canvas p-3">
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="8.5" /><path d="M3.8 12h16.4M12 3.5c2.1 2.3 3.2 5.1 3.2 8.5s-1.1 6.2-3.2 8.5c-2.1-2.3-3.2-5.1-3.2-8.5S9.9 5.8 12 3.5Z" />
         </svg>
@@ -168,7 +217,7 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
           deserves to see that these snippets are reference material, not
           Openmi's own words. The system prompt already says so to the model;
           this says it to the person. */}
-      <p className="mb-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-white/35">
+      <p className="mb-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-text-low">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0" aria-hidden="true">
           <path d="M12 3l7 3v5c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3Z" />
         </svg>
@@ -188,16 +237,16 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
               href={source.url}
               target="_blank"
               rel="noreferrer"
-              className="group/source flex items-start gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-white/[0.05]"
+              className="group/source flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-hover"
             >
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-[9px] text-white/55">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-hover text-[9px] text-text-mid">
                 {source.id}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] text-white/70 group-hover/source:text-white">{source.title}</span>
-                <span className="mt-0.5 block truncate text-[10px] text-white/30">{host}</span>
+                <span className="block truncate text-[12px] text-text-body group-hover/source:text-text-hi">{source.title}</span>
+                <span className="mt-0.5 block truncate text-[10px] text-text-low">{host}</span>
               </span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-1 shrink-0 text-white/25" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-1 shrink-0 text-text-low" aria-hidden="true">
                 <path d="M14 5h5v5M19 5l-8 8" /><path d="M18 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
               </svg>
             </a>
@@ -294,26 +343,19 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
   const shownContent = useSmoothText(displayText, streaming);
   if (msg.role === "user") {
     return (
-      <div className="group flex flex-col items-end animate-rise">
-        <div className="max-w-[88%] md:max-w-[76%]">
+      <div className="group flex animate-rise flex-col items-end gap-1.5">
+        <div className="flex max-w-[85%] flex-col items-end gap-2">
           {msg.images && msg.images.length > 0 && (
-            <div className="mb-2 flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               {msg.images.map((img, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={i}
-                  src={img.url}
-                  alt={img.name || `attachment ${i + 1}`}
-                  className="h-28 w-auto max-w-[220px] cursor-zoom-in rounded-2xl border border-white/10 object-cover shadow-2xl shadow-black/20"
-                  onClick={() => window.open(img.url, "_blank")}
-                />
+                <MediaCard key={i} url={img.url} name={img.name} />
               ))}
             </div>
           )}
           {msg.documents && msg.documents.length > 0 && (
             <div className="mb-2 flex flex-wrap justify-end gap-1.5">
               {msg.documents.map((document) => (
-                <span key={document.name} className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] text-white/55 flex items-center gap-1.5">
+                <span key={document.name} className="rounded-lg border border-line bg-card px-2 py-1 text-[10px] text-text-mid flex items-center gap-1.5">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
                     <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
                     <path d="M14 2v6h6" />
@@ -324,21 +366,21 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
             </div>
           )}
           {msg.content && !editing && (
-            <div className="inline-block rounded-[22px] rounded-br-md bg-white/[0.075] px-4 py-2.5 text-[15px] leading-relaxed text-white/90 backdrop-blur-sm">
+            <div className="msg-user-bubble">
               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
             </div>
           )}
           {editing ? (
-            <div className="w-full rounded-2xl border border-[#3f7d5c]/40 bg-black/20 p-2">
-              <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} className="w-full resize-none bg-transparent p-1 text-[14px] text-white outline-none" autoFocus />
-              <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-white/40">Cancel</button><button type="button" onClick={() => { const next = draft.trim(); if (!next) return; setEditing(false); onEditMessage(next); }} className="rounded-lg bg-[#2a6142] px-2.5 py-1 text-white">Edit &amp; send</button></div>
+            <div className="w-full rounded-2xl border border-line bg-card p-2">
+              <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} className="w-full resize-none bg-transparent p-1 text-[14px] text-text-hi outline-none" autoFocus />
+              <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-text-mid transition-colors hover:text-text-hi">Cancel</button><button type="button" onClick={() => { const next = draft.trim(); if (!next) return; setEditing(false); onEditMessage(next); }} className="on-accent rounded-lg bg-accent px-2.5 py-1">Edit &amp; send</button></div>
             </div>
           ) : (
-            <button type="button" onClick={() => setEditing(true)} className="mt-1 self-end text-[10px] text-white/25 opacity-100 transition-opacity hover:text-white/70 md:opacity-0 md:group-hover:opacity-100">Edit</button>
+            <button type="button" onClick={() => setEditing(true)} className="text-[10px] text-text-low opacity-100 transition-opacity hover:text-text-mid md:opacity-0 md:group-hover:opacity-100">Edit</button>
           )}
         </div>
         {msg.error && (
-          <div className="mt-1 w-full max-w-[88%] rounded-xl border border-red-400/15 bg-red-500/[0.06] px-3 py-2 text-[12px] text-red-200/80 md:max-w-[76%]">
+          <div className="w-full max-w-[85%] rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
             {msg.error}
           </div>
         )}
@@ -347,109 +389,113 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
   }
 
   return (
-    <div className="group animate-rise">
-      <div className="mb-2 flex items-center gap-2">
-        <ModelIcon model={msg.model} />
-        <ModelBadge model={msg.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">
-          {getModelDisplayName(msg.model)}
-        </span>
-        {msg.usage && (
-          <span
-            className="text-[10px] text-text-low"
-            title={`${msg.usage.prompt.toLocaleString()} in · ${msg.usage.completion.toLocaleString()} out`}
-          >
-            {msg.usage.total.toLocaleString()} tok
-          </span>
+    <div className="group flex animate-rise flex-col gap-1">
+      {/* The answer is a card: white on the gray canvas, a hairline border and
+          the softest shadow that still lifts it off the page. The model badge
+          sits at the top of the card rather than floating above it, so the
+          whole turn is one object. */}
+      <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
+        <div className="mb-2 flex items-center gap-2">
+          <ModelIcon model={msg.model} />
+          <ModelBadge model={msg.model} />
+          {/* The badge already names a known mode; this line is for a model that
+              is something else, so the header never says the same word twice. */}
+          {getModelDisplayName(msg.model) !== getMode(msg.model ?? "auto").display && (
+            <span className="hidden text-[12px] font-medium text-text-mid sm:inline">
+              {getModelDisplayName(msg.model)}
+            </span>
+          )}
+          {msg.usage && (
+            <span
+              className="text-[10px] text-text-low"
+              title={`${msg.usage.prompt.toLocaleString()} in · ${msg.usage.completion.toLocaleString()} out`}
+            >
+              {msg.usage.total.toLocaleString()} tok
+            </span>
+          )}
+          <VariantNav message={msg} onSwitch={onSwitchVariant} />
+        </div>
+
+        {/* What the agent read to answer this. Kept to one line per read: a wall
+            of tool JSON buries the answer, and the path is the part a reader
+            needs. A failed read stays visible rather than being tidied away —
+            it is the difference between "that file is empty" and "that file was
+            never opened". */}
+        {msg.steps && msg.steps.length > 0 && (
+          <div className="mb-2 space-y-1 rounded-xl border border-line bg-canvas px-3 py-1.5">
+            {msg.steps.map((step, index) => (
+              <div
+                key={`${step.tool}-${index}`}
+                className="flex items-start gap-2 text-[11px] leading-relaxed text-text-mid"
+              >
+                <span
+                  aria-hidden
+                  className={`mt-[5px] h-1 w-1 shrink-0 rounded-full ${step.ok ? "bg-emerald-500/70" : "bg-red-400/70"}`}
+                />
+                <span className="min-w-0 flex-1 break-words">{step.label}</span>
+              </div>
+            ))}
+          </div>
         )}
-        <VariantNav message={msg} onSwitch={onSwitchVariant} />
+
+        {msg.images && msg.images.length > 0 && (
+          <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto pb-0.5">
+            {msg.images.map((img, i) => (
+              <MediaCard key={i} url={img.url} name={img.name} watermark />
+            ))}
+          </div>
+        )}
+
+        {shownContent && (
+          <div className={streaming ? "stream-cursor" : ""}>
+            <Markdown content={shownContent} />
+          </div>
+        )}
+
+        {/* A proposal is the answer's subject, not an appendix, so the review sits
+            directly under the text that explains it. It reads the stored change
+            set rather than the step response, so a reload keeps a reviewable
+            change instead of losing the only diff the browser ever held. */}
+        {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} />}
+
+        {msg.sources && <SearchSources sources={msg.sources} />}
+
+        {/* A cut-off answer, said out loud. A truncated file is the one failure
+            mode here that is completely invisible: it renders as a clean code
+            block, copies as a clean code block, and reads as finished. This only
+            appears once every other model Openmi can reach has also failed to
+            finish it, so the wording says as much. */}
+        {msg.truncated && (
+          <div
+            role="status"
+            className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-800"
+          >
+            Openmi tried other models and this answer still stops partway, because
+            it hit their length limit too. Ask it to continue and it will pick up
+            from where it left off.
+          </div>
+        )}
+
+        {msg.error && (
+          <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-relaxed text-red-700">
+            {msg.error}
+          </div>
+        )}
       </div>
 
-      {/* What the agent read to answer this. Kept to one line per read: a wall
-          of tool JSON buries the answer, and the path is the part a reader
-          needs. A failed read stays visible rather than being tidied away —
-          it is the difference between "that file is empty" and "that file was
-          never opened". */}
-      {msg.steps && msg.steps.length > 0 && (
-        <div className="mb-2 space-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
-          {msg.steps.map((step, index) => (
-            <div
-              key={`${step.tool}-${index}`}
-              className="flex items-start gap-2 text-[11px] leading-relaxed text-white/45"
-            >
-              <span
-                aria-hidden
-                className={`mt-[5px] h-1 w-1 shrink-0 rounded-full ${step.ok ? "bg-[#7fd1a1]/70" : "bg-red-300/70"}`}
-              />
-              <span className="min-w-0 flex-1 break-words">{step.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {msg.images && msg.images.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {msg.images.map((img, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={i}
-              src={img.url}
-              alt={img.name || `attachment ${i + 1}`}
-              className="h-28 w-auto max-w-[220px] cursor-zoom-in rounded-2xl border border-white/10 object-cover"
-              onClick={() => window.open(img.url, "_blank")}
-            />
-          ))}
-        </div>
-      )}
-
-      {shownContent && (
-        <div className={streaming ? "stream-cursor" : ""}>
-          <Markdown content={shownContent} />
-        </div>
-      )}
-
-      {/* A proposal is the answer's subject, not an appendix, so the review sits
-          directly under the text that explains it. It reads the stored change
-          set rather than the step response, so a reload keeps a reviewable
-          change instead of losing the only diff the browser ever held. */}
-      {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} />}
-
-      {msg.sources && <SearchSources sources={msg.sources} />}
-
-      {/* The actions sit below the answer rather than in its header, and they
+      {/* The actions sit below the card rather than in its header, and they
           appear only once the answer is genuinely finished. That placement is
           the point: a truncated response is the one failure here that is
           otherwise invisible, rendering and copying as a clean block and
           reading as complete. With the controls underneath, their absence is
           the signal — nothing to press means nothing finished, and the
-          explanation below says why. A header button could not carry that
+          explanation above says why. A header button could not carry that
           meaning, because it would be missing for unrelated reasons. */}
       {msg.content && !streaming && !msg.truncated && !msg.error && (
-        <div className="mt-2 flex flex-wrap items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1 pl-1">
           <MessageActions onRegenerate={onRegenerate} />
           <CopyMessageButton text={displayText} />
           <ShareAnswerButton title={share.title} messages={share.messages} />
-        </div>
-      )}
-
-      {/* A cut-off answer, said out loud. A truncated file is the one failure
-          mode here that is completely invisible: it renders as a clean code
-          block, copies as a clean code block, and reads as finished. This only
-          appears once every other model Openmi can reach has also failed to
-          finish it, so the wording says as much. */}
-      {msg.truncated && (
-        <div
-          role="status"
-          className="mt-2 rounded-xl border border-amber-300/15 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-100/80"
-        >
-          Openmi tried other models and this answer still stops partway, because
-          it hit their length limit too. Ask it to continue and it will pick up
-          from where it left off.
-        </div>
-      )}
-
-      {msg.error && (
-        <div className="mt-2 rounded-xl border border-red-400/15 bg-red-500/[0.06] px-3 py-2 text-[12px] leading-relaxed text-red-200/80">
-          {msg.error}
         </div>
       )}
     </div>
@@ -710,7 +756,7 @@ export default function ChatThread({  messages,
             <div className="absolute inset-[-45%] rounded-full bg-[#2f6b48]/20 blur-3xl" />
             <OpenmiMark className="relative h-full w-full" />
           </div>
-          <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-white sm:text-[54px] lg:text-[62px]">
+          <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-text-hi sm:text-[54px] lg:text-[62px]">
             {headline}
           </h1>
         </div>
@@ -720,14 +766,14 @@ export default function ChatThread({  messages,
 
   return (
     <div ref={containerRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-4 pb-8 pt-4 md:px-7 md:pt-6">
-        <div className="mb-5 flex items-center justify-end gap-1 text-[10px] text-white/30">
-          <button type="button" onClick={onCopyConversation} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy chat</button>
-          {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Sources ({allSources.length})</button>}
-          {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy links</button>}
+      <div className="mx-auto w-full max-w-3xl px-4 pb-6 pt-4 md:px-6 md:pt-6">
+        <div className="mb-4 flex items-center justify-end gap-1 text-[10px] text-text-low">
+          <button type="button" onClick={onCopyConversation} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-hover hover:text-text-body">Copy chat</button>
+          {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-hover hover:text-text-body">Sources ({allSources.length})</button>}
+          {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-hover hover:text-text-body">Copy links</button>}
         </div>
-        {showSourceHistory && <div className="mb-5 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-white/35">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-white/55 hover:text-white/85">{source.title} <span className="text-white/25">· {source.url}</span></a>)}</div></div>}
-        <div className="flex flex-col gap-8">
+        {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-text-low">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
+        <div className="flex flex-col gap-5">
           {messages.map((msg, index) => (
             <MessageRow
               key={msg.id}
