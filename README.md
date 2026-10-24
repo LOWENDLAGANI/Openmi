@@ -153,8 +153,9 @@ The same provider buttons register a first-time account, because Supabase create
 the user when the provider returns one it has not seen. A confirmation mail goes
 out on email registration when the project has confirmation on, and can be
 resent from the form; nothing is blocked while it is unconfirmed. Password reset
-uses Supabase's recovery mail, and the returned session offers **Change
-password** in Settings.
+uses Supabase's recovery mail, which returns to `/auth/reset-password` and asks
+for a new password immediately; a signed-in email account can also change its
+password later from Settings.
 
 All four methods are dashboard switches (Authentication → Sign In / Providers),
 not build settings. `supabase/README.md` has the click-by-click version,

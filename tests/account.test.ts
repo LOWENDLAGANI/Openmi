@@ -23,6 +23,7 @@ import {
   resolveName,
 } from "../lib/accountState";
 import { explainSignInError } from "../lib/authDiagnostics";
+import { passwordProblem, recoveryRedirectUrl, RECOVERY_PATH } from "../lib/passwordRecovery";
 
 let failures = 0;
 let passes = 0;
@@ -343,6 +344,47 @@ test("preferences are owner-scoped in the database", () => {
     sql,
     /create policy user_preferences_owner on public\.user_preferences\s+for all to authenticated\s+using \(owner = auth\.uid\(\)\)\s+with check \(owner = auth\.uid\(\)\)/
   );
+});
+
+console.log("\nthe password recovery flow");
+
+test("a recovery link returns to its own screen, not to the product", () => {
+  assert.equal(RECOVERY_PATH, "/auth/reset-password");
+  assert.equal(recoveryRedirectUrl("https://example.com"), "https://example.com/auth/reset-password");
+  assert.equal(
+    recoveryRedirectUrl("https://example.com/"),
+    "https://example.com/auth/reset-password",
+    "a trailing slash must not produce a double slash"
+  );
+});
+
+test("a new password must be long enough and typed twice", () => {
+  assert.match(passwordProblem("abc", "abc") ?? "", /six characters/);
+  assert.match(passwordProblem("abcdef", "abcdeg") ?? "", /do not match/);
+  assert.equal(passwordProblem("abcdef", "abcdef"), null);
+});
+
+test("the reset mail and the recovery screen are wired to each other", () => {
+  // Redirecting to the product would sign the person in and leave the old
+  // password working, which is the halfway state the screen exists to remove.
+  const mail = code("lib/emailAuth.ts");
+  assert.match(mail, /recoveryRedirectUrl/);
+  assert.doesNotMatch(
+    mail.slice(mail.indexOf("requestPasswordReset"), mail.indexOf("changePassword")),
+    /redirectTo: returnUrl\(\)/,
+    "the reset mail still returns to the bare origin"
+  );
+
+  const page = readFileSync(
+    join(process.cwd(), "app/auth/reset-password/page.tsx"),
+    "utf8"
+  );
+  assert.match(page, /PasswordRecoveryScreen/);
+
+  const screen = code("components/PasswordRecoveryScreen.tsx");
+  assert.match(screen, /changePassword/);
+  assert.match(screen, /status === "expired"/);
+  assert.match(screen, /Continue to Openmi/);
 });
 
 console.log(

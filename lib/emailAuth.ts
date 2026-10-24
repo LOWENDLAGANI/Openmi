@@ -29,6 +29,7 @@
 
 import type { User } from "@supabase/supabase-js";
 import { accountViewOf } from "./account";
+import { recoveryRedirectUrl } from "./passwordRecovery";
 import { getSupabase } from "./supabase";
 import type { AccountView } from "./accountState";
 
@@ -190,8 +191,12 @@ export async function resendVerificationEmail(email: string): Promise<boolean> {
  */
 export async function requestPasswordReset(email: string): Promise<void> {
   const supabase = client();
+  const origin = returnUrl();
   const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-    redirectTo: returnUrl(),
+    // The recovery session must land on the screen that asks for a new password.
+    // Returning to the product would sign the person in and leave the old
+    // password in place, which is the halfway state this screen removes.
+    redirectTo: origin ? recoveryRedirectUrl(origin) : undefined,
   });
   if (error) throw error;
 }

@@ -54,9 +54,12 @@ Providers**:
 
 Then set **Authentication → URL Configuration**: the Site URL is the deployed
 origin, and the Redirect URLs list must contain that origin plus
-`http://localhost:3000` for local development. The app returns from every
-authentication round trip to its own origin, where the Supabase client exchanges
-the PKCE code for a session.
+`http://localhost:3000` for local development. Add the recovery path as well —
+`https://<your-domain>/auth/reset-password` and
+`http://localhost:3000/auth/reset-password` — because the reset mail deliberately
+returns to the screen that asks for a new password instead of the product. Every
+authentication round trip ends on this origin, where the Supabase client
+exchanges the PKCE code for a session.
 
 **Anonymous sign-ins is not used and should stay off.** There is no guest mode:
 the sign-in screen is the whole interface until one of the four doors returns a
