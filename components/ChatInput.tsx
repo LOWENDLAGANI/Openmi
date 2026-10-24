@@ -238,14 +238,23 @@ export default function ChatInput({
 
   return (
     <footer
-      className="composer-dock sticky bottom-0 z-20 shrink-0 border-t border-line px-3 pb-3 pt-2 md:px-6"
+      className="composer-dock sticky bottom-0 z-20 shrink-0 border-t border-line pb-3 pt-2"
       data-tutorial="composer"
     >
-      <div className="mx-auto w-full max-w-3xl">
+      {/* Same column and same gutter as the thread above, so the capsule's
+          edges sit under the message cards rather than a few pixels off. */}
+      <div className="mx-auto w-full max-w-3xl px-4 md:px-6">
         {/* Errors */}
         {errors.length > 0 && (
-          <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-1.5 text-[12px] text-red-300 animate-rise">
-            {errors.join(" · ")}
+          <div
+            role="alert"
+            className="mb-2 flex items-start gap-2 rounded-xl border border-[color:var(--danger-border)] bg-[color:var(--danger-bg)] px-3 py-2 text-[12px] leading-relaxed text-[color:var(--danger-ink)] animate-rise"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7.5V13M12 16.5h.01" />
+            </svg>
+            <span className="min-w-0 flex-1">{errors.join(" · ")}</span>
           </div>
         )}
 
@@ -286,7 +295,7 @@ export default function ChatInput({
                     <path d="M6 6l12 12M18 6L6 18" />
                   </svg>
                 </button>
-                <span className="pointer-events-none absolute inset-x-0 bottom-0 rounded-b-lg bg-black/50 py-px text-center font-mono text-[8px] text-text-mid">
+                <span className="attachment-size pointer-events-none absolute inset-x-0 bottom-0 rounded-b-lg py-px text-center font-mono text-[8px]">
                   {formatBytes(img.size)}
                 </span>
               </div>
@@ -302,12 +311,12 @@ export default function ChatInput({
         {documents.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 animate-rise">
             {documents.map((document, i) => (
-              <div key={`${document.name}-${i}`} className="flex max-w-full items-center gap-2 rounded-xl border border-line bg-white/[0.05] px-3 py-2">
+              <div key={`${document.name}-${i}`} className="flex max-w-full items-center gap-2 rounded-xl border border-line bg-hover px-3 py-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#a9d8bb]/10 text-[#a9d8bb]">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15h6" /></svg>
                 </span>
-                <span className="min-w-0"><span className="block max-w-[150px] truncate text-[11px] text-white/75">{document.name}</span><span className="text-[9px] text-white/35">{formatBytes(document.size)}{document.truncated ? " · truncated" : ""}</span></span>
-                <button type="button" onClick={() => removeDocument(i)} className="ml-1 text-white/30 hover:text-red-300" aria-label={`Remove ${document.name}`}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+                <span className="min-w-0"><span className="block max-w-[150px] truncate text-[11px] text-text-body">{document.name}</span><span className="text-[9px] text-text-low">{formatBytes(document.size)}{document.truncated ? " · truncated" : ""}</span></span>
+                <button type="button" onClick={() => removeDocument(i)} className="ml-1 text-text-low hover:text-[color:var(--danger-ink)]" aria-label={`Remove ${document.name}`}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
               </div>
             ))}
           </div>
@@ -317,12 +326,14 @@ export default function ChatInput({
             hidden once somebody is writing, so the composer stays uncluttered
             for the actual message. */}
         {!hasContent && !compressing && (
-          <QuickActions
-            onPick={(prompt) => {
-              handleTextChange(prompt);
-              textareaRef.current?.focus();
-            }}
-          />
+          <div className="pt-0.5">
+            <QuickActions
+              onPick={(prompt) => {
+                handleTextChange(prompt);
+                textareaRef.current?.focus();
+              }}
+            />
+          </div>
         )}
 
         {/* Composer: one capsule, attachment on the left, the message in the
@@ -397,22 +408,22 @@ export default function ChatInput({
               </svg>
             </button>
             {showTools && (
-              <div className="animate-pop absolute bottom-14 right-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-xl shadow-black/10 backdrop-blur-xl">
+              <div className="animate-pop absolute bottom-14 right-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-xl backdrop-blur-xl">
                 <button
                   type="button"
                   onClick={() => {
                     setShowTools(false);
                     cameraInputRef.current?.click();
                   }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
                     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M3.5 8.5A2 2 0 0 1 5.5 6.5h1.7l1.2-2h7.2l1.2 2h1.7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
                       <circle cx="12" cy="13" r="3.4" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Camera</span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Camera</span>
                 </button>
                 <button
                   type="button"
@@ -420,14 +431,14 @@ export default function ChatInput({
                     setShowTools(false);
                     fileInputRef.current?.click();
                   }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
                     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <rect x="3" y="3" width="18" height="18" rx="4.5" /><circle cx="8.75" cy="8.75" r="1.6" /><path d="M21 15.5l-4.5-4.5L5 21" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Gallery</span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Gallery</span>
                 </button>
                 <button
                   type="button"
@@ -435,26 +446,26 @@ export default function ChatInput({
                     setShowTools(false);
                     document.getElementById("openmi-document-picker")?.click();
                   }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
                     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15.5h4" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Files</span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Files</span>
                 </button>
                 <Link
                   href="/donate"
                   onClick={() => setShowTools(false)}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
                 >
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-400/10 text-rose-200">
                     <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
                     </svg>
                   </span>
-                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">
                     Support Openmi
                     <span className="rounded-full bg-rose-400/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-200">
                       Donate
@@ -464,9 +475,9 @@ export default function ChatInput({
                 <button
                   type="button"
                   onClick={toggleVoice}
-                  className={`flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09] ${isListening ? "bg-red-500/10" : ""}`}
+                  className={`flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line ${isListening ? "bg-red-500/10" : ""}`}
                 >
-                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white ${isListening ? "animate-pulse" : ""}`}>
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi ${isListening ? "animate-pulse" : ""}`}>
                     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
                       <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
                     </svg>
@@ -532,7 +543,7 @@ export default function ChatInput({
               className={`mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
                 canSend
                   ? "on-accent bg-accent shadow-sm hover:opacity-90"
-                  : "text-text-low hover:bg-card"
+                  : "send-idle"
               }`}
               aria-label="Send message"
               type="button"

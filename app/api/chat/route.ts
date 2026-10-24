@@ -139,14 +139,28 @@ function errorStream(message: string): Response {
 function extractUpstreamError(detail: string): string {
   if (!detail) return "The provider did not return an error message.";
 
+  // Providers wrap the same sentence in different envelopes: a bare string, an
+  // `{ message }`, an `{ error: { message } }`, or — as several gateways do —
+  // a JSON array holding one of those. Reading only the object shape meant an
+  // array fell through to the raw-payload fallback and the whole JSON document
+  // was printed into the chat. The recursion walks the envelope instead.
+  const readMessage = (value: unknown): string | null => {
+    if (typeof value === "string") return value.trim() || null;
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    if (record.error) {
+      const inner = readMessage(record.error);
+      if (inner) return inner;
+    }
+    if (typeof record.message === "string" && record.message.trim()) return record.message.trim();
+    if (typeof record.detail === "string" && record.detail.trim()) return record.detail.trim();
+    return null;
+  };
+
   try {
-    const parsed = JSON.parse(detail) as {
-      error?: { message?: string; code?: string | number } | string;
-      message?: string;
-    };
-    const nested = typeof parsed.error === "string" ? parsed.error : parsed.error?.message;
-    const message = nested || parsed.message;
-    if (message) return message.replace(/\s+/g, " ").trim().slice(0, 500);
+    const parsed = JSON.parse(detail) as unknown;
+    const message = readMessage(Array.isArray(parsed) ? parsed[0] : parsed);
+    if (message) return message.replace(/\s+/g, " ").trim().slice(0, 300);
   } catch {
     // Some gateways return HTML or plain text. Keep only a short, safe excerpt.
   }
@@ -450,7 +464,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   if (!upstream || !activeProvider) {
     return errorStream(
-      failures.map((failure, index) => `${index > 0 ? "Openmi also tried " : ""}${explainProviderError(failure)}`).join(" ")
+      failures.map((failure) => explainProviderError(failure)).join(" ")
     );
   }
 

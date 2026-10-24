@@ -1,7 +1,6 @@
 "use client";
 
 import type { ChatMessage } from "@/lib/types";
-import { getModelDisplayName } from "@/lib/models";
 import { displayedContent, variantCount, variantPosition } from "@/lib/variants";
 import { authHeader } from "@/lib/supabase";
 import { isShareId, shareUrl, type ShareMessage, type ShareSnapshot } from "@/lib/share";
@@ -93,13 +92,13 @@ function CopyMessageButton({ text }: { text: string }) {
           // Clipboard access can be unavailable in some browsers.
         }
       }}
-      className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+      className="thread-tool w-7 justify-center px-0"
       aria-label={copied ? "Copied" : "Copy message"}
       title={copied ? "Copied" : "Copy"}
       type="button"
     >
       {copied ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-accent" aria-hidden="true">
           <path d="m4.5 12.5 5 5 10-11" />
         </svg>
       ) : (
@@ -167,7 +166,7 @@ function ShareAnswerButton({ title, messages }: { title: string; messages: Share
         type="button"
         onClick={() => void create()}
         disabled={busy}
-        className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+        className="thread-tool"
         aria-label="Share this answer"
         title="Share"
       >
@@ -189,16 +188,16 @@ function ShareAnswerButton({ title, messages }: { title: string; messages: Share
             href={link}
             target="_blank"
             rel="noreferrer"
-            className="text-[10.5px] text-[#a9d8bb]/80 transition-colors hover:text-[#a9d8bb]"
+            className="text-[11.5px] text-accent transition-opacity hover:opacity-80"
           >
             Open link
           </a>
-          <Link href="/shares" className="text-[10.5px] text-white/35 transition-colors hover:text-white/70">
+          <Link href="/shares" className="text-[11.5px] text-text-low transition-colors hover:text-text-hi">
             Manage
           </Link>
         </>
       )}
-      {error && <span className="text-[10.5px] text-red-200/75">{error}</span>}
+      {error && <span className="text-[11px] text-[color:var(--danger-ink)]">{error}</span>}
     </span>
   );
 }
@@ -261,7 +260,7 @@ function MessageActions({ onRegenerate }: { onRegenerate: () => void }) {
   return (
     <button
       onClick={onRegenerate}
-      className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+      className="thread-tool w-7 justify-center px-0"
       aria-label="Retry this answer"
       title="Retry"
       type="button"
@@ -295,17 +294,17 @@ function VariantNav({
   const go = (next: number) => onSwitch(next <= 0 ? null : next);
 
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full border border-white/[0.08] bg-white/[0.035] px-1 py-0.5 text-[10px] text-white/45">
+    <span className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full border border-line bg-hover px-1 py-0.5 text-[10px] text-text-mid">
       <button
         type="button"
         onClick={() => go(position - 1)}
         disabled={position === 0}
-        className="flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-25"
+        className="flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-card hover:text-text-hi disabled:opacity-25"
         aria-label="Show the newer answer"
       >
         ‹
       </button>
-      <span className={position === 0 ? "px-0.5" : "px-0.5 text-[#a9d8bb]"}>
+      <span className={position === 0 ? "px-0.5" : "px-0.5 text-accent"}>
         {position + 1}/{count}
         {position === 0 ? " latest" : " earlier"}
       </span>
@@ -313,7 +312,7 @@ function VariantNav({
         type="button"
         onClick={() => go(position + 1)}
         disabled={position >= count - 1}
-        className="flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-25"
+        className="flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-card hover:text-text-hi disabled:opacity-25"
         aria-label="Show the previous answer"
       >
         ›
@@ -376,14 +375,34 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
               <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-text-mid transition-colors hover:text-text-hi">Cancel</button><button type="button" onClick={() => { const next = draft.trim(); if (!next) return; setEditing(false); onEditMessage(next); }} className="on-accent rounded-lg bg-accent px-2.5 py-1">Edit &amp; send</button></div>
             </div>
           ) : (
-            <button type="button" onClick={() => setEditing(true)} className="text-[10px] text-text-low opacity-100 transition-opacity hover:text-text-mid md:opacity-0 md:group-hover:opacity-100">Edit</button>
+            <button type="button" onClick={() => setEditing(true)} className="thread-tool md:opacity-0 md:group-hover:opacity-100">Edit</button>
           )}
         </div>
         {msg.error && (
-          <div className="w-full max-w-[85%] rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
-            {msg.error}
+          <div role="alert" className="alert alert-danger w-full max-w-[85%]">
+            <AlertIcon />
+            <div className="min-w-0 flex-1">
+              <span className="alert-title">This message was not sent</span>
+              <span className="alert-body">{msg.error}</span>
+            </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // A turn that never produced text is the failure itself, so it is drawn as
+  // one alert rather than as an empty white card with a red box floating in it.
+  if (!msg.content && msg.error) {
+    return (
+      <div className="animate-rise">
+        <div role="alert" className="alert alert-danger alert-flush max-w-[92%] md:max-w-[85%]">
+          <AlertIcon />
+          <div className="min-w-0 flex-1">
+            <span className="alert-title">Openmi could not answer</span>
+            <span className="alert-body">{msg.error}</span>
+          </div>
+        </div>
       </div>
     );
   }
@@ -395,26 +414,22 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
           sits at the top of the card rather than floating above it, so the
           whole turn is one object. */}
       <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
-        <div className="mb-2 flex items-center gap-2">
-          <ModelIcon model={msg.model} />
-          <ModelBadge model={msg.model} />
-          {/* The badge already names a known mode; this line is for a model that
-              is something else, so the header never says the same word twice. */}
-          {getModelDisplayName(msg.model) !== getMode(msg.model ?? "auto").display && (
-            <span className="hidden text-[12px] font-medium text-text-mid sm:inline">
-              {getModelDisplayName(msg.model)}
-            </span>
-          )}
-          {msg.usage && (
-            <span
-              className="text-[10px] text-text-low"
-              title={`${msg.usage.prompt.toLocaleString()} in · ${msg.usage.completion.toLocaleString()} out`}
-            >
-              {msg.usage.total.toLocaleString()} tok
-            </span>
-          )}
-          <VariantNav message={msg} onSwitch={onSwitchVariant} />
-        </div>
+        {/* Header only when there is an answer to head. A turn that produced
+            no text has already returned above as a bare alert. */}
+        {msg.content && (
+          <div className="mb-2.5 flex items-center gap-2">
+            <ModelBadge model={msg.model} />
+            {msg.usage && (
+              <span
+                className="text-[10px] text-text-low"
+                title={`${msg.usage.prompt.toLocaleString()} in · ${msg.usage.completion.toLocaleString()} out`}
+              >
+                {msg.usage.total.toLocaleString()} tok
+              </span>
+            )}
+            <VariantNav message={msg} onSwitch={onSwitchVariant} />
+          </div>
+        )}
 
         {/* What the agent read to answer this. Kept to one line per read: a wall
             of tool JSON buries the answer, and the path is the part a reader
@@ -466,19 +481,29 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
             appears once every other model Openmi can reach has also failed to
             finish it, so the wording says as much. */}
         {msg.truncated && (
-          <div
-            role="status"
-            className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-800"
-          >
-            Openmi tried other models and this answer still stops partway, because
-            it hit their length limit too. Ask it to continue and it will pick up
-            from where it left off.
+          <div role="status" className="alert alert-warn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 9v4.5M12 17h.01" />
+              <path d="M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3.1L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+            </svg>
+            <div className="min-w-0 flex-1">
+              <span className="alert-title">This answer was cut off</span>
+              <span className="alert-body">
+                Openmi tried other models and this answer still stops partway, because
+                it hit their length limit too. Ask it to continue and it will pick up
+                from where it left off.
+              </span>
+            </div>
           </div>
         )}
 
         {msg.error && (
-          <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-relaxed text-red-700">
-            {msg.error}
+          <div role="alert" className="alert alert-danger">
+            <AlertIcon />
+            <div className="min-w-0 flex-1">
+              <span className="alert-title">Openmi could not answer</span>
+              <span className="alert-body">{msg.error}</span>
+            </div>
           </div>
         )}
       </div>
@@ -514,7 +539,7 @@ function TypingDots({ message }: { message: string }) {
           />
         ))}
       </span>
-      <span className="text-[12px] leading-relaxed text-white/45">{message}</span>
+      <span className="text-[12px] leading-relaxed text-text-mid">{message}</span>
     </div>
   );
 }
@@ -766,14 +791,20 @@ export default function ChatThread({  messages,
 
   return (
     <div ref={containerRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-4 pb-6 pt-4 md:px-6 md:pt-6">
-        <div className="mb-4 flex items-center justify-end gap-1 text-[10px] text-text-low">
-          <button type="button" onClick={onCopyConversation} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-hover hover:text-text-body">Copy chat</button>
-          {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-hover hover:text-text-body">Sources ({allSources.length})</button>}
-          {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-hover hover:text-text-body">Copy links</button>}
+      <div className="mx-auto w-full max-w-3xl px-4 pb-6 pt-3 md:px-6 md:pt-4">
+        <div className="mb-1.5 flex items-center justify-end gap-1">
+          <button type="button" onClick={onCopyConversation} className="thread-tool">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="11" height="11" rx="2.5" />
+              <path d="M5.5 15H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5h8.5A1.5 1.5 0 0 1 15 5v.5" />
+            </svg>
+            Copy chat
+          </button>
+          {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="thread-tool">Sources ({allSources.length})</button>}
+          {showSourceHistory && <button type="button" onClick={() => void copySources()} className="thread-tool">Copy links</button>}
         </div>
         {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-text-low">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4">
           {messages.map((msg, index) => (
             <MessageRow
               key={msg.id}
@@ -792,11 +823,10 @@ export default function ChatThread({  messages,
                   const m = messages.find((x) => x.id === streamingId);
                   return m ? (
                     <>
-                      <ModelIcon model={m.model} />
-                      <ModelBadge model={m.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">Openmi</span>
+                      <ModelBadge model={m.model} />
                     </>
                   ) : (
-                    <span className="hidden ml-2 text-[12px] font-medium text-white/55">Openmi</span>
+                    <span className="text-[12px] font-medium text-text-mid">Openmi</span>
                   );
                 })()}
               </div>
@@ -828,20 +858,12 @@ function ModelBadge({ model }: { model?: string }) {
   );
 }
 
-function ModelIcon({ model }: { model?: string }) {
-  const mode = getMode(model ?? "auto");
-  const isCode = mode.id === "code";
-  if (isCode) {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#e08e6b] flex-shrink-0" aria-hidden="true">
-        <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" />
-      </svg>
-    );
-  }
+/** The triangle every alert in the thread uses. */
+function AlertIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#6ec294] flex-shrink-0" aria-hidden="true">
-      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1-9.123-12.776" />
-      <path d="M15 15.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5V13M12 16.5h.01" />
     </svg>
   );
 }

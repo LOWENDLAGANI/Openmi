@@ -33,6 +33,16 @@
   --dock: #0e1613;
   --chip: #111a16;
   --chip-border: rgba(233, 245, 236, 0.1);
+  /* Status surfaces, so an alert is the same shape in both appearances and
+     only its ink changes. */
+  --danger-bg: rgba(248, 113, 113, 0.08);
+  --danger-border: rgba(248, 113, 113, 0.22);
+  --danger-ink: #fca5a5;
+  --danger-strong: #fecaca;
+  --warn-bg: rgba(251, 191, 36, 0.07);
+  --warn-border: rgba(251, 191, 36, 0.2);
+  --warn-ink: #fcd34d;
+  --warn-strong: #fde68a;
 }
 
 /* ── Light mode: the Openmi product palette ─────────────────────────────────
@@ -68,6 +78,14 @@ html.light {
   --dock: #ffffff;
   --chip: #ffffff;
   --chip-border: #e5e7eb;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-ink: #b91c1c;
+  --danger-strong: #991b1b;
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+  --warn-ink: #92400e;
+  --warn-strong: #78350f;
 }
 
 html.light body { background: var(--bg); }
@@ -82,48 +100,85 @@ html.light aside { background: #ffffff !important; }
    translucent white. Paper mode is that same set of classes turned over, and
    these rules do the turning, so no component needs a second light variant.
    The tiers matter: white/20 is a footnote, white/90 is body copy, and a
-   single colour for both would flatten every hierarchy on the page. */
+   single colour for both would flatten every hierarchy on the page.
+
+   Every selector below matches a *whole* class token: a leading space, or `^=`
+   for the first token in the attribute. That detail is the difference between a
+   paper theme and a ghost of the night one. An earlier pass matched any class
+   *containing* `bg-white/`, so `hover:bg-white/[0.06]` matched as well and every
+   control wore its hover background permanently — gray discs behind icon
+   buttons, a filled pill behind the model name, panels tinted for no reason.
+   A prefixed variant is now never read as a rest state, and the hover rules at
+   the end of this block put the feedback back where it belongs. */
 html.light .text-white { color: #111827 !important; }
 
 /* Muted and micro text */
-html.light [class*="text-white/1"],
-html.light [class*="text-white/2"],
-html.light [class*="text-white/3"] { color: #9ca3af !important; }
+html.light [class*=" text-white/1"],
+html.light [class^="text-white/1"],
+html.light [class*=" text-white/2"],
+html.light [class^="text-white/2"],
+html.light [class*=" text-white/3"],
+html.light [class^="text-white/3"] { color: #9ca3af !important; }
 
 /* Secondary text */
-html.light [class*="text-white/4"],
-html.light [class*="text-white/5"],
-html.light [class*="text-white/6"] { color: #6b7280 !important; }
+html.light [class*=" text-white/4"],
+html.light [class^="text-white/4"],
+html.light [class*=" text-white/5"],
+html.light [class^="text-white/5"] { color: #6b7280 !important; }
+
+/* Mid-weight text: between secondary and body copy. */
+html.light [class*=" text-white/6"],
+html.light [class^="text-white/6"] { color: #4b5563 !important; }
 
 /* Primary text */
-html.light [class*="text-white/7"],
-html.light [class*="text-white/8"],
-html.light [class*="text-white/9"] { color: #111827 !important; }
+html.light [class*=" text-white/7"],
+html.light [class^="text-white/7"],
+html.light [class*=" text-white/8"],
+html.light [class^="text-white/8"],
+html.light [class*=" text-white/9"],
+html.light [class^="text-white/9"] { color: #111827 !important; }
 
-html.light [class*="bg-white/"] { background-color: rgba(17, 24, 39, 0.05) !important; }
-html.light [class*="border-white/"] { border-color: #e5e7eb !important; }
-html.light [class*="bg-black/"] { background-color: rgba(17, 24, 39, 0.05) !important; }
-html.light [class*="shadow-black"] { box-shadow: 0 18px 40px -24px rgba(17, 24, 39, 0.28) !important; }
+html.light [class*=" bg-white/"],
+html.light [class^="bg-white/"] { background-color: rgba(17, 24, 39, 0.05) !important; }
+html.light [class*=" border-white/"],
+html.light [class^="border-white/"] { border-color: #e5e7eb !important; }
+/* Only the small black washes are surfaces — an input well, a code chip. The
+   deep ones (60–85%) are modal backdrops and stay dark, because a light-mode
+   dialog still needs a dimmed page behind it. */
+html.light [class~="bg-black/20"],
+html.light [class~="bg-black/25"],
+html.light [class~="bg-black/30"],
+html.light [class~="bg-black/40"] { background-color: rgba(17, 24, 39, 0.05) !important; }
+html.light [class*=" shadow-black"],
+html.light [class^="shadow-black"] { box-shadow: 0 18px 40px -24px rgba(17, 24, 39, 0.28) !important; }
 
 /* Deep surfaces that were written as literal hex values rather than tokens.
    Naming each one keeps the rule honest: a sheet, a panel, and the page all
    become paper, while an image overlay or a coloured button does not. */
-html.light [class*="bg-[#060a08]"],
-html.light [class*="bg-[#070c0a]"],
-html.light [class*="bg-[#080d0a]"],
-html.light [class*="bg-[#0b1310]"],
-html.light [class*="bg-[#0f1713]"],
-html.light [class*="bg-[#121c18]"],
-html.light [class*="bg-[#141f1a]"],
-html.light [class*="bg-[#1a2620]"] { background-color: #ffffff !important; }
+html.light [class*=" bg-[#060a08]"], html.light [class^="bg-[#060a08]"],
+html.light [class*=" bg-[#070c0a]"], html.light [class^="bg-[#070c0a]"],
+html.light [class*=" bg-[#080d0a]"], html.light [class^="bg-[#080d0a]"],
+html.light [class*=" bg-[#0b1310]"], html.light [class^="bg-[#0b1310]"],
+html.light [class*=" bg-[#0f1713]"], html.light [class^="bg-[#0f1713]"],
+html.light [class*=" bg-[#121c18]"], html.light [class^="bg-[#121c18]"],
+html.light [class*=" bg-[#141f1a]"], html.light [class^="bg-[#141f1a]"],
+html.light [class*=" bg-[#1a2620]"], html.light [class^="bg-[#1a2620]"],
+html.light [class*=" bg-[#111a16]"], html.light [class^="bg-[#111a16]"],
+html.light [class*=" bg-[#0e1613]"], html.light [class^="bg-[#0e1613]"],
+html.light [class*=" bg-[#0b1312]"], html.light [class^="bg-[#0b1312]"] { background-color: #ffffff !important; }
+
+/* Decorative glows were painted for a dark canvas. On paper they stop being a
+   glow and become a coloured smudge behind the logo, so they are switched off
+   with the theme instead of being recoloured. */
+html.light [class*=" blur-3xl"], html.light [class^="blur-3xl"] { display: none !important; }
 
 /* The sage accent family the dark theme was built on reads as a foreign colour
    on paper, so every literal use of it is the same electric blue in light. */
-html.light [class*="text-[#a9d8bb]"],
-html.light [class*="text-[#c9e6d4]"],
-html.light [class*="text-[#b6e3c8]"],
-html.light [class*="text-[#d7f0e1]"],
-html.light [class*="text-[#6ec294]"] { color: #0066ff !important; }
+html.light [class*=" text-[#a9d8bb]"], html.light [class^="text-[#a9d8bb]"],
+html.light [class*=" text-[#c9e6d4]"], html.light [class^="text-[#c9e6d4]"],
+html.light [class*=" text-[#b6e3c8]"], html.light [class^="text-[#b6e3c8]"],
+html.light [class*=" text-[#d7f0e1]"], html.light [class^="text-[#d7f0e1]"],
+html.light [class*=" text-[#6ec294]"], html.light [class^="text-[#6ec294]"] { color: #0066ff !important; }
 /* A solid accent fill becomes the blue; a wash of the same colour stays a wash.
    The `~=` form matches the whole class token, so a `/15` tint is not caught
    here and turned into a wall of saturated blue. */
@@ -131,32 +186,50 @@ html.light [class~="bg-[#2f6b48]"],
 html.light [class~="bg-[#2a6142]"],
 html.light [class~="bg-[#3a7d55]"],
 html.light [class~="bg-[#35744f]"],
+html.light [class~="bg-[#3a8359]"],
+html.light [class~="bg-[#327350]"],
+html.light [class~="bg-[#7fd1a1]"],
 html.light [class~="bg-[#a9d8bb]"] { background-color: #0066ff !important; }
-html.light [class*="bg-[#2f6b48]/"],
-html.light [class*="bg-[#2a6142]/"],
-html.light [class*="bg-[#a9d8bb]/"] { background-color: rgba(0, 102, 255, 0.1) !important; }
-html.light [class*="border-[#2f6b48]"],
-html.light [class*="border-[#3f7d5c]"],
-html.light [class*="border-[#a9d8bb]"] { border-color: rgba(0, 102, 255, 0.35) !important; }
-html.light [class*="text-[#0a100d]"],
-html.light [class*="text-[#121c18]"] { color: #ffffff !important; }
+html.light [class*=" bg-[#2f6b48]/"], html.light [class^="bg-[#2f6b48]/"],
+html.light [class*=" bg-[#2a6142]/"], html.light [class^="bg-[#2a6142]/"],
+html.light [class*=" bg-[#7fd1a1]/"], html.light [class^="bg-[#7fd1a1]/"],
+html.light [class*=" bg-[#a9d8bb]/"], html.light [class^="bg-[#a9d8bb]/"] { background-color: rgba(0, 102, 255, 0.1) !important; }
+html.light [class*=" border-[#2f6b48]"], html.light [class^="border-[#2f6b48]"],
+html.light [class*=" border-[#3f7d5c]"], html.light [class^="border-[#3f7d5c]"],
+html.light [class*=" border-[#a9d8bb]"], html.light [class^="border-[#a9d8bb]"] { border-color: rgba(0, 102, 255, 0.35) !important; }
+html.light [class*=" text-[#0a100d]"], html.light [class^="text-[#0a100d]"],
+html.light [class*=" text-[#121c18]"], html.light [class^="text-[#121c18]"] { color: #ffffff !important; }
 
 /* Status colours were written for a dark canvas — amber-100 is a highlight on
    black and invisible on paper. The same states, deepened until they read:
    warnings brown, errors red, success green. The dots and fills keep their
    hue, so nothing loses its meaning; only the text is legible again. */
-html.light [class*="text-amber-1"],
-html.light [class*="text-amber-2"],
-html.light [class*="text-amber-3"] { color: #92400e !important; }
-html.light [class*="text-red-1"],
-html.light [class*="text-red-2"],
-html.light [class*="text-red-3"],
-html.light [class*="text-red-4"] { color: #b91c1c !important; }
-html.light [class*="text-rose-2"],
-html.light [class*="text-rose-3"] { color: #be123c !important; }
-html.light [class*="text-emerald-1"],
-html.light [class*="text-emerald-2"],
-html.light [class*="text-emerald-3"] { color: #047857 !important; }
+html.light [class*=" text-amber-1"], html.light [class^="text-amber-1"],
+html.light [class*=" text-amber-2"], html.light [class^="text-amber-2"],
+html.light [class*=" text-amber-3"], html.light [class^="text-amber-3"] { color: #92400e !important; }
+html.light [class*=" text-red-1"], html.light [class^="text-red-1"],
+html.light [class*=" text-red-2"], html.light [class^="text-red-2"],
+html.light [class*=" text-red-3"], html.light [class^="text-red-3"],
+html.light [class*=" text-red-4"], html.light [class^="text-red-4"] { color: #b91c1c !important; }
+html.light [class*=" text-rose-2"], html.light [class^="text-rose-2"],
+html.light [class*=" text-rose-3"], html.light [class^="text-rose-3"] { color: #be123c !important; }
+html.light [class*=" text-emerald-1"], html.light [class^="text-emerald-1"],
+html.light [class*=" text-emerald-2"], html.light [class^="text-emerald-2"],
+html.light [class*=" text-emerald-3"], html.light [class^="text-emerald-3"] { color: #047857 !important; }
+
+/* Hover, focus and placeholder states, restored as states rather than as
+   permanent paint. Without these, turning off the leak above would leave every
+   control with no feedback under the cursor at all. */
+html.light [class*=" hover:bg-white/"]:hover,
+html.light [class^="hover:bg-white/"]:hover { background-color: rgba(17, 24, 39, 0.06) !important; }
+html.light [class*=" active:bg-white/"]:active { background-color: rgba(17, 24, 39, 0.09) !important; }
+html.light [class*=" hover:text-white"]:hover,
+html.light [class^="hover:text-white"]:hover { color: #111827 !important; }
+html.light [class*=" hover:border-white"]:hover,
+html.light [class^="hover:border-white"]:hover { border-color: #d1d5db !important; }
+html.light [class*=" focus:border-white"]:focus,
+html.light [class^="focus:border-white"]:focus { border-color: #d1d5db !important; }
+html.light [class*=" placeholder:text-white"]::placeholder { color: #9ca3af !important; }
 
 /* Coloured status dots keep their meaning: amber and green still say what they
    said on the dark canvas. */
@@ -261,7 +334,101 @@ html.light .media-watermark {
   border: 1px solid var(--card-border);
 }
 
+/* ── Alerts ────────────────────────────────────────────────────────────────
+   One shape for every status the thread can raise, with the colour carried by
+   tokens so an error is red ink on a blush sheet by day and on a deep wash by
+   night. The body is allowed to wrap and break anywhere: provider messages
+   contain URLs and JSON, and a single unbroken token used to push the whole
+   card sideways. */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.alert > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.alert-title {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: -0.005em;
+}
+.alert-body {
+  display: block;
+  margin-top: 0.15rem;
+  overflow-wrap: anywhere;
+}
+.alert-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-ink);
+}
+.alert-danger .alert-title { color: var(--danger-strong); }
+/* A failure with no answer above it is the whole turn: it is the message, not
+   a notice tucked inside an empty card. */
+.alert-flush { margin-top: 0; }
+.alert-warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-ink);
+}
+.alert-warn .alert-title { color: var(--warn-strong); }
+
+/* The quiet controls of a thread: copy, share, retry, edit. Text-sized until
+   hovered, so a conversation does not read as a row of buttons. */
+.thread-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--text-low);
+  transition: background 0.15s, color 0.15s;
+}
+.thread-tool:hover {
+  background: var(--bg-hover);
+  color: var(--text-hi);
+}
+.thread-tool:disabled { opacity: 0.45; }
+.thread-tool svg { flex-shrink: 0; }
+
+/* The size stamp on an attachment preview sits on the picture, so it stays a
+   dark glass chip in both appearances instead of turning into a pale band. */
+.attachment-size {
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+}
+html.light .attachment-size {
+  background: rgba(0, 0, 0, 0.55) !important;
+  color: #ffffff !important;
+}
+
 /* Quick action chips, directly above the composer. */
+.quick-row {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
+}
+/* On a phone the row is wider than the screen, and a chip sliced in half at the
+   edge reads as a bug. A short fade says "there is more" instead. Desktop wraps
+   the chips, so the fade is only applied where the row actually scrolls. */
+@media (max-width: 767px) {
+  .quick-row {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
+  }
+}
+.quick-row::-webkit-scrollbar { display: none; }
 .quick-chip {
   display: inline-flex;
   flex-shrink: 0;
@@ -298,6 +465,15 @@ html.light .media-watermark {
   background: var(--card);
   border-color: var(--line-strong);
 }
+
+/* An empty composer still shows a button, not a floating glyph: the send
+   control needs an edge so it reads as pressable before there is text. */
+.send-idle {
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--text-low);
+}
+.send-idle:hover { color: var(--text-mid); }
 
 html,
 body {
@@ -550,17 +726,17 @@ button {
 .model-badge-azure {
   background: var(--azure-soft);
   color: var(--azure);
-  border: 1px solid rgba(91, 155, 213, 0.2);
+  border: 1px solid color-mix(in srgb, var(--azure) 22%, transparent);
 }
 .model-badge-code {
   background: var(--code-soft);
   color: var(--code);
-  border: 1px solid rgba(224, 142, 107, 0.2);
+  border: 1px solid color-mix(in srgb, var(--code) 22%, transparent);
 }
 .model-badge-auto {
   background: var(--accent-soft);
   color: var(--accent);
-  border: 1px solid rgba(110, 194, 148, 0.2);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .model-badge-dot {
   width: 6px;

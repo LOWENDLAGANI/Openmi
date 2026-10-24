@@ -41,7 +41,7 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium text-white/80 transition-colors hover:bg-white/[0.06] active:scale-[0.985]"
+        className="group flex h-9 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-card px-3 text-[13px] font-medium text-text-body transition-colors hover:bg-hover active:scale-[0.985]"
         aria-label="Switch model"
         aria-expanded={open}
       >
@@ -55,7 +55,7 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-white/40 transition-transform group-open:rotate-180"
+          className="text-text-low transition-transform group-open:rotate-180"
         >
           <path d="m7 10 5 5 5-5" />
         </svg>
@@ -65,7 +65,7 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
         <div
           role="radiogroup"
           aria-label="Openmi model"
-          className="animate-pop absolute right-0 top-full z-50 mt-1.5 w-56 origin-top-right overflow-hidden rounded-xl border border-white/[0.08] bg-[#121c18]/98 p-1 shadow-2xl shadow-black/60 backdrop-blur-xl"
+          className="animate-pop absolute right-0 top-full z-50 mt-1.5 w-56 origin-top-right overflow-hidden rounded-xl border border-line bg-card p-1 shadow-2xl backdrop-blur-xl"
         >
           {OPENMI_MODES.map((mode) => {
             const active = selected === mode.id;
@@ -75,14 +75,14 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
                 role="radio"
                 aria-checked={active}
                 onClick={() => selectMode(mode.id)}
-                className={`flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors ${active ? "bg-[#2f6b48]/20 text-white" : "text-white/75 hover:bg-white/[0.04]"}`}
+                className={`flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors ${active ? "bg-hover text-text-hi" : "text-text-body hover:bg-hover"}`}
                 type="button"
               >
-                <span className={`font-medium ${active ? "text-white" : "text-white/90"}`}>
+                <span className={`font-medium ${active ? "text-text-hi" : "text-text-body"}`}>
                   {mode.display}
                 </span>
                 {active && (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-[#a9d8bb]">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-accent">
                     <path d="m5 12 4 4L19 6" />
                   </svg>
                 )}

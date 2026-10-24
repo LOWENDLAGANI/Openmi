@@ -93,7 +93,7 @@ const ACTIONS: QuickAction[] = [
 export default function QuickActions({ onPick }: { onPick: (prompt: string) => void }) {
   return (
     <div
-      className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 pb-2 md:mx-0 md:px-0"
+      className="quick-row flex gap-2 overflow-x-auto pb-2 md:flex-wrap md:justify-center md:overflow-visible"
       role="group"
       aria-label="Suggested prompts"
     >
