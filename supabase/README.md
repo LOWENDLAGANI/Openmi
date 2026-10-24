@@ -20,6 +20,7 @@ carry the rules it used to hold.
 | `migrations/20261024000300_dew_timezone.sql` | `profiles.timezone`, the write-once `set_profile_timezone()` the browser reports through, and the final `deduct_dew()` that resets the bucket at midnight in the account's own zone (Kuala Lumpur when none is stored). |
 | `migrations/20261024000400_schema_health.sql` | `openmi_schema_health()`: a public, presence-only audit that names the migration missing when a table, column or function is absent. Read by the About page's setup banner. |
 | `migrations/20261024000500_dew_activity.sql` | `free_dew`/`paid_dew` on `dew_transactions`, `deduct_dew_split()` which reports both halves of a charge, and the audit learning about them. |
+| `migrations/20261024000600_referrals.sql` | `referral_codes`, `referrals`, the write-once `ensure_referral_code()`, the capped `claim_referral(text)`, and the table-driven `schema_expected` list behind the health audit. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
@@ -88,6 +89,7 @@ session.
 - A Dew credit can only be written for the trial amount under `TRIAL`, or for
   exactly the amount a live code carries. `spent` only moves through
   `deduct_dew()`, which `authenticated` can call but not bypass.
+- A referral is claimed only through `claim_referral()`, which writes both fixed 25-Dew credits in one transaction. The referred uid is the primary key (one invitation per account), self-referral is refused by a check constraint, and a referrer is capped at ten invitations. The browser can read its own referral rows, never insert one.
 - `dew_wallets` also carries the daily free bucket (`daily_day`, `daily_spent`).
   `deduct_dew()` spends that bucket before paid credit and discards what is left
   when the day changes at midnight in the account's own timezone

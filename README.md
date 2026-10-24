@@ -24,8 +24,9 @@ when you say so**, on a branch of its own.
   is known) and spent before paid credit; unused free Dew does not carry over,
   while trial, redeemed and topped-up Dew never expires. A spend history on
   `/activity` shows where it went: per day, per model, and how much came from
-  the free bucket rather than paid credit. Token counts are still recorded and
-  shown; they no longer price the request.
+  the free bucket rather than paid credit. Invitations on `/plus` give both
+  people 25 Dew, with one claim per account and a ten-invite cap per inviter.
+  Token counts are still recorded and shown; they no longer price the request.
 - Temporary chats, folders, a thirty-day trash, palette search, branching
   replies, web search, attachments, push, PWA, admin console.
 - **A sidebar that is part of the account.** Folders, the folder a chat is filed

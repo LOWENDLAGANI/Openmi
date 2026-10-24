@@ -7,6 +7,7 @@ import RedeemCodeBox from "@/components/RedeemCodeBox";
 import DewQrDialog from "@/components/DewQrDialog";
 import { watchAccount } from "@/lib/account";
 import type { AccountView } from "@/lib/accountState";
+import { getSupabase } from "@/lib/supabase";
 import { useDew } from "@/lib/useDew";
 import {
   DAILY_FREE_DEW,
@@ -15,6 +16,14 @@ import {
   formatRinggit,
   type DewPack,
 } from "@/lib/dew";
+import {
+  REFERRAL_DEW,
+  REFERRAL_LIMIT,
+  REFERRAL_STORAGE_KEY,
+  normalizeReferralCode,
+  referralErrorMessage,
+  referralInviteUrl,
+} from "@/lib/referral";
 
 function DewPanel() {
   const { ready, balance, dailyRemaining, dailyTimeZone, refresh } = useDew();
@@ -59,10 +68,184 @@ function DewPanel() {
   );
 }
 
+// ── Invite a friend ─────────────────────────────────────────────────────────
+//
+// The database owns the rules (one code, one claim, ten invites, a fixed
+// reward). This panel only shows the code and asks. An invitation link is
+// `/plus?ref=CODE`, so the recipient lands on the claim form already filled in
+// once they sign in.
+
+function ReferralPanel() {
+  const { refresh } = useDew();
+  const [code, setCode] = useState<string | null>(null);
+  const [claimCode, setClaimCode] = useState("");
+  const [claimNote, setClaimNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    try {
+      let incoming = normalizeReferralCode(new URLSearchParams(window.location.search).get("ref"));
+      if (!incoming) {
+        incoming = normalizeReferralCode(window.localStorage.getItem(REFERRAL_STORAGE_KEY));
+      }
+      if (incoming) setClaimCode(incoming);
+    } catch {
+      // A malformed query string or blocked storage simply leaves the field empty.
+    }
+
+    void (async () => {
+      try {
+        const client = getSupabase();
+        if (!client) return;
+        const { data, error } = await client.rpc("ensure_referral_code");
+        if (cancelled) return;
+        if (error) setCode("");
+        else if (typeof data === "string" && data) setCode(data);
+        else setCode("");
+      } catch {
+        // The invitation card is a bonus; a deployment without it still works.
+        if (!cancelled) setCode("");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const copyInvite = async () => {
+    if (!code || typeof window === "undefined") return;
+    try {
+      await navigator.clipboard.writeText(referralInviteUrl(window.location.origin, code));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      setClaimNote("The link could not be copied automatically — select it and copy it by hand.");
+    }
+  };
+
+  const claim = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    const normalised = normalizeReferralCode(claimCode);
+    if (!normalised) {
+      setClaimNote("Enter the invitation code you were given.");
+      return;
+    }
+    setBusy(true);
+    setClaimNote(null);
+    try {
+      const client = getSupabase();
+      if (!client) {
+        setClaimNote("Sign in before claiming an invitation.");
+        return;
+      }
+      const { data, error } = await client.rpc("claim_referral", { p_code: normalised });
+      if (error) {
+        setClaimNote(referralErrorMessage(error));
+        return;
+      }
+      const row = (Array.isArray(data) ? data[0] : data) as { referee_reward?: unknown } | null;
+      const reward = Number(row?.referee_reward);
+      try {
+        window.localStorage.removeItem(REFERRAL_STORAGE_KEY);
+      } catch {
+        // Private mode: the code is gone with the page anyway.
+      }
+      await refresh();
+      setClaimCode("");
+      setClaimNote(
+        `Invitation accepted — ${formatDew(Number.isFinite(reward) && reward > 0 ? reward : REFERRAL_DEW)} Dew added to both wallets.`
+      );
+    } catch (cause) {
+      setClaimNote(referralErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Null while loading, empty when the feature is not available on this
+  // deployment. Neither is worth a card that says "nothing here".
+  if (!code) return null;
+  const inviteUrl =
+    typeof window === "undefined" ? "" : referralInviteUrl(window.location.origin, code);
+
+  return (
+    <section className="mt-4 rounded-[22px] border border-white/[0.07] bg-white/[0.025] p-4 sm:p-5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#a9d8bb]/70">
+        Invite a friend
+      </p>
+      <p className="mt-1 text-[12px] leading-relaxed text-white/50">
+        You both get {formatDew(REFERRAL_DEW)} Dew when they join with your code. One invitation per
+        account, up to {REFERRAL_LIMIT} per inviter.
+      </p>
+
+      <div className="mt-2.5 flex gap-2">
+        <input
+          readOnly
+          value={inviteUrl}
+          aria-label="Your invitation link"
+          onFocus={(event) => event.currentTarget.select()}
+          className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-black/25 px-2.5 py-2 font-mono text-[10.5px] text-white/60"
+        />
+        <button
+          type="button"
+          onClick={() => void copyInvite()}
+          className="shrink-0 rounded-xl border border-[#a9d8bb]/25 px-3 py-2 text-[11.5px] font-medium text-[#a9d8bb] transition-colors hover:bg-[#a9d8bb]/10"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+
+      <form onSubmit={claim} className="mt-3 flex gap-2">
+        <input
+          value={claimCode}
+          onChange={(event) => setClaimCode(event.target.value)}
+          placeholder="Have a friend's code?"
+          aria-label="Invitation code"
+          autoCapitalize="characters"
+          autoComplete="off"
+          spellCheck={false}
+          className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-black/25 px-2.5 py-2 text-[12px] uppercase tracking-wide text-white placeholder:normal-case placeholder:tracking-normal placeholder:text-white/25"
+        />
+        <button
+          type="submit"
+          disabled={busy || !normalizeReferralCode(claimCode)}
+          className="shrink-0 rounded-xl bg-[#2f6b48] px-3 py-2 text-[11.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+        >
+          {busy ? "Claiming…" : "Claim"}
+        </button>
+      </form>
+
+      {claimNote && (
+        <p className="mt-2 break-words text-[11.5px] leading-relaxed text-white/55">{claimNote}</p>
+      )}
+    </section>
+  );
+}
+
 export default function OpenmiPlusPage() {
   const [dewTopUp, setDewTopUp] = useState<DewPack | null>(null);
   const [account, setAccount] = useState<AccountView | null>(null);
   useEffect(() => watchAccount((view) => setAccount(view)), []);
+
+  // An invitation can arrive before there is a session. Keep the code for the
+  // next visit and take it out of the address bar, so it is not lost when the
+  // signed-out page sends the person to sign in.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const incoming = normalizeReferralCode(url.searchParams.get("ref"));
+      if (!incoming) return;
+      window.localStorage.setItem(REFERRAL_STORAGE_KEY, incoming);
+      url.searchParams.delete("ref");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    } catch {
+      // A blocked storage API must not stop the page rendering.
+    }
+  }, []);
 
   const canShowWallet = account?.status === "signed-in";
 
@@ -94,7 +277,12 @@ export default function OpenmiPlusPage() {
           </h1>
 
 
-          {canShowWallet && <DewPanel />}
+          {canShowWallet && (
+            <>
+              <DewPanel />
+              <ReferralPanel />
+            </>
+          )}
 
           {!canShowWallet && (
             <div className="mt-6 rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-4 py-4">
