@@ -231,42 +231,111 @@ export async function ensureTrialGrant(
 }
 
 /**
- * Deducts the cost of one request and answers the new total.
+ * Deducts the cost of one request and says how it was paid for.
  *
- * `deduct_dew()` adds to the caller's own wallet in one statement; the function
- * carries the uid, so the only wallet it can touch is the one the token belongs
- * to. `newSpent` comes back from the database rather than from the value the
- * route computed, which is what makes the caller's view of the ledger agree with
- * the stored one even when two requests overlap.
+ * `deduct_dew_split()` adds to the caller's own wallet in one locked statement
+ * and reports the spent total plus the free/paid halves. The uid comes from the
+ * token, so the only wallet it can touch is the caller's own. `newSpent` comes
+ * back from the database rather than from the value the route computed, which
+ * is what makes the caller's view of the ledger agree with the stored one even
+ * when two requests overlap.
+ *
+ * A deployment without 20261024000500_dew_activity.sql still has
+ * `deduct_dew()`; the fallback charges through it and attributes the whole
+ * amount to paid credit rather than refusing to bill. The activity history then
+ * shows the charge without a split, which is the honest answer for rows that
+ * never had one.
  */
 export async function deductDew(
   authorization: string | null,
   uid: string,
   previousSpent: number,
   charge: number
-): Promise<{ ok: boolean; newSpent: number; conflict: boolean; fallback?: boolean; reason?: string }> {
+): Promise<{
+  ok: boolean;
+  newSpent: number;
+  freeCharged: number;
+  paidCharged: number;
+  conflict: boolean;
+  fallback?: boolean;
+  reason?: string;
+}> {
   const token = bearer(authorization);
   const client = token ? clientForToken(token) : null;
   if (!client || !uid) {
-    return { ok: false, newSpent: previousSpent, conflict: false, reason: "unconfigured" };
+    return {
+      ok: false,
+      newSpent: previousSpent,
+      freeCharged: 0,
+      paidCharged: 0,
+      conflict: false,
+      reason: "unconfigured",
+    };
   }
-  if (charge <= 0) return { ok: true, newSpent: previousSpent, conflict: false };
+  if (charge <= 0) {
+    return { ok: true, newSpent: previousSpent, freeCharged: 0, paidCharged: 0, conflict: false };
+  }
 
+  const amount = roundDew(charge);
   try {
-    const { data, error } = await client.rpc("deduct_dew", { p_amount: roundDew(charge) });
-    if (error) {
-      return { ok: false, newSpent: previousSpent, conflict: false, reason: error.message };
+    const split = await client.rpc("deduct_dew_split", { p_amount: amount });
+    if (!split.error) {
+      const row = (Array.isArray(split.data) ? split.data[0] : split.data) as {
+        spent?: unknown;
+        free_charged?: unknown;
+        paid_charged?: unknown;
+      } | null;
+      const spent = Number(row?.spent);
+      const freeCharged = Number(row?.free_charged);
+      const paidCharged = Number(row?.paid_charged);
+      return {
+        ok: true,
+        newSpent: Number.isFinite(spent) ? spent : previousSpent,
+        freeCharged: Number.isFinite(freeCharged) && freeCharged > 0 ? freeCharged : 0,
+        paidCharged: Number.isFinite(paidCharged) && paidCharged > 0 ? paidCharged : 0,
+        conflict: false,
+      };
     }
-    const newSpent = Number(data);
+
+    // PGRST202: the split function is not in the project yet. Keep billing
+    // through the original door instead of losing the charge.
+    if ((split.error as { code?: string }).code !== "PGRST202") {
+      return {
+        ok: false,
+        newSpent: previousSpent,
+        freeCharged: 0,
+        paidCharged: 0,
+        conflict: false,
+        reason: split.error.message,
+      };
+    }
+
+    const legacy = await client.rpc("deduct_dew", { p_amount: amount });
+    if (legacy.error) {
+      return {
+        ok: false,
+        newSpent: previousSpent,
+        freeCharged: 0,
+        paidCharged: 0,
+        conflict: false,
+        reason: legacy.error.message,
+      };
+    }
+    const newSpent = Number(legacy.data);
     return {
       ok: true,
       newSpent: Number.isFinite(newSpent) ? newSpent : previousSpent,
+      freeCharged: 0,
+      paidCharged: amount,
       conflict: false,
+      fallback: true,
     };
   } catch (error) {
     return {
       ok: false,
       newSpent: previousSpent,
+      freeCharged: 0,
+      paidCharged: 0,
       conflict: false,
       reason: error instanceof Error ? error.message : "threw",
     };
@@ -289,6 +358,8 @@ export async function recordDewTransaction(
     prompt?: number;
     completion?: number;
     repo?: string | null;
+    /** The part paid from today's free bucket. */
+    free?: number;
     at?: number;
   }
 ): Promise<boolean> {
@@ -296,21 +367,170 @@ export async function recordDewTransaction(
   const client = token ? clientForToken(token) : null;
   if (!client || !uid) return false;
   const at = line.at ?? Date.now();
+  const dew = roundDew(Math.max(0, line.dew));
+  // The split always sums to the price. `free` is the only input; paid is the
+  // remainder, so a caller cannot write a row whose parts exceed the charge.
+  const free = roundDew(Math.min(Math.max(0, line.free ?? 0), dew));
+  const paid = roundDew(dew - free);
+  const payload = {
+    id: `${at}-${Math.random().toString(36).slice(2, 8)}`,
+    owner: uid,
+    type: "usage",
+    at: new Date(at).toISOString(),
+    dew,
+    model: line.model ?? null,
+    prompt: line.prompt ?? null,
+    completion: line.completion ?? null,
+    repo: line.repo ?? null,
+    free_dew: free,
+    paid_dew: paid,
+  };
   try {
-    const { error } = await client.from("dew_transactions").insert({
-      id: `${at}-${Math.random().toString(36).slice(2, 8)}`,
-      owner: uid,
-      type: "usage",
-      at: new Date(at).toISOString(),
-      dew: roundDew(line.dew),
-      model: line.model ?? null,
-      prompt: line.prompt ?? null,
-      completion: line.completion ?? null,
-      repo: line.repo ?? null,
+    const { error } = await client.from("dew_transactions").insert(payload);
+    if (!error) return true;
+    // PGRST204: the activity migration is not applied yet. Keep the history by
+    // writing the columns the original table has; the split is simply absent.
+    if ((error as { code?: string }).code !== "PGRST204") return false;
+    const retry = await client.from("dew_transactions").insert({
+      id: payload.id,
+      owner: payload.owner,
+      type: payload.type,
+      at: payload.at,
+      dew: payload.dew,
+      model: payload.model,
+      prompt: payload.prompt,
+      completion: payload.completion,
+      repo: payload.repo,
     });
-    return !error;
+    return !retry.error;
   } catch {
     return false;
+  }
+}
+
+/** One row of the spend history, normalised for the activity page. */
+export interface DewTransactionLine {
+  at: number;
+  dew: number;
+  model: string | null;
+  prompt: number | null;
+  completion: number | null;
+  repo: string | null;
+  /** The part paid from the free daily bucket. */
+  free: number;
+  paid: number;
+}
+
+/** One credit row, for the "earned" side of the history. */
+export interface DewCreditLine {
+  at: number;
+  code: string;
+  amount: number;
+}
+
+/** Epoch milliseconds from a PostgREST timestamp, or 0 when unusable. */
+function epoch(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+/**
+ * This caller's request history, oldest first.
+ *
+ * The split columns arrive with 20261024000500_dew_activity.sql; before that,
+ * the fallback read keeps the history visible and simply reports every charge as
+ * paid. A failed read is an empty history, never an invented one.
+ */
+export async function readDewTransactions(
+  authorization: string | null,
+  uid: string,
+  since: number
+): Promise<DewTransactionLine[]> {
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return [];
+  const from = new Date(since).toISOString();
+  const base = () =>
+    client
+      .from("dew_transactions")
+      .select("at, dew, model, prompt, completion, repo")
+      .eq("owner", uid)
+      .gte("at", from)
+      .order("at", { ascending: true })
+      .limit(1000);
+
+  try {
+    const full = await client
+      .from("dew_transactions")
+      .select("at, dew, model, prompt, completion, repo, free_dew")
+      .eq("owner", uid)
+      .gte("at", from)
+      .order("at", { ascending: true })
+      .limit(1000);
+
+    let rows: Record<string, unknown>[];
+    if (!full.error) {
+      rows = (full.data ?? []) as Record<string, unknown>[];
+    } else if ((full.error as { code?: string }).code === "PGRST204") {
+      const legacy = await base();
+      if (legacy.error) return [];
+      rows = (legacy.data ?? []) as Record<string, unknown>[];
+    } else {
+      return [];
+    }
+
+    return rows
+      .map((row) => {
+        const dew = roundDew(Math.max(0, Number(row.dew) || 0));
+        const free = roundDew(Math.min(Math.max(0, Number(row.free_dew) || 0), dew));
+        return {
+          at: epoch(row.at),
+          dew,
+          model: typeof row.model === "string" ? row.model : null,
+          prompt: Number.isFinite(Number(row.prompt)) ? Number(row.prompt) : null,
+          completion: Number.isFinite(Number(row.completion)) ? Number(row.completion) : null,
+          repo: typeof row.repo === "string" ? row.repo : null,
+          free,
+          paid: roundDew(dew - free),
+        };
+      })
+      .filter((row) => row.at > 0 && row.dew > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** Credits added in the window, for the "earned" side of the page. */
+export async function readDewCredits(
+  authorization: string | null,
+  uid: string,
+  since: number
+): Promise<DewCreditLine[]> {
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return [];
+  try {
+    const { data, error } = await client
+      .from("dew_credits")
+      .select("code, amount, created_at")
+      .eq("owner", uid)
+      .gte("created_at", new Date(since).toISOString())
+      .order("created_at", { ascending: true })
+      .limit(500);
+    if (error) return [];
+    return ((data ?? []) as Record<string, unknown>[])
+      .map((row) => ({
+        at: epoch(row.created_at),
+        code: typeof row.code === "string" ? row.code : "",
+        amount: roundDew(Math.max(0, Number(row.amount) || 0)),
+      }))
+      .filter((row) => row.at > 0 && row.amount > 0 && row.code.length > 0);
+  } catch {
+    return [];
   }
 }
 

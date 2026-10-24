@@ -271,6 +271,10 @@ assert.ok(
   "the deduction must go through the database function, not a client-side total"
 );
 assert.ok(
+  deductDewSource.includes('rpc("deduct_dew_split"'),
+  "the charge must report how much free and paid Dew paid for it, not only the total"
+);
+assert.ok(
   /set spent = public\.dew_wallets\.spent \+ excluded\.spent/.test(dewSchema),
   "the spend must be incremented in SQL, or two simultaneous charges can overwrite each other"
 );
@@ -371,4 +375,38 @@ assert.ok(
 assert.ok(
   /grant execute on function public\.set_profile_timezone\(text\) to authenticated/.test(timezoneSchema),
   "a signed-in account must be able to report its zone"
+);
+
+// ── The free/paid split on the ledger ──────────────────────────────────────
+//
+// The activity page is only honest if the charge and the history agree on the
+// split. The database function computes both inside one locked statement; the
+// chat route records the same two halves it was told.
+
+const activitySchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261024000500_dew_activity.sql"),
+  "utf8"
+);
+assert.ok(activitySchema.includes("add column if not exists free_dew"));
+assert.ok(activitySchema.includes("add column if not exists paid_dew"));
+assert.ok(
+  /create or replace function public\.deduct_dew_split\(p_amount numeric\)/.test(activitySchema),
+  "the split must be produced by the same function that moves the wallet"
+);
+assert.ok(
+  /free_amount := least\(charged, free_left\)/.test(activitySchema) &&
+    /paid_amount := charged - free_amount/.test(activitySchema),
+  "the halves must be free first and the remainder paid"
+);
+assert.ok(
+  /grant execute on function public\.deduct_dew_split\(numeric\) to authenticated/.test(activitySchema),
+  "the server must be able to call the split as the caller"
+);
+assert.ok(
+  activitySchema.includes("deduct_dew_split(numeric)"),
+  "the schema audit must know about the new function"
+);
+assert.ok(
+  chatSource.includes("free: deduct.freeCharged"),
+  "the chat route must write the free half it was actually charged"
 );

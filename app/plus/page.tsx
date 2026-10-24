@@ -49,6 +49,12 @@ function DewPanel() {
         Free Dew refills at midnight in your account&apos;s timezone
         {ready ? ` (${dailyTimeZone.replace(/_/g, " ")})` : ""} and whatever is left does not carry over.
       </p>
+      <Link
+        href="/activity"
+        className="mt-2 inline-flex text-[12px] font-medium text-[#a9d8bb]/80 transition-colors hover:text-[#a9d8bb]"
+      >
+        See where your Dew went →
+      </Link>
     </section>
   );
 }

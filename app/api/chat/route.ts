@@ -670,6 +670,8 @@ export async function POST(req: NextRequest): Promise<Response> {
           (cause: unknown) => ({
             ok: false,
             newSpent: dewState!.spent,
+            freeCharged: 0,
+            paidCharged: 0,
             conflict: false,
             reason: cause instanceof Error ? cause.message : "threw",
           })
@@ -689,6 +691,10 @@ export async function POST(req: NextRequest): Promise<Response> {
             model: requested,
             prompt: billed.prompt,
             completion: billed.completion,
+            // The same split the wallet moved, recorded with the charge so the
+            // activity page can say whether today's free Dew or paid credit
+            // paid for this request.
+            free: deduct.freeCharged,
           }).catch(() => undefined);
         }
       }
