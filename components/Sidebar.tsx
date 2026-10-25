@@ -44,6 +44,7 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenRepo: () => void;
   displayName: string;
+  avatarUrl?: string;
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -152,6 +153,7 @@ export default function Sidebar({
   onOpenSettings,
   onOpenRepo,
   displayName,
+  avatarUrl,
 }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
@@ -866,8 +868,23 @@ export default function Sidebar({
             }}
           />
           <div className="mt-3 flex items-center gap-2.5 border-t border-white/[0.06] pt-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "You"}</span>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+              aria-label="Open settings"
+            >
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={displayName || "You"}
+                  className="h-8 w-8 shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
+              )}
+              <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "You"}</span>
+            </button>
             <span className="flex shrink-0 items-center gap-1">
               {/* The footer is the only exit to the pages outside the chat, so
                   it names the one whose contents are easy to miss: where the

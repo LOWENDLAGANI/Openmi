@@ -32,13 +32,14 @@ import {
 import { DEFAULT_MODE_ID, OPENMI_MODES, type ModeId } from "./models";
 import type { SearchMode } from "./types";
 import { loadSelectedMode, saveSelectedMode } from "./db";
-import { loadDisplayName, saveDisplayName } from "./visitorName";
+import { loadDisplayName, saveDisplayName, loadAvatar, saveAvatar } from "./visitorName";
 
 const SEARCH_MODE_KEY = "openmi:search-mode";
 const TUTORIAL_KEY = "openmi:tutorial-finished";
 
 export interface UserPreferences {
   displayName: string | null;
+  avatarUrl: string | null;
   appearance: Appearance;
   homeLayout: HomeLayout;
   responseLength: ResponseLength;
@@ -50,6 +51,7 @@ export interface UserPreferences {
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   displayName: null,
+  avatarUrl: null,
   appearance: DEFAULT_APPEARANCE,
   homeLayout: DEFAULT_HOME_LAYOUT,
   responseLength: "balanced",
@@ -82,6 +84,7 @@ function readTutorialFinished(): boolean {
 export function loadLocalPreferences(): UserPreferences {
   return {
     displayName: loadDisplayName() || null,
+    avatarUrl: loadAvatar() || null,
     appearance: loadAppearance(),
     homeLayout: loadHomeLayout(),
     responseLength: loadResponseLength(),
@@ -106,6 +109,7 @@ export function saveLocalPreferences(preferences: UserPreferences): void {
   }
   saveSelectedMode(preferences.model ?? DEFAULT_MODE_ID);
   saveDisplayName(preferences.displayName ?? "");
+  saveAvatar(preferences.avatarUrl ?? "");
 }
 
 /** The row shape read from `user_preferences`. */
@@ -122,11 +126,16 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
       : "low";
   const searchMode: SearchMode =
     row.search_mode === "always" || row.search_mode === "off" ? row.search_mode : "auto";
+  const avatarUrl =
+    (typeof (row as any).avatar_url === "string" && (row as any).avatar_url.trim()) ||
+    (typeof (row as any).avatarUrl === "string" && (row as any).avatarUrl.trim()) ||
+    null;
   return {
     displayName:
       typeof row.display_name === "string" && row.display_name.trim()
         ? row.display_name.trim().slice(0, 40)
         : null,
+    avatarUrl,
     appearance,
     homeLayout,
     responseLength,
@@ -156,7 +165,7 @@ export async function loadCloudPreferences(): Promise<UserPreferences | null> {
     const { data, error } = await client
       .from("user_preferences")
       .select(
-        "display_name, appearance, home_layout, response_length, reasoning_effort, search_mode, model, tutorial_finished"
+        "display_name, avatar_url, appearance, home_layout, response_length, reasoning_effort, search_mode, model, tutorial_finished"
       )
       .eq("owner", user.id)
       .maybeSingle();
@@ -185,6 +194,7 @@ export async function saveCloudPreferences(preferences: UserPreferences): Promis
       {
         owner: user.id,
         display_name: preferences.displayName,
+        avatar_url: preferences.avatarUrl,
         appearance: preferences.appearance,
         home_layout: preferences.homeLayout,
         response_length: preferences.responseLength,
@@ -193,7 +203,7 @@ export async function saveCloudPreferences(preferences: UserPreferences): Promis
         model: preferences.model,
         tutorial_finished: preferences.tutorialFinished,
         updated_at: new Date().toISOString(),
-      },
+      } as any,
       { onConflict: "owner" }
     );
     return !error;

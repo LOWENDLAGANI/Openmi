@@ -14,7 +14,7 @@ import RepoPanel from "@/components/RepoPanel";
 import type { ProjectSummary } from "@/lib/projects";
 import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
-import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
+import { loadDisplayName, saveDisplayName, saveAvatar } from "@/lib/visitorName";
 import {
   flushTrashDecisions,
   loadChatsFromAccount,
@@ -113,6 +113,7 @@ export default function HomePage() {
   // about the agent is active until a project is chosen.
   const [project, setProject] = useState<ProjectSummary | null>(null);
   const [displayName, setDisplayName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [hydrated, setHydrated] = useState(false);
   // Null while the first identity read is still in flight. `signedIn: false`
   // after that is a real answer: the sign-in screen is the interface.
@@ -235,6 +236,7 @@ export default function HomePage() {
     setSearchMode(local.searchMode);
     setTutorialFinished(local.tutorialFinished);
     setDisplayName(local.displayName ?? "");
+    setAvatarUrl(local.avatarUrl ?? "");
     setHydrated(true);
   }, []);
 
@@ -251,13 +253,15 @@ export default function HomePage() {
     if (failure) setAuthError(describeLinkError({ message: failure }));
   }, []);
 
-  // Signing out clears this device's copy of the name. The next account on this
+  // Signing out clears this device's copy of the name/avatar. The next account on this
   // browser must not inherit the previous person's greeting; the account keeps
   // its own name in `profiles` and `user_preferences`.
   useEffect(() => {
     if (account?.signedIn !== false) return;
     saveDisplayName("");
     setDisplayName("");
+    saveAvatar("");
+    setAvatarUrl("");
   }, [account?.signedIn]);
 
   // ── Once a session exists ───────────────────────────────────────────────
@@ -290,6 +294,7 @@ export default function HomePage() {
         ? {
             ...cloud,
             displayName: chosen || cloud.displayName,
+            avatarUrl: cloud.avatarUrl ?? current.avatarUrl ?? null,
             // Seeing the tour once is enough on any browser. The other choices
             // follow the account exactly.
             tutorialFinished: cloud.tutorialFinished || current.tutorialFinished,
@@ -303,8 +308,9 @@ export default function HomePage() {
       setSearchMode(merged.searchMode);
       setTutorialFinished(merged.tutorialFinished);
       setSelectedMode(merged.model ?? current.model ?? DEFAULT_MODE_ID);
+      setAvatarUrl(merged.avatarUrl ?? "");
       saveLocalPreferences(merged);
-      if (!cloud || !cloud.displayName) void saveCloudPreferences(merged);
+      if (!cloud || !cloud.displayName || !cloud.avatarUrl) void saveCloudPreferences(merged);
 
       // The sidebar is part of the account too. Decisions taken while offline
       // are delivered first (otherwise the pull would undo them), then folders
@@ -373,6 +379,15 @@ export default function HomePage() {
     void syncVisitorProfile(saved).catch((error: unknown) => {
       console.error("[Openmi] Could not log the visitor name", error);
     });
+  }, []);
+
+  const handleSaveAvatar = useCallback((avatar: string) => {
+    saveAvatar(avatar);
+    setAvatarUrl(avatar);
+    const next = { ...preferencesRef.current, avatarUrl: avatar || null };
+    preferencesRef.current = next;
+    saveLocalPreferences(next);
+    void saveCloudPreferences(next);
   }, []);
 
   /**
@@ -1292,6 +1307,7 @@ export default function HomePage() {
           setSidebarOpen(false);
         }}
         displayName={displayName}
+        avatarUrl={avatarUrl}
         onOpenRepo={() => {
           setRepoOpen(true);
           setSidebarOpen(false);
@@ -1508,6 +1524,8 @@ export default function HomePage() {
         onClose={() => setSettingsOpen(false)}
         displayName={displayName}
         onDisplayNameChange={handleSaveName}
+        avatarUrl={avatarUrl}
+        onAvatarChange={handleSaveAvatar}
         searchMode={searchMode}
         onSearchModeChange={handleSearchModeChange}
         searchAvailable={searchAvailable}
