@@ -819,7 +819,6 @@ export default function HomePage() {
             const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await patchMessage(assistantMsg.id, { model: evt.model });
-              if (evt.model !== getMode(selectedMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
             }
             if (evt.error) {
               // The server refuses inside the stream as well as before it, so
