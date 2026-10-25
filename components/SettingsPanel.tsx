@@ -168,94 +168,8 @@ export default function SettingsPanel({
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 stagger-children">
           <AccountSection displayName={displayName} onDisplayNameChange={onDisplayNameChange} />
-          <DataControls />
-
           <div className="grid grid-cols-1 gap-4" style={{ ['--stagger' as string]: 3 }}>
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="flex items-center gap-1.5 text-[14px] font-semibold text-white">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
-                    <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-                  </svg>
-                  Web search
-                  {!searchAvailable && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="No search key in the deployment environment" />
-                  )}
-                </h3>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {SEARCH_OPTIONS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    disabled={!searchAvailable}
-                    onClick={() => onSearchModeChange(option.id)}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg py-3 px-2 transition-all duration-200 ${searchMode === option.id ? "bg-white/[0.1] text-white ring-1 ring-white/20" : "text-white/45 hover:bg-white/[0.05] hover:text-white/75"} disabled:cursor-not-allowed disabled:opacity-40`}
-                  >
-                    <span className="text-xl">{option.icon}</span>
-                    <span className="text-[13px] font-medium">{option.label}</span>
-                    <span className="text-[10px] text-white/30">{option.description}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-
             <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 4 }}>
-              <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
-                  <path d="M11 4h10M11 4l3 3M11 4v16" />
-                </svg>
-                Response length
-              </h3>
-              <div className="space-y-2">
-                {LENGTH_OPTIONS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => onResponseLengthChange(option.id)}
-                    className={`flex w-full items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-all duration-200 ${responseLength === option.id ? "border-[#a9d8bb]/30 bg-[#a9d8bb]/[0.08]" : "border-white/[0.06] hover:bg-white/[0.04]"}`}
-                  >
-                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${responseLength === option.id ? "border-[#a9d8bb]" : "border-white/25"}`}>
-                      {responseLength === option.id && <span className="h-2 w-2 rounded-full bg-[#a9d8bb]" />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-medium text-white/90">{option.label}</span>
-                      <span className="mt-0.5 block text-[11px] text-white/40">{option.description}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 5 }}>
-              <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
-                  <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
-                Reasoning effort
-              </h3>
-              <div className="grid grid-cols-3 gap-2">
-                {EFFORT_OPTIONS.map((option) => {
-                  const isPro = option.id !== "low";
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => onReasoningEffortChange(option.id)}
-                      className={`flex flex-col items-center gap-1.5 rounded-lg py-3 px-2 transition-all duration-200 ${reasoningEffort === option.id ? "bg-white/[0.1] text-white ring-1 ring-white/20" : "text-white/45 hover:bg-white/[0.05] hover:text-white/75"}`}
-                    >
-                      <span className="text-lg">{option.icon}</span>
-                      <span className="text-[13px] font-medium">{option.label}</span>
-                      <span className="text-[10px] text-white/30">
-                        {isPro ? "Pro tier" : option.description}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 6 }}>
               <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
                   <circle cx="12" cy="12" r="5" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
@@ -287,7 +201,7 @@ export default function SettingsPanel({
               </div>
             </section>
 
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 7 }}>
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 5 }}>
               <h3 className="mb-1 flex items-center gap-1.5 text-[14px] font-semibold text-white">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
                   <rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 10h18" />
@@ -312,7 +226,93 @@ export default function SettingsPanel({
                 ))}
               </div>
             </section>
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 6 }}>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-1.5 text-[14px] font-semibold text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+                  </svg>
+                  Web search
+                  {!searchAvailable && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="No search key in the deployment environment" />
+                  )}
+                </h3>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {SEARCH_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={!searchAvailable}
+                    onClick={() => onSearchModeChange(option.id)}
+                    className={`flex flex-col items-center gap-1.5 rounded-lg py-3 px-2 transition-all duration-200 ${searchMode === option.id ? "bg-white/[0.1] text-white ring-1 ring-white/20" : "text-white/45 hover:bg-white/[0.05] hover:text-white/75"} disabled:cursor-not-allowed disabled:opacity-40`}
+                  >
+                    <span className="text-xl">{option.icon}</span>
+                    <span className="text-[13px] font-medium">{option.label}</span>
+                    <span className="text-[10px] text-white/30">{option.description}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 7 }}>
+              <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
+                  <path d="M11 4h10M11 4l3 3M11 4v16" />
+                </svg>
+                Response length
+              </h3>
+              <div className="space-y-2">
+                {LENGTH_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => onResponseLengthChange(option.id)}
+                    className={`flex w-full items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-all duration-200 ${responseLength === option.id ? "border-[#a9d8bb]/30 bg-[#a9d8bb]/[0.08]" : "border-white/[0.06] hover:bg-white/[0.04]"}`}
+                  >
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${responseLength === option.id ? "border-[#a9d8bb]" : "border-white/25"}`}>
+                      {responseLength === option.id && <span className="h-2 w-2 rounded-full bg-[#a9d8bb]" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-medium text-white/90">{option.label}</span>
+                      <span className="mt-0.5 block text-[11px] text-white/40">{option.description}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 8 }}>
+              <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
+                  <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                Reasoning effort
+              </h3>
+              <div className="grid grid-cols-3 gap-2">
+                {EFFORT_OPTIONS.map((option) => {
+                  const isPro = option.id !== "low";
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => onReasoningEffortChange(option.id)}
+                      className={`flex flex-col items-center gap-1.5 rounded-lg py-3 px-2 transition-all duration-200 ${reasoningEffort === option.id ? "bg-white/[0.1] text-white ring-1 ring-white/20" : "text-white/45 hover:bg-white/[0.05] hover:text-white/75"}`}
+                    >
+                      <span className="text-lg">{option.icon}</span>
+                      <span className="text-[13px] font-medium">{option.label}</span>
+                      <span className="text-[10px] text-white/30">
+                        {isPro ? "Pro tier" : option.description}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
           </div>
+
+          <DataControls />
 
         </div>
       </section>

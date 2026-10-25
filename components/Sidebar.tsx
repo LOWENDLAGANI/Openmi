@@ -492,7 +492,9 @@ export default function Sidebar({
               <path d="M10 11v5.5M14 11v5.5" />
             </svg>
           </ToolbarButton>
-          <ToolbarButton label="Library — import a backup" onClick={() => fileInputRef.current?.click()}>
+          {/* Named for what pressing it does. "Library" opened a file picker,
+              which is not a library anybody could browse. */}
+          <ToolbarButton label="Import a backup" onClick={() => fileInputRef.current?.click()}>
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H20v15H7.5A2.5 2.5 0 0 0 5 20.5v-15Z" />
               <path d="M5 20.5A2.5 2.5 0 0 1 7.5 18H20M9 7h6M9 10h6" />
@@ -881,7 +883,12 @@ export default function Sidebar({
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
             <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "You"}</span>
             <span className="flex shrink-0 items-center gap-1">
-              <Link href="/notes" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="News from the developers">News</Link>
+              {/* The footer is the only exit to the pages outside the chat, so
+                  it names the one whose contents are easy to miss: where the
+                  Dew went. `/notes` used to sit here and 404 — there is no
+                  news feed in this build, and a dead link is worse than one
+                  fewer link. */}
+              <Link href="/activity" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="Your Dew spending, by day and by model">Activity</Link>
               <Link href="/about" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="About Openmi">About</Link>
             </span>
           </div>

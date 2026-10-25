@@ -1208,6 +1208,16 @@ export default function HomePage() {
               <h1 className="min-w-0 flex-1 truncate text-[20px] font-normal tracking-[-0.01em] text-white">
                 New chat
               </h1>
+              {/* The phone keeps the design's two icons; from `md` up there is
+                  room for the mode selector, so Focus does not hide the only
+                  way to switch between Auto and Code. */}
+              <div className="hidden shrink-0 md:flex">
+                <ModeSelector
+                  selected={selectedMode}
+                  onChange={handleModeChange}
+                  available={available}
+                />
+              </div>
               <button
                 onClick={handleNewChat}
                 className="lift flex h-9 w-9 items-center justify-center rounded-lg text-text-body transition-colors hover:bg-white/[0.06] hover:text-white"
@@ -1224,7 +1234,7 @@ export default function HomePage() {
             <>
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lift flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
+                className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
                 aria-label="Open menu"
                 data-tutorial="mobile-menu"
               >
@@ -1240,7 +1250,7 @@ export default function HomePage() {
                 title="Openmi"
               >
                 <OpenmiMark className="h-7 w-7" />
-                <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">
+                <span className="hidden truncate text-[17px] font-medium tracking-[-0.02em] text-white sm:block">
                   {temporary ? "Temporary chat" : "Openmi"}
                 </span>
               </button>
@@ -1256,6 +1266,27 @@ export default function HomePage() {
               )}
 
               <div className="flex-1" />
+              {/* The repository door, on the header rather than only in the
+                  drawer: it is the only screen that shows what the agent can
+                  read, and burying it two taps deep made the agent look absent
+                  until a project was already attached. The dot says one is. */}
+              <button
+                type="button"
+                onClick={() => setRepoOpen(true)}
+                className="lift relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white"
+                aria-label={project ? `Repository: ${project.repoFullName}` : "Choose a repository"}
+                title={project ? project.repoFullName : "Repository — connect GitHub and browse files"}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M6 3v12a3 3 0 0 0 3 3h6" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="6" r="3" />
+                  <path d="M18 9v3a3 3 0 0 1-3 3h-3" />
+                </svg>
+                {project && (
+                  <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#7fd1a1]" aria-hidden="true" />
+                )}
+              </button>
               <ModeSelector
                 selected={selectedMode}
                 onChange={handleModeChange}

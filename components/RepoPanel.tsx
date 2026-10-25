@@ -200,6 +200,18 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
 
   const status = statusState.phase === "ready" ? statusState.status : null;
 
+  // Escape closes the panel, the same way it closes Settings. The panel covers
+  // the page, so a keyboard user who opened it by accident needs one key to get
+  // back to the chat rather than a trip to the close button.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   // Read inside `refresh` without making it a dependency: the panel-opened
   // effect must not re-run every time a repository is selected, or the notice
   // it just set would be cleared by its own refresh.
