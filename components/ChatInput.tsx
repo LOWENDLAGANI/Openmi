@@ -102,23 +102,7 @@ function ToolsMenu({
         </span>
         <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Files</span>
       </button>
-      <Link
-        href="/donate"
-        onClick={onClose}
-        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-400/10 text-rose-200">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
-          </svg>
-        </span>
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">
-          Support Openmi
-          <span className="rounded-full bg-rose-400/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-200">
-            Donate
-          </span>
-        </span>
-      </Link>
+
       <button
         type="button"
         onClick={onVoice}
@@ -752,23 +736,8 @@ export default function ChatInput({
           </p>
         )}
 
-        {/* Creator credit — kept deliberately; the keyboard hint was the
-            redundant part, not the attribution. The heart is the one place
-            a donation is offered without a menu: people who like Openmi are
-            looking right here. Desktop only, so it never crowds the phone
-            composer; phones get it from the tools menu and the sidebar. */}
         <p className="hidden pt-1 text-center text-[10px] text-text-low md:block">
           Created by Minetallest
-          <span className="mx-1.5 text-text-low">·</span>
-          <Link
-            href="/donate"
-            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-text-mid transition-colors hover:text-rose-500"
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
-            </svg>
-            Support Openmi
-          </Link>
         </p>
         <div className="safe-bottom md:hidden" />
       </div>

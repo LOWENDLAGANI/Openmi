@@ -20,7 +20,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/about`, lastModified, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/plus`, lastModified, changeFrequency: "weekly", priority: 0.8 },
     { url: `${base}/notes`, lastModified, changeFrequency: "weekly", priority: 0.5 },
-    { url: `${base}/donate`, lastModified, changeFrequency: "monthly", priority: 0.4 },
     // /share and /notes/[id] are per-conversation and per-note, generated at
     // request time, so they cannot be enumerated here. They carry their own
     // canonical tags and are reached from the app, not from a crawl.

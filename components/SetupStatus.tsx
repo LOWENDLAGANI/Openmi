@@ -72,26 +72,7 @@ export default function SetupStatus() {
   const schemaNeedsAttention = Boolean(database?.checked && (!database.reachable || gaps.length > 0));
 
   if (report.missing.length === 0 && !schemaNeedsAttention) {
-    return (
-      <p className="mt-10 flex items-center justify-center gap-2 text-[11.5px] text-[#a9d8bb]/70">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M4 12.5l5 5L20 6.5" />
-        </svg>
-        All {report.checked} setup checks passed
-        {database?.checked ? ` and ${database.checkedObjects} database objects are present` : ""} on this
-        deployment.
-      </p>
-    );
+    return null;
   }
 
   const required = report.missing.filter((item) => item.severity === "required").length;
