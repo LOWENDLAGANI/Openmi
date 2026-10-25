@@ -90,12 +90,12 @@ function items(): SetupItem[] {
       configured: present(process.env.OPENROUTER_API_KEY),
     },
     {
-      keys: ["GEMINI_API_KEY"],
-      label: "Code mode",
-      missing: "Code cannot answer: it is the only family Code is allowed to use.",
-      where: "aistudio.google.com → API keys",
+      keys: ["GROQ_API_KEY"],
+      label: "Groq (Code mode)",
+      missing: "Code cannot answer: Groq is the only provider Code is allowed to use.",
+      where: "console.groq.com/keys — create a key in the Groq console.",
       severity: "required",
-      configured: present(process.env.GEMINI_API_KEY),
+      configured: present(process.env.GROQ_API_KEY),
     },
     {
       keys: ["OPENMI_ADMIN_EMAIL"],

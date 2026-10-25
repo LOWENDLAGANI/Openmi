@@ -99,6 +99,12 @@ test("the router keeps its own name", () => {
   assert.equal(toOpenmiName("openrouter/auto"), "Openmi Auto");
 });
 
+test("every Groq model answers under the Groq name", () => {
+  for (const model of ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b"]) {
+    assert.equal(toOpenmiName(model), "Groq");
+  }
+});
+
 test("a wire id never becomes the wire id", () => {
   const inputs = [
     undefined,
@@ -113,14 +119,14 @@ test("a wire id never becomes the wire id", () => {
   for (const input of inputs) {
     const name = toOpenmiName(input);
     assert.ok(
-      name === "Openmi" || name.startsWith("Openmi "),
-      `"${input}" became "${name}", which is not a Openmi name`
+      name === "Openmi" || name.startsWith("Openmi ") || name === "Groq",
+      `"${input}" became "${name}", which is not a product name`
     );
   }
 });
 
-test("a stored Openmi name survives display unchanged", () => {
-  for (const name of ["Openmi V1", "Openmi V2", "Openmi V3", "Openmi Auto"]) {
+test("a stored product name survives display unchanged", () => {
+  for (const name of ["Openmi V1", "Openmi V2", "Openmi V3", "Openmi Auto", "Openmi Code", "Groq"]) {
     assert.equal(getModelDisplayName(name), name);
   }
 });
@@ -134,11 +140,11 @@ test("a stored provider id from an old backup is not shown", () => {
 
 const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
 
-// The overhaul removed the vendor-persona modes, so there is nothing the guard
-// needs to forgive. It stays as an empty list rather than being deleted: adding
-// a display name that legitimately contains a vendor word must go through here,
-// so the exemption cannot be widened by accident.
-const SANCTIONED_DISPLAY_NAMES: string[] = [];
+// "Groq" is the product's name for the Code model, so it is the one vendor word
+// allowed on screen. It goes through this list rather than being dropped from
+// VENDOR_WORDS, so a *different* display name that happens to contain a
+// provider word is still caught — the exemption stays one name wide.
+const SANCTIONED_DISPLAY_NAMES: string[] = ["Groq"];
 
 /**
  * The source with the sanctioned display names removed.

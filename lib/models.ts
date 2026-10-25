@@ -33,10 +33,10 @@ export const OPENMI_MODES: ModeOption[] = [
   },
   {
     id: "code",
-    name: "Code",
-    display: "Openmi Code",
+    name: "Groq",
+    display: "Groq",
     separateSession: true,
-    blurb: "Tuned for reading and changing a repository",
+    blurb: "Groq only — tuned for reading and changing a repository",
   },
 ];
 
@@ -54,8 +54,13 @@ export function getMode(id: string): ModeOption {
  * message written by an older version of the app — or restored from a backup —
  * can carry a provider id, and rendering that to a user is the one thing that
  * must never happen.
+ *
+ * "Groq" is the product's name for the Code model, so it is whitelisted even
+ * though it is also the name of the vendor that serves it. "Openmi Code" stays
+ * listed so a message stored before the rename keeps the label it was written
+ * with instead of silently degrading to plain "Openmi".
  */
-const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?)$/;
+const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?|Groq)$/;
 
 export function getModelDisplayName(model?: string): string {
   if (!model) return "Openmi";

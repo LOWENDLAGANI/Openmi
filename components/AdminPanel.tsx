@@ -61,7 +61,7 @@ type View =
   | { name: "chats"; uid: string; label: string }
   | { name: "chat"; uid: string; chatId: string; title: string };
 
-const PROVIDER_LABEL: Record<string, string> = { auto: "Openmi Auto", code: "Openmi Code" };
+const PROVIDER_LABEL: Record<string, string> = { auto: "Openmi Auto", code: "Groq" };
 
 function when(ts?: number | null): string {
   if (!ts) return "—";

@@ -14,16 +14,16 @@ import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew"
 
 // ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
 //   OPENROUTER_API_KEY → Auto router
-//   GEMINI_API_KEY     → the Code family (V3 → V2 → V1)
-//   GROQ_API_KEY       → the last-resort fallback
+//   GEMINI_API_KEY     → Auto fallback (V3 → V2 → V1)
+//   GROQ_API_KEY       → Groq, the Code model, and Auto's last resort
 //
 // Auto is resilient: if the requested provider is unavailable, the other
 // configured families are tried in order.
 //
-// Code is deliberately NOT cross-vendor. Every fallback stays inside its own
-// family, because a code answer produced by a different model family is a
-// different answer, and silently changing families mid-task is worse than
-// reporting that no model was reachable.
+// Code is deliberately NOT cross-vendor: Groq is the only provider it may use.
+// A code answer produced by a different model family is a different answer, and
+// silently changing families mid-task is worse than reporting that no model was
+// reachable.
 //
 // This route is the transport and the bill, not the agent. The tool-calling
 // loop that lets the agent read a repository is added in the next phase; the
@@ -376,7 +376,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     // name.
     return textStream(
       requested === "code"
-        ? "**Openmi Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer. Your conversations are already saved safely on this device."
+        ? "**Groq isn't available yet.** The person who runs this deployment needs to add its model key before Code mode can answer. Your conversations are already saved safely on this device."
         : "**Openmi isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
     );
   }
@@ -732,13 +732,16 @@ export async function POST(req: NextRequest): Promise<Response> {
 /** Reports which modes are usable without exposing any key. */
 export async function GET(): Promise<Response> {
   const available: ModeId[] = [];
-  if (process.env.OPENROUTER_API_KEY?.trim()) available.push("auto");
-  // Code mode is single-family, so Groq cannot make it available — reporting it
-  // as usable would promise a fallback the route will not actually take.
-  if (process.env.GEMINI_API_KEY?.trim()) available.push("code");
-  // Groq is a separate vendor with its own quota, so it keeps Auto usable on its
-  // own even when the mode's own key is missing.
-  if (process.env.GROQ_API_KEY?.trim() && !available.includes("auto")) available.push("auto");
+  const openrouter = Boolean(process.env.OPENROUTER_API_KEY?.trim());
+  const gemini = Boolean(process.env.GEMINI_API_KEY?.trim());
+  const groq = Boolean(process.env.GROQ_API_KEY?.trim());
+
+  // Auto can answer through any of its configured families, the router first.
+  if (openrouter || gemini || groq) available.push("auto");
+  // Groq is the only provider Code mode may use, so its key is what makes the
+  // mode usable. Reporting it without the key would promise a fallback the
+  // route will not actually take.
+  if (groq) available.push("code");
 
   return Response.json({
     available,

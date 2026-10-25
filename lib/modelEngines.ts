@@ -9,7 +9,7 @@
 
 // The names are inverted on purpose — the newest model is the highest number —
 // so a name a user learns today stays correct as older models are retired.
-const CODE_MODELS = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"] as const;
+const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"] as const;
 
 /** The wire id of the model each version corresponds to. */
 const VERSION_NAMES: Record<string, string> = {
@@ -21,14 +21,30 @@ const VERSION_NAMES: Record<string, string> = {
 /** The OpenAI-compatible router, which picks a model per message. */
 export const AUTO_ENGINE = "openrouter/auto";
 
-/** The wire id Code mode prefers, and the ordered fallbacks behind it. */
-export const CODE_ENGINE = CODE_MODELS[0];
-export const CODE_FALLBACKS = CODE_MODELS.slice(1);
+/**
+ * The wire models Groq serves for Code mode, in the order it tries them — and
+ * the only models Code is allowed to answer with.
+ *
+ * Every entry is a comparable tier rather than a progressively weaker one: the
+ * point of a fallback is that the answer is still worth reading, and stepping
+ * down to a small model would change the quality of a code answer without
+ * telling anybody. Only GPT-OSS honours `reasoning_effort`; Groq serves a plain
+ * model behind the same API, so the capability is tracked per model.
+ */
+export const GROQ_MODELS = [
+  { model: "openai/gpt-oss-120b", supportsReasoning: true },
+  { model: "llama-3.3-70b-versatile", supportsReasoning: false },
+  { model: "openai/gpt-oss-20b", supportsReasoning: true },
+] as const;
+
+/** The Gemini models Auto falls back through, and the ordered fallbacks behind it. */
+export const GEMINI_ENGINE = GEMINI_MODELS[0];
+export const GEMINI_FALLBACKS = GEMINI_MODELS.slice(1);
 
 /** The key that enables each mode. Server-side only — never rendered. */
 export const MODE_ENV_VARS: Record<string, string> = {
   auto: "OPENROUTER_API_KEY",
-  code: "GEMINI_API_KEY",
+  code: "GROQ_API_KEY",
 };
 
 /**
@@ -41,6 +57,8 @@ export const MODE_ENV_VARS: Record<string, string> = {
 export function toOpenmiName(model?: string): string {
   if (!model) return "Openmi";
   if (model === AUTO_ENGINE) return "Openmi Auto";
+  // Every Groq model answers under the one name the product gives that mode.
+  if (GROQ_MODELS.some((entry) => entry.model === model)) return "Groq";
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];
   if (version && VERSION_NAMES[version]) return VERSION_NAMES[version]!;

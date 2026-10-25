@@ -1,6 +1,6 @@
 // ── Openmi — reading the file name out of a code fence ─────────────────────────
 //
-// Openmi Code is told to name the file it is writing, so a block arrives as
+// Code mode is told to name the file it is writing, so a block arrives as
 // ```` ```ts src/lib/thing.ts ````. Showing that name above the block is the
 // whole difference between code someone can paste into their editor and code
 // they have to work out where it belongs.

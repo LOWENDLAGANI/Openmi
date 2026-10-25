@@ -13,13 +13,13 @@ when you say so**, on a branch of its own.
 
 ## What works today
 
-- Chat with **Auto** and **Code** modes, streamed over SSE with provider
+- Chat with **Auto** and **Groq** modes, streamed over SSE with provider
   fallback and continuation when a model hits its output limit.
 - Local-first history in IndexedDB (Dexie), synced to the signed-in account.
 - **An account is required.** Sign in or register with Google, GitHub, Microsoft
   or an email address and password, all held by Supabase Auth.
 - **Dew**: one flat price per request, per model — `0.25` for Auto, `0.5` for
-  Code. Every account also gets **5 free Dew a day**, refilled at midnight in
+  Groq. Every account also gets **5 free Dew a day**, refilled at midnight in
   the account's own timezone (the browser's at registration, Malaysia until one
   is known) and spent before paid credit; unused free Dew does not carry over,
   while trial, redeemed and topped-up Dew never expires. A spend history on
@@ -145,8 +145,8 @@ The important ones for **this build**:
 | Variable | Purpose |
 |---|---|
 | `OPENROUTER_API_KEY` | Auto mode routing. |
-| `GEMINI_API_KEY` | Code mode (V3 → V2 → V1 only). |
-| `GROQ_API_KEY` | Last-resort fallback for Auto. |
+| `GEMINI_API_KEY` | Auto fallback (V3 → V2 → V1). |
+| `GROQ_API_KEY` | Groq — the Code mode model, and Auto's last-resort fallback. |
 | `TAVILY_API_KEY` | Web search and source links. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Project Settings → API). |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The anon public key. Public by design: it identifies the project, and RLS protects the rows. Both the browser and the server routes use it, always with the caller's own JWT. |

@@ -436,8 +436,8 @@ export default function HomePage() {
     }
   }, [available, selectedMode]);
 
-  // Switching modes is not a mid-conversation toggle. Code mode is pinned to the
-  // Openmi V3/V2/V1 family for code-generation accuracy, and continuing a chat
+  // Switching modes is not a mid-conversation toggle. Code mode is pinned to
+  // Groq for code-generation accuracy, and continuing a chat
   // written by one model under another would blend two different answers into
   // one thread. So picking a mode that declares `separateSession` starts a fresh
   // session instead of reinterpreting the current one.
@@ -451,8 +451,8 @@ export default function HomePage() {
       const name = getMode(mode).display;
       // Each mode is served by its own key. Telling somebody who picked Code
       // to add an OpenRouter key sends them after the wrong value entirely.
-      const key = mode === "code" ? "GEMINI_API_KEY" : "OPENROUTER_API_KEY";
-      const needs = mode === "code" ? "a Gemini API key" : "an OpenRouter API key";
+      const key = mode === "code" ? "GROQ_API_KEY" : "OPENROUTER_API_KEY";
+      const needs = mode === "code" ? "a Groq API key" : "an OpenRouter API key";
       setModelNotice(
         `${name} isn't available on this deployment yet. It needs ${needs} (${key}) configured by the site owner. Once added, it becomes selectable automatically.`
       );

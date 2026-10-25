@@ -82,7 +82,7 @@ test("an empty deployment reports the keys that stop it working, and names each 
   withEmptyEnv(() => {
     const report = setupReport();
     const named = keysOf(report.missing);
-    for (const key of ["NEXT_PUBLIC_SUPABASE_URL", "OPENROUTER_API_KEY", "GEMINI_API_KEY"]) {
+    for (const key of ["NEXT_PUBLIC_SUPABASE_URL", "OPENROUTER_API_KEY", "GROQ_API_KEY"]) {
       assert.ok(named.includes(key), `expected ${key} in the report`);
     }
     // Every reported item explains itself: a name alone tells an owner nothing.
