@@ -25,7 +25,7 @@ import type { AgentStep } from "@/lib/types";
 import { AGENT_TOOL_SCHEMAS, describeToolCall, runTool, type ToolContext, type ToolResult } from "./tools";
 import { stageEdits, type StagedChange } from "./edits";
 import { callAgentModel, type AgentMessage } from "./model";
-import { TOOL_CALL_PLACEHOLDER } from "./transcript";
+import { TOOL_CALL_PLACEHOLDER, type RepoChatMessage } from "./transcript";
 import {
   MAX_STEPS,
   MAX_TURN_TOKENS,
@@ -45,10 +45,7 @@ export interface ProjectRef {
   baseSha: string;
 }
 
-export interface RepoChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+export type { RepoChatMessage };
 
 export interface StepRequest {
   authorization: string | null;
