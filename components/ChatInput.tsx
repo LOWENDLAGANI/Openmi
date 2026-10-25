@@ -3,6 +3,7 @@
 import type { DocumentAttachment, ImageAttachment } from "@/lib/types";
 import { secondsRemaining } from "@/lib/rateLimit";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
+import type { ResponseLength } from "@/lib/settings";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import QuickActions from "./QuickActions";
@@ -15,7 +16,16 @@ interface ChatInputProps {
   onStop?: () => void;
   /** Epoch ms until which the server has asked us to hold off; null when free. */
   rateLimitUntil: number | null;
+  /** The Focus home's composer: one rounded card, a length picker along the
+      bottom edge, and no suggestion row. Null keeps the classic capsule. */
+  focusMode?: { responseLength: ResponseLength; onChange: (value: ResponseLength) => void } | null;
 }
+
+const LENGTH_LABELS: Record<ResponseLength, string> = {
+  short: "Short",
+  balanced: "Balanced",
+  detailed: "Detailed",
+};
 
 const MAX_IMAGES = 4;
 const MAX_DOCUMENTS = 3;
@@ -37,12 +47,112 @@ type SpeechRecognition = {
 };
 type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognition; webkitSpeechRecognition?: new () => SpeechRecognition };
 
+/** The tools sheet, shared by the classic capsule and the focus composer. */
+function ToolsMenu({
+  onCamera,
+  onGallery,
+  onFiles,
+  onVoice,
+  listening,
+  onClose,
+}: {
+  onCamera: () => void;
+  onGallery: () => void;
+  onFiles: () => void;
+  onVoice: () => void;
+  listening: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="animate-pop absolute bottom-14 right-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-xl backdrop-blur-xl">
+      <button
+        type="button"
+        onClick={onCamera}
+        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3.5 8.5A2 2 0 0 1 5.5 6.5h1.7l1.2-2h7.2l1.2 2h1.7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
+            <circle cx="12" cy="13" r="3.4" />
+          </svg>
+        </span>
+        <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Camera</span>
+      </button>
+      <button
+        type="button"
+        onClick={onGallery}
+        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="4.5" /><circle cx="8.75" cy="8.75" r="1.6" /><path d="M21 15.5l-4.5-4.5L5 21" />
+          </svg>
+        </span>
+        <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Gallery</span>
+      </button>
+      <button
+        type="button"
+        onClick={onFiles}
+        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15.5h4" />
+          </svg>
+        </span>
+        <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Files</span>
+      </button>
+      <Link
+        href="/donate"
+        onClick={onClose}
+        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-400/10 text-rose-200">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
+          </svg>
+        </span>
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">
+          Support Openmi
+          <span className="rounded-full bg-rose-400/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-200">
+            Donate
+          </span>
+        </span>
+      </Link>
+      <button
+        type="button"
+        onClick={onVoice}
+        className={`flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line ${listening ? "bg-red-500/10" : ""}`}
+      >
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi ${listening ? "animate-pulse" : ""}`}>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+            <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
+          </svg>
+        </span>
+        <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">{listening ? "Listening…" : "Voice input"}</span>
+      </button>
+    </div>
+  );
+}
+
+/** The sliders glyph the focus composer's length picker uses. */
+function SlidersIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+      <circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" />
+    </svg>
+  );
+}
+
 export default function ChatInput({
   onSend,
   disabled,
   onStop,
   rateLimitUntil,
+  focusMode = null,
 }: ChatInputProps) {
+  const focus = Boolean(focusMode);
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
@@ -51,6 +161,8 @@ export default function ChatInput({
   const [dragOver, setDragOver] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [showTools, setShowTools] = useState(false);
+  const [showModes, setShowModes] = useState(false);
+  const modesRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -69,13 +181,15 @@ export default function ChatInput({
   const textRef = useRef(text);
 
   useEffect(() => {
-    if (!showTools) return;
+    if (!showTools && !showModes) return;
     const handlePointerDown = (event: PointerEvent) => {
-      if (!toolsRef.current?.contains(event.target as Node)) setShowTools(false);
+      const target = event.target as Node;
+      if (!toolsRef.current?.contains(target)) setShowTools(false);
+      if (!modesRef.current?.contains(target)) setShowModes(false);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [showTools]);
+  }, [showTools, showModes]);
 
   const hasContent = text.trim().length > 0 || attachments.length > 0 || documents.length > 0;
   const rateRemaining = rateLimitUntil ? secondsRemaining(rateLimitUntil, now) : 0;
@@ -238,7 +352,9 @@ export default function ChatInput({
 
   return (
     <footer
-      className="composer-dock sticky bottom-0 z-20 shrink-0 border-t border-line pb-3 pt-2"
+      className={`composer-dock sticky bottom-0 z-20 shrink-0 pb-3 ${
+        focus ? "border-0 pt-0" : "border-t border-line pt-2"
+      }`}
       data-tutorial="composer"
     >
       {/* Same column and same gutter as the thread above, so the capsule's
@@ -322,20 +438,149 @@ export default function ChatInput({
           </div>
         )}
 
-        {/* Suggestions sit directly above the dock, one swipeable row. They are
-            hidden once somebody is writing, so the composer stays uncluttered
-            for the actual message. */}
-        {!hasContent && !compressing && (
-          <div className="pt-0.5">
-            <QuickActions
-              onPick={(prompt) => {
-                handleTextChange(prompt);
-                textareaRef.current?.focus();
-              }}
-            />
-          </div>
+        {/* The focus screen has no suggestion row — the empty space around the
+            mark is the design. Its section label stands where the chips would
+            be, so the composer still has a heading above it. */}
+        {focus ? (
+          <p className="mb-2 pl-2.5 text-[13px] leading-none text-text-hi">Skills</p>
+        ) : (
+          !hasContent &&
+          !compressing && (
+            <div className="pt-0.5">
+              <QuickActions
+                onPick={(prompt) => {
+                  handleTextChange(prompt);
+                  textareaRef.current?.focus();
+                }}
+              />
+            </div>
+          )
         )}
 
+        {focus ? (
+          /* Focus composer: a card rather than a capsule, with the message on
+             top and the length picker, tools and send along its bottom edge. */
+          <div className="focus-composer rounded-[26px] px-3.5 py-2">
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(e) => handleTextChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              rows={1}
+              placeholder={compressing ? "Compressing…" : "Ask Openmi…"}
+              className="block max-h-[180px] w-full resize-none border-none bg-transparent px-0.5 py-0 text-[16px] leading-snug text-text-hi placeholder:text-text-low focus:outline-none"
+            />
+
+            <div className="mt-1 flex items-center gap-0.5">
+              <div ref={modesRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowModes((value) => !value)}
+                  className="flex items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-1 text-[13px] text-text-mid transition-colors hover:text-text-hi"
+                  aria-label="Response length"
+                  aria-expanded={showModes}
+                >
+                  <SlidersIcon />
+                  <span className="text-text-body">{LENGTH_LABELS[focusMode?.responseLength ?? "balanced"]}</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m6.5 9.5 5.5 5 5.5-5" />
+                  </svg>
+                </button>
+                {showModes && (
+                  <div className="animate-pop absolute bottom-11 left-0 z-50 w-44 overflow-hidden rounded-2xl border border-line bg-card p-1 shadow-xl">
+                    {(["short", "balanced", "detailed"] as const).map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          focusMode?.onChange(value);
+                          setShowModes(false);
+                        }}
+                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] transition-colors hover:bg-hover ${
+                          focusMode?.responseLength === value ? "text-text-hi" : "text-text-mid"
+                        }`}
+                      >
+                        {LENGTH_LABELS[value]}
+                        {focusMode?.responseLength === value && (
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="m4.5 12.5 5 5 10-11" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1" />
+
+              <div ref={toolsRef} className="relative shrink-0">
+                <button
+                  onClick={() => setShowTools((value) => !value)}
+                  data-tutorial="gallery-button"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-text-mid transition-colors hover:bg-card hover:text-text-hi"
+                  aria-label="Open tools menu"
+                  aria-expanded={showTools}
+                  type="button"
+                  title="Open message tools"
+                >
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 5.5v13M5.5 12h13" />
+                  </svg>
+                </button>
+                {showTools && (
+                  <ToolsMenu
+                    onCamera={() => {
+                      setShowTools(false);
+                      cameraInputRef.current?.click();
+                    }}
+                    onGallery={() => {
+                      setShowTools(false);
+                      fileInputRef.current?.click();
+                    }}
+                    onFiles={() => {
+                      setShowTools(false);
+                      document.getElementById("openmi-document-picker")?.click();
+                    }}
+                    onVoice={toggleVoice}
+                    listening={isListening}
+                    onClose={() => setShowTools(false)}
+                  />
+                )}
+              </div>
+
+              {disabled ? (
+                <button
+                  onClick={onStop}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-hover text-text-mid transition-colors hover:text-text-hi"
+                  aria-label="Stop generating"
+                  type="button"
+                  title="Stop generating"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={!canSend}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-white transition-opacity ${
+                    canSend ? "focus-send" : "focus-send opacity-75"
+                  }`}
+                  aria-label="Send message"
+                  type="button"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Composer: one capsule, attachment on the left, the message in the
             middle, voice and tools on the right. */}
         <div
@@ -408,83 +653,23 @@ export default function ChatInput({
               </svg>
             </button>
             {showTools && (
-              <div className="animate-pop absolute bottom-14 right-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-xl backdrop-blur-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowTools(false);
-                    cameraInputRef.current?.click();
-                  }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M3.5 8.5A2 2 0 0 1 5.5 6.5h1.7l1.2-2h7.2l1.2 2h1.7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
-                      <circle cx="12" cy="13" r="3.4" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Camera</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowTools(false);
-                    fileInputRef.current?.click();
-                  }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="3" y="3" width="18" height="18" rx="4.5" /><circle cx="8.75" cy="8.75" r="1.6" /><path d="M21 15.5l-4.5-4.5L5 21" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Gallery</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowTools(false);
-                    document.getElementById("openmi-document-picker")?.click();
-                  }}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15.5h4" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">Files</span>
-                </button>
-                <Link
-                  href="/donate"
-                  onClick={() => setShowTools(false)}
-                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-400/10 text-rose-200">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
-                    </svg>
-                  </span>
-                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">
-                    Support Openmi
-                    <span className="rounded-full bg-rose-400/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-200">
-                      Donate
-                    </span>
-                  </span>
-                </Link>
-                <button
-                  type="button"
-                  onClick={toggleVoice}
-                  className={`flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line ${isListening ? "bg-red-500/10" : ""}`}
-                >
-                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi ${isListening ? "animate-pulse" : ""}`}>
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-                      <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text-hi">{isListening ? "Listening…" : "Voice input"}</span>
-                </button>
-              </div>
+              <ToolsMenu
+                onCamera={() => {
+                  setShowTools(false);
+                  cameraInputRef.current?.click();
+                }}
+                onGallery={() => {
+                  setShowTools(false);
+                  fileInputRef.current?.click();
+                }}
+                onFiles={() => {
+                  setShowTools(false);
+                  document.getElementById("openmi-document-picker")?.click();
+                }}
+                onVoice={toggleVoice}
+                listening={isListening}
+                onClose={() => setShowTools(false)}
+              />
             )}
             <input
               ref={fileInputRef}
@@ -554,12 +739,18 @@ export default function ChatInput({
             </button>
           )}
         </div>
+          </>
+        )}
 
         {/* The one piece of small print the design asks for, directly under the
-            capsule where it belongs. */}
-        <p className="mt-1.5 text-center text-[10px] leading-relaxed text-text-low">
-          Content generated by Openmi AI. Might not be accurate.
-        </p>
+            capsule where it belongs. The Focus screen has no room for it — its
+            whole composition is the mark and the composer — so it is only
+            printed beneath the classic capsule. */}
+        {!focus && (
+          <p className="mt-1.5 text-center text-[10px] leading-relaxed text-text-low">
+            Content generated by Openmi AI. Might not be accurate.
+          </p>
+        )}
 
         {/* Creator credit — kept deliberately; the keyboard hint was the
             redundant part, not the attribution. The heart is the one place

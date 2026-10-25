@@ -15,13 +15,17 @@
 import { currentUser, getSupabase } from "./supabase";
 import {
   DEFAULT_APPEARANCE,
+  DEFAULT_HOME_LAYOUT,
   loadAppearance,
+  loadHomeLayout,
   loadReasoningEffort,
   loadResponseLength,
   saveAppearance,
+  saveHomeLayout,
   saveReasoningEffort,
   saveResponseLength,
   type Appearance,
+  type HomeLayout,
   type ReasoningEffort,
   type ResponseLength,
 } from "./settings";
@@ -36,6 +40,7 @@ const TUTORIAL_KEY = "openmi:tutorial-finished";
 export interface UserPreferences {
   displayName: string | null;
   appearance: Appearance;
+  homeLayout: HomeLayout;
   responseLength: ResponseLength;
   reasoningEffort: ReasoningEffort;
   searchMode: SearchMode;
@@ -46,6 +51,7 @@ export interface UserPreferences {
 export const DEFAULT_PREFERENCES: UserPreferences = {
   displayName: null,
   appearance: DEFAULT_APPEARANCE,
+  homeLayout: DEFAULT_HOME_LAYOUT,
   responseLength: "balanced",
   reasoningEffort: "low",
   searchMode: "auto",
@@ -77,6 +83,7 @@ export function loadLocalPreferences(): UserPreferences {
   return {
     displayName: loadDisplayName() || null,
     appearance: loadAppearance(),
+    homeLayout: loadHomeLayout(),
     responseLength: loadResponseLength(),
     reasoningEffort: loadReasoningEffort(),
     searchMode: readSearchMode(),
@@ -87,7 +94,8 @@ export function loadLocalPreferences(): UserPreferences {
 
 /** Writes the local copy, which is what the next first paint reads. */
 export function saveLocalPreferences(preferences: UserPreferences): void {
-  saveAppearance(preferences.appearance);
+  saveHomeLayout(preferences.homeLayout);
+  saveAppearance(preferences.appearance, preferences.homeLayout);
   saveResponseLength(preferences.responseLength);
   saveReasoningEffort(preferences.reasoningEffort);
   try {
@@ -103,6 +111,7 @@ export function saveLocalPreferences(preferences: UserPreferences): void {
 /** The row shape read from `user_preferences`. */
 function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
   const appearance: Appearance = row.appearance === "dark" ? "dark" : DEFAULT_APPEARANCE;
+  const homeLayout: HomeLayout = row.home_layout === "focus" ? "focus" : DEFAULT_HOME_LAYOUT;
   const responseLength: ResponseLength =
     row.response_length === "short" || row.response_length === "detailed"
       ? row.response_length
@@ -119,6 +128,7 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
         ? row.display_name.trim().slice(0, 40)
         : null,
     appearance,
+    homeLayout,
     responseLength,
     reasoningEffort,
     searchMode,
@@ -146,7 +156,7 @@ export async function loadCloudPreferences(): Promise<UserPreferences | null> {
     const { data, error } = await client
       .from("user_preferences")
       .select(
-        "display_name, appearance, response_length, reasoning_effort, search_mode, model, tutorial_finished"
+        "display_name, appearance, home_layout, response_length, reasoning_effort, search_mode, model, tutorial_finished"
       )
       .eq("owner", user.id)
       .maybeSingle();
@@ -176,6 +186,7 @@ export async function saveCloudPreferences(preferences: UserPreferences): Promis
         owner: user.id,
         display_name: preferences.displayName,
         appearance: preferences.appearance,
+        home_layout: preferences.homeLayout,
         response_length: preferences.responseLength,
         reasoning_effort: preferences.reasoningEffort,
         search_mode: preferences.searchMode,

@@ -95,6 +95,86 @@ html.light .app-surface { background: var(--bg); }
 html.light .surface-glow { background: none; }
 html.light aside { background: #ffffff !important; }
 
+/* ── Focus home: the ink-indigo theme ─────────────────────────────────────
+   The Focus home is one design with one palette: a near-black indigo canvas,
+   lavender controls, and no green anywhere. Like the paper theme it is a
+   table of values rather than a second component tree, so the sidebar, the
+   thread and the settings sheets all follow the home layout that chose it.
+   The class is put on <html> by lib/settings.ts, together with the appearance
+   it replaces, and the boot script in app/layout.tsx sets it before the first
+   paint. */
+html.ink {
+  color-scheme: dark;
+  --bg: #1b1826;
+  --bg-raised: #211e2f;
+  --bg-hover: #282436;
+  --bg-elevated: #262233;
+  --line: rgba(238, 236, 248, 0.09);
+  --line-strong: rgba(238, 236, 248, 0.17);
+  --text-hi: #f2f0f6;
+  --text: #dcd9e6;
+  --text-mid: #a6a1b6;
+  --text-low: #837e96;
+  --accent: #a09ad8;
+  --accent-soft: rgba(160, 154, 216, 0.16);
+  --azure: #9b95d3;
+  --azure-soft: rgba(155, 149, 211, 0.16);
+  --code: #d5a184;
+  --code-soft: rgba(213, 161, 132, 0.16);
+  --on-accent: #ffffff;
+  --card: #211e2f;
+  --card-border: rgba(238, 236, 248, 0.08);
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --bubble-user: #4a4670;
+  --bubble-user-text: #ffffff;
+  --dock: #1b1826;
+  --chip: #2a2739;
+  --chip-border: rgba(238, 236, 248, 0.1);
+  --danger-bg: rgba(248, 113, 113, 0.08);
+  --danger-border: rgba(248, 113, 113, 0.22);
+  --danger-ink: #fca5a5;
+  --danger-strong: #fecaca;
+  --warn-bg: rgba(251, 191, 36, 0.07);
+  --warn-border: rgba(251, 191, 36, 0.2);
+  --warn-ink: #fcd34d;
+  --warn-strong: #fde68a;
+}
+
+html.ink body { background: var(--bg); }
+html.ink .app-surface { background: var(--bg); }
+html.ink .surface-glow { background: none; }
+html.ink aside { background: #171523 !important; }
+html.ink .composer-dock { background: transparent; }
+
+/* The sage accents were written as literals on the dark theme. In ink they are
+   the same lavender the tokens carry, so the shell reads as one design. */
+html.ink [class*=" text-[#a9d8bb]"], html.ink [class^="text-[#a9d8bb]"],
+html.ink [class*=" text-[#c9e6d4]"], html.ink [class^="text-[#c9e6d4]"],
+html.ink [class*=" text-[#b6e3c8]"], html.ink [class^="text-[#b6e3c8]"],
+html.ink [class*=" text-[#d7f0e1]"], html.ink [class^="text-[#d7f0e1]"],
+html.ink [class*=" text-[#6ec294]"], html.ink [class^="text-[#6ec294]"] { color: var(--accent) !important; }
+html.ink [class~="bg-[#2f6b48]"],
+html.ink [class~="bg-[#2a6142]"],
+html.ink [class~="bg-[#3a7d55]"],
+html.ink [class~="bg-[#35744f]"],
+html.ink [class~="bg-[#3a8359]"],
+html.ink [class~="bg-[#327350]"],
+html.ink [class~="bg-[#7fd1a1]"],
+html.ink [class~="bg-[#a9d8bb]"] { background-color: #625d97 !important; }
+html.ink [class*=" bg-[#2f6b48]/"], html.ink [class^="bg-[#2f6b48]/"],
+html.ink [class*=" bg-[#2a6142]/"], html.ink [class^="bg-[#2a6142]/"],
+html.ink [class*=" bg-[#7fd1a1]/"], html.ink [class^="bg-[#7fd1a1]/"],
+html.ink [class*=" bg-[#a9d8bb]/"], html.ink [class^="bg-[#a9d8bb]/"] { background-color: rgba(160, 154, 216, 0.12) !important; }
+html.ink [class*=" border-[#2f6b48]"], html.ink [class^="border-[#2f6b48]"],
+html.ink [class*=" border-[#3f7d5c]"], html.ink [class^="border-[#3f7d5c]"],
+html.ink [class*=" border-[#a9d8bb]"], html.ink [class^="border-[#a9d8bb]"] { border-color: rgba(160, 154, 216, 0.35) !important; }
+/* Deep surfaces written as literals rather than tokens. */
+html.ink [class*=" bg-[#0e1613]"], html.ink [class^="bg-[#0e1613]"],
+html.ink [class*=" bg-[#0b1310]"], html.ink [class^="bg-[#0b1310]"],
+html.ink [class*=" bg-[#111a16]"], html.ink [class^="bg-[#111a16]"],
+html.ink [class*=" bg-[#141f1a]"], html.ink [class^="bg-[#141f1a]"],
+html.ink [class*=" bg-[#1a2620]"], html.ink [class^="bg-[#1a2620]"] { background-color: #211e2f !important; }
+
 /* ── Light mode, inverted utility classes ────────────────────────────────────
    The components are written once against the dark palette — white text on
    translucent white. Paper mode is that same set of classes turned over, and
@@ -465,6 +545,28 @@ html.light .attachment-size {
   background: var(--card);
   border-color: var(--line-strong);
 }
+
+/* ── Focus home surfaces ────────────────────────────────────────────────────
+   The pieces that only exist on the Focus screen: the repository chip, the
+   composer card, and its send control. They are literals because this screen
+   is one design — the ink palette — and copying those values from a variable
+   would let another theme half-paint it. */
+.focus-chip {
+  background: #2a2739;
+  transition: background 0.15s;
+}
+.focus-chip:hover { background: #302c41; }
+.focus-composer {
+  background: #201d2e;
+  border: 1px solid rgba(238, 236, 248, 0.17);
+  transition: border-color 0.15s;
+}
+.focus-composer:focus-within { border-color: rgba(238, 236, 248, 0.28); }
+.focus-send {
+  background: #4b4770;
+  transition: background 0.15s, opacity 0.15s;
+}
+.focus-send:hover:not(:disabled) { background: #565183; }
 
 /* An empty composer still shows a button, not a floating glyph: the send
    control needs an edge so it reads as pressable before there is text. */

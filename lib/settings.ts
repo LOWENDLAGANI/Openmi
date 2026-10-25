@@ -5,6 +5,19 @@ export type Appearance = "dark" | "light";
  *  a first-time visitor is dropped into, so anything unset resolves to light. */
 export const DEFAULT_APPEARANCE: Appearance = "light";
 
+/**
+ * How the empty home screen is laid out.
+ *
+ * `classic` is the headline over the composer. `focus` is the mobile design:
+ * a "New chat" bar, the mark and its repository chip in the middle, and the
+ * composer at the foot. Focus carries its own palette — the ink-indigo theme —
+ * because the two are one design, not two switches that happen to look right
+ * together.
+ */
+export type HomeLayout = "classic" | "focus";
+
+export const DEFAULT_HOME_LAYOUT: HomeLayout = "classic";
+
 /** How hard the model thinks before answering. Openmi defaults to the cheapest. */
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -12,6 +25,15 @@ const RESPONSE_LENGTH_KEY = "openmi:response-length";
 const REASONING_EFFORT_KEY = "openmi:reasoning-effort";
 const LEGACY_CUSTOM_INSTRUCTIONS_KEY = "openmi:custom-instructions";
 const APPEARANCE_KEY = "openmi:appearance";
+const HOME_LAYOUT_KEY = "openmi:home-layout";
+
+/** The colour of the browser's own chrome, per theme. It cannot follow a CSS
+    class, so the meta tag is written here whenever the theme changes. */
+const THEME_COLORS = {
+  light: "#f8f9fa",
+  dark: "#0b1310",
+  ink: "#1b1826",
+} as const;
 
 export function loadResponseLength(): ResponseLength {
   if (typeof window === "undefined") return "balanced";
@@ -44,16 +66,50 @@ export function loadAppearance(): Appearance {
   }
 }
 
-/** The colour of the browser's own chrome, which cannot follow a CSS class.
-    Without this the address bar stays deep green above a sheet of paper. */
-function applyThemeColor(value: Appearance): void {
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (!meta) return;
-  meta.setAttribute("content", value === "light" ? "#f8f9fa" : "#0b1310");
+export function loadHomeLayout(): HomeLayout {
+  if (typeof window === "undefined") return DEFAULT_HOME_LAYOUT;
+  try {
+    return window.localStorage.getItem(HOME_LAYOUT_KEY) === "focus" ? "focus" : DEFAULT_HOME_LAYOUT;
+  } catch {
+    return DEFAULT_HOME_LAYOUT;
+  }
 }
 
-export function saveAppearance(value: Appearance): void {
+function applyThemeColor(color: string): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  meta.setAttribute("content", color);
+}
+
+/**
+ * Puts the chosen look on the document.
+ *
+ * One function rather than a class toggle per call site, because the look is
+ * decided by two preferences at once: the Focus home is the ink-indigo theme,
+ * so it wins over a light or dark choice while it is on, and turning it off
+ * restores the appearance that was chosen underneath. Doing this in one place
+ * is what lets a settings change and a page load paint the same way.
+ */
+export function applyDocumentTheme(appearance: Appearance, homeLayout: HomeLayout): void {
+  const root = document.documentElement;
+  const ink = homeLayout === "focus";
+  root.classList.toggle("ink", ink);
+  root.classList.toggle("light", !ink && appearance === "light");
+  root.classList.toggle("dark", !ink && appearance === "dark");
+  const color = ink
+    ? THEME_COLORS.ink
+    : appearance === "light"
+      ? THEME_COLORS.light
+      : THEME_COLORS.dark;
+  applyThemeColor(color);
+}
+
+export function saveAppearance(value: Appearance, homeLayout: HomeLayout = loadHomeLayout()): void {
   try { window.localStorage.setItem(APPEARANCE_KEY, value); } catch { /* optional preference */ }
-  document.documentElement.classList.toggle("light", value === "light");
-  applyThemeColor(value);
+  applyDocumentTheme(value, homeLayout);
+}
+
+export function saveHomeLayout(value: HomeLayout): void {
+  try { window.localStorage.setItem(HOME_LAYOUT_KEY, value); } catch { /* optional preference */ }
+  applyDocumentTheme(loadAppearance(), value);
 }

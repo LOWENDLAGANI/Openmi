@@ -1,6 +1,6 @@
 "use client";
 
-import type { Appearance, ReasoningEffort, ResponseLength } from "@/lib/settings";
+import type { Appearance, HomeLayout, ReasoningEffort, ResponseLength } from "@/lib/settings";
 import type { SearchMode } from "@/lib/types";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
@@ -19,7 +19,35 @@ interface SettingsPanelProps {
   onReasoningEffortChange: (value: ReasoningEffort) => void;
   appearance: Appearance;
   onAppearanceChange: (value: Appearance) => void;
+  homeLayout: HomeLayout;
+  onHomeLayoutChange: (value: HomeLayout) => void;
 }
+
+const HOME_OPTIONS: Array<{ id: HomeLayout; label: string; description: string; preview: React.ReactNode }> = [
+  {
+    id: "classic",
+    label: "Classic",
+    description: "Headline over the composer",
+    preview: (
+      <svg width="44" height="28" viewBox="0 0 44 28" fill="none" aria-hidden="true">
+        <rect x="6" y="5" width="32" height="3" rx="1.5" fill="currentColor" opacity="0.75" />
+        <rect x="11" y="11" width="22" height="2.5" rx="1.25" fill="currentColor" opacity="0.35" />
+        <rect x="4" y="19" width="36" height="6" rx="3" fill="currentColor" opacity="0.2" />
+      </svg>
+    ),
+  },
+  {
+    id: "focus",
+    label: "Focus · ink",
+    description: "Mark, repository, composer",
+    preview: (
+      <svg width="44" height="28" viewBox="0 0 44 28" fill="none" aria-hidden="true">
+        <path d="M18 4h2.6v10H18zM18 4h7v2.6h-7zM21.5 8.5h2.6v9.5h-2.6zM21.5 8.5h6v2.6h-6z" fill="currentColor" opacity="0.8" />
+        <rect x="14" y="21" width="16" height="3.5" rx="1.75" fill="currentColor" opacity="0.3" />
+      </svg>
+    ),
+  },
+];
 
 const SEARCH_OPTIONS: Array<{ id: SearchMode; label: string; description: string; icon: React.ReactNode }> = [
   { 
@@ -95,6 +123,8 @@ export default function SettingsPanel({
   onReasoningEffortChange,
   appearance,
   onAppearanceChange,
+  homeLayout,
+  onHomeLayoutChange,
 }: SettingsPanelProps) {
   useEffect(() => {
     if (!open) return;
@@ -252,6 +282,32 @@ export default function SettingsPanel({
                       )}
                     </div>
                     <span className="text-[13px] font-medium capitalize">{value}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 7 }}>
+              <h3 className="mb-1 flex items-center gap-1.5 text-[14px] font-semibold text-white">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 10h18" />
+                </svg>
+                Home layout
+              </h3>
+              <p className="mb-3 text-[11px] leading-relaxed text-white/40">
+                Focus is the mobile home screen, and it brings its own ink-indigo palette.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {HOME_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => onHomeLayoutChange(option.id)}
+                    className={`flex flex-col items-center gap-1 rounded-lg px-3 py-3 transition-all duration-200 ${homeLayout === option.id ? "bg-white/[0.1] text-white ring-1 ring-white/20" : "text-white/45 hover:bg-white/[0.05] hover:text-white/75"}`}
+                  >
+                    <span className={homeLayout === option.id ? "text-[#a9d8bb]" : "text-white/40"}>{option.preview}</span>
+                    <span className="text-[13px] font-medium">{option.label}</span>
+                    <span className="text-[10px] leading-tight text-white/30">{option.description}</span>
                   </button>
                 ))}
               </div>

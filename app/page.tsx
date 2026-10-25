@@ -7,6 +7,7 @@ import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
 import ModeSelector from "@/components/ModelSelector";
 import OpenmiMark from "@/components/OpenmiMark";
+import FocusHome from "@/components/FocusHome";
 import OpenmiTutorial from "@/components/OpenmiTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
@@ -56,8 +57,11 @@ import type {
 } from "@/lib/types";
 import {
   DEFAULT_APPEARANCE,
+  DEFAULT_HOME_LAYOUT,
   saveAppearance,
+  saveHomeLayout,
   type Appearance,
+  type HomeLayout,
   type ReasoningEffort,
   type ResponseLength,
 } from "@/lib/settings";
@@ -121,6 +125,7 @@ export default function HomePage() {
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
+  const [homeLayout, setHomeLayout] = useState<HomeLayout>(DEFAULT_HOME_LAYOUT);
   const [loggingError, setLoggingError] = useState(false);
   // Epoch ms until the server has asked the composer to hold off, set from the
   // wait the server itself names in a 429 — never guessed locally.
@@ -219,7 +224,9 @@ export default function HomePage() {
     setResponseLength(local.responseLength);
     setReasoningEffort(local.reasoningEffort);
     setAppearance(local.appearance);
-    saveAppearance(local.appearance);
+    setHomeLayout(local.homeLayout);
+    saveHomeLayout(local.homeLayout);
+    saveAppearance(local.appearance, local.homeLayout);
     setSearchMode(local.searchMode);
     setTutorialFinished(local.tutorialFinished);
     setDisplayName(local.displayName ?? "");
@@ -285,6 +292,7 @@ export default function HomePage() {
         : { ...current, displayName: chosen };
       preferencesRef.current = merged;
       setAppearance(merged.appearance);
+      setHomeLayout(merged.homeLayout);
       setResponseLength(merged.responseLength);
       setReasoningEffort(merged.reasoningEffort);
       setSearchMode(merged.searchMode);
@@ -456,7 +464,14 @@ export default function HomePage() {
 
   const handleAppearanceChange = (value: Appearance) => {
     setAppearance(value);
+    saveAppearance(value, homeLayout);
     persistPreferences({ appearance: value });
+  };
+
+  const handleHomeLayoutChange = (value: HomeLayout) => {
+    setHomeLayout(value);
+    saveHomeLayout(value);
+    persistPreferences({ homeLayout: value });
   };
 
   const handleSearchModeChange = (value: SearchMode) => {
@@ -1075,6 +1090,10 @@ export default function HomePage() {
     }
   }, [threadMessages]);
 
+  // The Focus home is the empty screen only. A conversation keeps the thread
+  // and the thread's composer; the layout still owns the palette.
+  const focusHome = homeLayout === "focus" && !temporary && messages.length === 0;
+
   const isStreaming = streamingId !== null;
   // The message being drawn has no content yet, so it is kept explicitly to
   // show the drawing placeholder.
@@ -1168,46 +1187,82 @@ export default function HomePage() {
       <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden animate-view-in">
         <div className="surface-glow pointer-events-none absolute inset-0" aria-hidden />
 
-        <header className="safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-card px-4 md:px-6">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lift flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
-            aria-label="Open menu"
-            data-tutorial="mobile-menu"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M4 7h16M4 12h16M4 17h16" />
-            </svg>
-          </button>
+        <header
+          className={`safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6 ${
+            focusHome ? "border-0 bg-transparent" : "border-b border-line bg-card"
+          }`}
+        >
+          {focusHome ? (
+            <>
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lift flex h-9 w-9 items-center justify-center rounded-lg text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
+                aria-label="Open sidebar"
+                data-tutorial="mobile-menu"
+              >
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4.5" width="18" height="15" rx="3.5" />
+                  <path d="M9.5 4.5v15" />
+                </svg>
+              </button>
+              <h1 className="min-w-0 flex-1 truncate text-[20px] font-normal tracking-[-0.01em] text-white">
+                New chat
+              </h1>
+              <button
+                onClick={handleNewChat}
+                className="lift flex h-9 w-9 items-center justify-center rounded-lg text-text-body transition-colors hover:bg-white/[0.06] hover:text-white"
+                aria-label="Start a new chat"
+                title="New chat"
+              >
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3.5H5.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2V12" />
+                  <path d="M18.4 2.6a1.9 1.9 0 0 1 2.7 2.7l-8.6 8.6a2.5 2.5 0 0 1-1.1.6l-2.6.7.7-2.6a2.5 2.5 0 0 1 .6-1.1Z" />
+                </svg>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lift flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
+                aria-label="Open menu"
+                data-tutorial="mobile-menu"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M4 7h16M4 12h16M4 17h16" />
+                </svg>
+              </button>
 
-          <button
-            onClick={handleNewChat}
-            className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80 active:opacity-60"
-            aria-label="Start a new Openmi chat"
-            title="Openmi"
-          >
-            <OpenmiMark className="h-7 w-7" />
-            <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">
-              {temporary ? "Temporary chat" : "Openmi"}
-            </span>
-          </button>
+              <button
+                onClick={handleNewChat}
+                className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80 active:opacity-60"
+                aria-label="Start a new Openmi chat"
+                title="Openmi"
+              >
+                <OpenmiMark className="h-7 w-7" />
+                <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">
+                  {temporary ? "Temporary chat" : "Openmi"}
+                </span>
+              </button>
 
-          {temporary && (
-            <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.045] px-2.5 py-1 text-[11px] text-white/55 sm:inline-flex">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 7v5l3 2" />
-              </svg>
-              Not saved
-            </span>
+              {temporary && (
+                <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.045] px-2.5 py-1 text-[11px] text-white/55 sm:inline-flex">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                  Not saved
+                </span>
+              )}
+
+              <div className="flex-1" />
+              <ModeSelector
+                selected={selectedMode}
+                onChange={handleModeChange}
+                available={available}
+              />
+            </>
           )}
-
-          <div className="flex-1" />
-          <ModeSelector
-            selected={selectedMode}
-            onChange={handleModeChange}
-            available={available}
-          />
         </header>
 
         {appConfig?.announcement && (
@@ -1237,16 +1292,20 @@ export default function HomePage() {
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <ChatThread
-              messages={visibleMessages}
-              streamingId={streamingId}
-              isEmpty={visibleMessages.length === 0}
-              onRegenerate={handleRegenerate}
-              onEditMessage={handleEditMessage}
-              onCopyConversation={handleCopyConversation}
-              onSwitchVariant={handleSwitchVariant}
-            />
-            {project && (
+            {focusHome ? (
+              <FocusHome project={project} onOpenRepo={() => setRepoOpen(true)} />
+            ) : (
+              <ChatThread
+                messages={visibleMessages}
+                streamingId={streamingId}
+                isEmpty={visibleMessages.length === 0}
+                onRegenerate={handleRegenerate}
+                onEditMessage={handleEditMessage}
+                onCopyConversation={handleCopyConversation}
+                onSwitchVariant={handleSwitchVariant}
+              />
+            )}
+            {project && !focusHome && (
               <div className="mx-auto mb-1 flex w-full max-w-4xl items-center gap-2 px-4 md:px-7">
                 <button
                   type="button"
@@ -1273,6 +1332,11 @@ export default function HomePage() {
               disabled={isStreaming}
               onStop={stopStreaming}
               rateLimitUntil={rateLimitUntil}
+              focusMode={
+                focusHome
+                  ? { responseLength, onChange: handleResponseLengthChange }
+                  : null
+              }
             />
           </div>
 
@@ -1307,6 +1371,8 @@ export default function HomePage() {
         onReasoningEffortChange={handleReasoningEffortChange}
         appearance={appearance}
         onAppearanceChange={handleAppearanceChange}
+        homeLayout={homeLayout}
+        onHomeLayoutChange={handleHomeLayoutChange}
       />
 
       {/* Branding splash — a fresh visit to the home page only, once per

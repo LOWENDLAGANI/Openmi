@@ -82,7 +82,7 @@ export const viewport: Viewport = {
  *  and then snap to night. The marker is therefore read here, synchronously,
  *  and the class is already correct when the first pixel is drawn. A browser
  *  with storage blocked keeps the light default rather than failing. */
-const APPEARANCE_BOOT = `try{if(localStorage.getItem("openmi:appearance")==="dark"){document.documentElement.classList.remove("light");document.documentElement.classList.add("dark")}}catch(e){}`;
+const APPEARANCE_BOOT = `try{var r=document.documentElement;if(localStorage.getItem("openmi:home-layout")==="focus"){r.classList.remove("light");r.classList.add("ink")}else if(localStorage.getItem("openmi:appearance")==="dark"){r.classList.remove("light");r.classList.add("dark")}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
