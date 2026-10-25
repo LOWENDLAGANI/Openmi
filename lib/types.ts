@@ -50,6 +50,15 @@ export interface AgentStep {
   label: string;
   ok: boolean;
   /**
+   * Why a tool refused the call, in the server's own words.
+   *
+   * A proposal that staged nothing is the one refusal a reader can act on —
+   * the edit matched twice, the path was wrong, the file was too large — so
+   * the reasons travel with the step instead of living only in the model's
+   * transcript. Empty for a successful step.
+   */
+  detail?: string;
+  /**
    * True while the tool is still running. Live-only: a step loaded from the
    * database or the account is always finished, so this is never trusted
    * across a reload.

@@ -155,6 +155,12 @@ export interface ToolResult {
   summary: string;
   /** What the model receives. Bounded by the tool. */
   content: string;
+  /**
+   * The refusal, short enough for the timeline. Set only when the result is a
+   * failure the reader can act on, so the thread can say why instead of only
+   * that it did not happen.
+   */
+  detail?: string;
 }
 
 /** A readable label without exposing the raw argument object. */
@@ -324,6 +330,7 @@ export async function runTool(call: ParsedToolCall, context: ToolContext): Promi
         name,
         ok: false,
         summary: "Proposals are unavailable",
+        detail: "This deployment cannot stage a change right now.",
         content: "This deployment cannot stage a change right now, so nothing was proposed.",
       };
     }
@@ -333,11 +340,16 @@ export async function runTool(call: ParsedToolCall, context: ToolContext): Promi
     const removed = staged.changes.reduce((sum, change) => sum + change.removed, 0);
 
     if (staged.changes.length === 0) {
+      const reasons = staged.rejected
+        .map((entry) => `${entry.path ? `${entry.path}: ` : ""}${entry.reason}`)
+        .join(" · ")
+        .slice(0, 240);
       return {
         id: call.id,
         name,
         ok: false,
         summary: "Nothing proposed",
+        detail: reasons || undefined,
         content: [
           "No change was staged.",
           ...staged.rejected.map((entry) => `- ${entry.path ? `${entry.path}: ` : ""}${entry.reason}`),

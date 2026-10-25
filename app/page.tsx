@@ -1179,6 +1179,19 @@ export default function HomePage() {
     [project, sendAgentMessage, sendMessage]
   );
 
+  // A read-only answer that describes a change is not a proposal. This asks the
+  // agent to stage one as a new Code turn — the flat request price is charged
+  // once, and nothing reaches GitHub until the diff is approved.
+  const handlePropose = useCallback(
+    (_assistantId: string) => {
+      if (!project || streamingId) return;
+      void sendAgentMessage(
+        "Stage the change you just described as a proposal for me to review. Read every file you plan to edit first, then call propose_edits once with the smallest set of edits. Do not commit anything; I will review the diff."
+      );
+    },
+    [project, sendAgentMessage, streamingId]
+  );
+
   const handleEditMessage = useCallback(
     (messageId: string, content: string) => {
       // Same rule as regenerating: with a repository attached, the answer has to
@@ -1465,6 +1478,8 @@ export default function HomePage() {
                 onCopyConversation={handleCopyConversation}
                 onSwitchVariant={handleSwitchVariant}
                 activity={agentActivity}
+                onPropose={handlePropose}
+                agentRepo={project?.repoFullName ?? null}
               />
             )}
             {project && !focusHome && (
@@ -1479,7 +1494,15 @@ export default function HomePage() {
                   <span className="min-w-0 truncate font-mono">{project.repoFullName}</span>
                   <span className="shrink-0 text-white/25">@{project.baseSha.slice(0, 7)}</span>
                 </button>
-                <span className="shrink-0 text-[10px] text-white/25">read-only</span>
+                {/* The word here used to be "read-only", which described the
+                    file viewer but read as a statement about the agent. The
+                    agent reads and proposes; only an approval commits. */}
+                <span
+                  className="shrink-0 cursor-help text-[10px] text-[#a9d8bb]/55"
+                  title="The file viewer is read-only. The agent can read this repository and propose a diff; nothing is committed until you approve it."
+                >
+                  reads · proposes
+                </span>
                 <button
                   type="button"
                   onClick={() => setProject(null)}

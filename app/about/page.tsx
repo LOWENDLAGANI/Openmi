@@ -27,9 +27,9 @@ const PROGRESS: Array<{ label: string; state: "done" | "active" | "next" }> = [
   { label: "Bans with a reason, a length, and a record", state: "done" },
   { label: "Trash with a thirty-day restore", state: "done" },
   { label: "One flat Dew price per model", state: "done" },
-  { label: "GitHub authorisation and repository reading", state: "active" },
-  { label: "Proposed changes with a review step", state: "next" },
-  { label: "Commits you approve, on an agent branch", state: "next" },
+  { label: "GitHub authorisation and repository reading", state: "done" },
+  { label: "Proposed changes with a review step", state: "done" },
+  { label: "Commits you approve, on an agent branch", state: "done" },
 ];
 
 const STATE_STYLES = {

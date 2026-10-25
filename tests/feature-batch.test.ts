@@ -147,6 +147,37 @@ await test("the composer still receives the server's countdown", () => {
   assert.match(page, /onStop=\{stopStreaming\}/, "a running answer cannot be stopped");
 });
 
+await test("a fallback updates the badge without announcing a failure", () => {
+  const page = read("app/page.tsx");
+  // The old notice said the model "was changed automatically because the
+  // current model is experiencing a problem". A fallback is routine; naming it
+  // as a failure made every answer look degraded.
+  assert.ok(!/model was changed automatically/i.test(page), "the fallback failure notice is back");
+  assert.ok(!page.includes("experiencing a problem"), "the fallback failure sentence is back");
+  assert.match(page, /if \(evt\.model\) \{/, "the badge no longer follows the model that answered");
+  assert.match(
+    page,
+    /patchMessage\(assistantMsg\.id, \{ model: evt\.model \}\)/,
+    "the answer must be labelled with the model that produced it"
+  );
+});
+
+await test("the sitemap no longer lists the removed notes route", () => {
+  const sitemap = read("app/sitemap.ts");
+  assert.ok(!sitemap.includes("/notes"), "the sitemap still points a crawler at a 404");
+});
+
+await test("the repository says what the agent can do, not that it is read-only", () => {
+  const page = read("app/page.tsx");
+  const thread = read("components/ChatThread.tsx");
+  assert.ok(!page.includes(">read-only<"), "the misleading read-only label is back");
+  assert.match(page, /reads · proposes/, "the repository chip still does not name the agent's capability");
+  assert.match(page, /onPropose=\{handlePropose\}/, "the propose action never reaches the thread");
+  assert.match(thread, /Propose this change/, "a read-only answer has no way to ask for a diff");
+  assert.match(thread, /Starts a new Code request/, "the extra charge is not disclosed");
+  assert.match(thread, /step\.detail/, "a refused proposal still hides its reasons");
+});
+
 await test("the page drops expired trash on start and listens for a wipe", () => {
   const page = read("app/page.tsx");
   assert.match(page, /purgeTrash\(\)/, "expired trash is never dropped on start");

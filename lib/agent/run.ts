@@ -230,7 +230,13 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
     // be, and parallel GitHub reads are the fastest way to a rate limit.
     const result = await runTool(call, context);
     results.push(result);
-    const finished: AgentStep = { tool, label: result.summary, ok: result.ok };
+    const finished: AgentStep = {
+      tool,
+      label: result.summary,
+      ok: result.ok,
+      // Only a refusal that names a cause is worth a second line in the thread.
+      ...(result.detail ? { detail: result.detail } : {}),
+    };
     steps.push(finished);
     emit({ type: "step", index, step: finished, pending: false });
     index += 1;

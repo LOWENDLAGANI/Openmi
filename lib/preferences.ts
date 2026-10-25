@@ -127,8 +127,8 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
   const searchMode: SearchMode =
     row.search_mode === "always" || row.search_mode === "off" ? row.search_mode : "auto";
   const avatarUrl =
-    (typeof (row as any).avatar_url === "string" && (row as any).avatar_url.trim()) ||
-    (typeof (row as any).avatarUrl === "string" && (row as any).avatarUrl.trim()) ||
+    (typeof row.avatar_url === "string" && row.avatar_url.trim()) ||
+    (typeof row.avatarUrl === "string" && row.avatarUrl.trim()) ||
     null;
   return {
     displayName:
@@ -203,7 +203,7 @@ export async function saveCloudPreferences(preferences: UserPreferences): Promis
         model: preferences.model,
         tutorial_finished: preferences.tutorialFinished,
         updated_at: new Date().toISOString(),
-      } as any,
+      },
       { onConflict: "owner" }
     );
     return !error;

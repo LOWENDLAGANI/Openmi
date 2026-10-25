@@ -26,6 +26,13 @@ interface ChatThreadProps {
    * runs, so a turn that takes half a minute never looks like it stopped.
    */
   activity?: string | null;
+  /**
+   * Asks the agent to stage the change it just described. This is a new Code
+   * turn, not a free add-on: the button says so in its title.
+   */
+  onPropose: (assistantId: string) => void;
+  /** The attached repository, so the empty state can say what the agent can do. */
+  agentRepo?: string | null;
 }
 
 const STREAMING_MESSAGES = [
@@ -327,12 +334,14 @@ function VariantNav({
   );
 }
 
-function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVariant, share }: {
+function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVariant, onPropose, canPropose, share }: {
   msg: ChatMessage;
   streaming: boolean;
   onRegenerate: () => void;
   onEditMessage: (content: string) => void;
   onSwitchVariant: (index: number | null) => void;
+  onPropose: () => void;
+  canPropose: boolean;
   share: ShareSnapshot;
 }) {
   const [editing, setEditing] = useState(false);
@@ -455,8 +464,18 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
                     step.running ? "animate-pulse bg-accent" : step.ok ? "bg-emerald-500/70" : "bg-red-400/70"
                   }`}
                 />
-                <span className={`min-w-0 flex-1 break-words ${step.running ? "text-text-hi" : ""}`}>
-                  {step.label}
+                <span className="min-w-0 flex-1">
+                  <span className={`block break-words ${step.running ? "text-text-hi" : ""}`}>
+                    {step.label}
+                  </span>
+                  {/* Why a proposal staged nothing, in the server's words. A
+                      refusal the reader cannot act on is noise, so only the
+                      tool's own short reason is shown here. */}
+                  {step.detail && !step.running && (
+                    <span className="mt-0.5 block break-words text-[10px] leading-relaxed text-text-low">
+                      {step.detail}
+                    </span>
+                  )}
                 </span>
               </div>
             ))}
@@ -528,6 +547,21 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
           meaning, because it would be missing for unrelated reasons. */}
       {msg.content && !streaming && !msg.truncated && !msg.error && (
         <div className="flex flex-wrap items-center gap-1 pl-1">
+          {canPropose && (
+            <button
+              type="button"
+              onClick={onPropose}
+              className="thread-tool gap-1.5"
+              title="Ask Openmi to stage this change as a diff you review. Starts a new Code request; nothing is committed until you approve it."
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M4.5 20.5h15" />
+              </svg>
+              Propose this change
+            </button>
+          )}
           <MessageActions onRegenerate={onRegenerate} />
           <CopyMessageButton text={displayText} />
           <ShareAnswerButton title={share.title} messages={share.messages} />
@@ -746,6 +780,8 @@ export default function ChatThread({  messages,
   onCopyConversation,
   onSwitchVariant,
   activity = null,
+  onPropose,
+  agentRepo = null,
 }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -795,6 +831,15 @@ export default function ChatThread({  messages,
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-text-hi sm:text-[54px] lg:text-[62px]">
             {headline}
           </h1>
+          {/* With a repository attached, the first question is where the
+              agent's boundary has to be legible: it reads and proposes, and
+              only an approval commits anything. */}
+          {agentRepo && (
+            <p className="mx-auto mt-4 max-w-md text-balance text-[12.5px] leading-relaxed text-text-mid">
+              Openmi can read <span className="font-mono text-text-body">{agentRepo}</span> and stage a diff.
+              Nothing is committed until you approve it.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -824,6 +869,15 @@ export default function ChatThread({  messages,
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
               onSwitchVariant={(index) => onSwitchVariant(msg.id, index)}
+              onPropose={() => onPropose(msg.id)}
+              canPropose={
+                Boolean(agentRepo) &&
+                !msg.changesetId &&
+                // An agent answer that read something is the one that could
+                // plausibly turn into a proposal. A plain chat answer is not.
+                (msg.steps?.length ?? 0) > 0 &&
+                !msg.steps?.some((step) => step.tool === "propose_edits")
+              }
               share={shareSnapshotAt(messages, index)}
             />
           ))}

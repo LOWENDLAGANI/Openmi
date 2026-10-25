@@ -19,9 +19,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/`, lastModified, changeFrequency: "weekly", priority: 1 },
     { url: `${base}/about`, lastModified, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/plus`, lastModified, changeFrequency: "weekly", priority: 0.8 },
-    { url: `${base}/notes`, lastModified, changeFrequency: "weekly", priority: 0.5 },
-    // /share and /notes/[id] are per-conversation and per-note, generated at
-    // request time, so they cannot be enumerated here. They carry their own
-    // canonical tags and are reached from the app, not from a crawl.
+    // /share/[id] is per-conversation and generated at request time, so it
+    // cannot be enumerated here. It carries its own canonical tag and is
+    // reached from the app, not from a crawl.
   ];
 }
