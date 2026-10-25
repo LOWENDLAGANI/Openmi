@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -119,9 +120,7 @@ function ActivityContent() {
           Where it went
         </h1>
         <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-white/45">
-          The last {activity?.windowDays ?? 30} days of requests, grouped by day in your account&apos;s
-          timezone{data ? ` (${data.timeZone.replace(/_/g, " ")})` : ""}. Free Dew is spent before paid
-          credit, and a day starts at your midnight.
+          Your last 30 days dew usage 
         </p>
 
         {error && (
@@ -214,8 +213,7 @@ function ActivityContent() {
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-[12px] text-white/35">
               <p>
-                Requests are charged a flat {formatDew(requestPrice("auto"))} Dew in Auto and{" "}
-                {formatDew(requestPrice("code"))} Dew in Code.
+                The price is same for every request
               </p>
               <Link href="/plus" className="text-[#a9d8bb]/80 transition-colors hover:text-[#a9d8bb]">
                 Top up Dew →
