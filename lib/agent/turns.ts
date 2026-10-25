@@ -14,9 +14,9 @@ import { MAX_FILE_BYTES } from "@/lib/github/tree";
 import { sign, turnKey, verify } from "@/lib/github/crypto";
 
 /** How many model calls one paid turn may take. */
-export const MAX_STEPS = 8;
+export const MAX_STEPS = 40;
 /** Tokens (in + out) one turn may spend before it is forced to stop. */
-export const MAX_TURN_TOKENS = 60_000;
+export const MAX_TURN_TOKENS = 200_000;
 /** A turn that is abandoned cannot be resumed indefinitely. */
 export const TURN_TTL_MS = 30 * 60_000;
 
