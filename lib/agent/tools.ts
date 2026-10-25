@@ -139,6 +139,12 @@ export interface ParsedToolCall {
   name: string;
   /** Raw JSON string from the wire, parsed only after the name is allowed. */
   argumentJson: string;
+  /**
+   * Provider-issued data attached to the call, kept so the assistant turn can
+   * be sent back exactly as it arrived. Gemini 3 puts a thought signature here
+   * and refuses the next request without it.
+   */
+  extraContent?: Record<string, unknown>;
 }
 
 export interface ToolResult {
@@ -154,6 +160,32 @@ export interface ToolResult {
 /** A readable label without exposing the raw argument object. */
 function shortPath(path: string): string {
   return path.length > 60 ? `…${path.slice(-57)}` : path;
+}
+
+/**
+ * What a call is about to do, in the words the timeline uses.
+ *
+ * Shown before the tool runs, so the thread says "Reading src/app/page.tsx"
+ * while the read is in flight instead of going quiet and then printing a
+ * finished line. It never becomes the recorded label — the result's own summary
+ * does that, because only the result knows whether the read succeeded.
+ */
+export function describeToolCall(call: ParsedToolCall): string {
+  const args = parseArguments(call.argumentJson);
+  if (call.name === "read_file") {
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    return path ? `Reading ${shortPath(path)}` : "Reading a file";
+  }
+  if (call.name === "list_files") {
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    return path ? `Listing ${shortPath(path)}` : "Listing the repository";
+  }
+  if (call.name === "search_code") {
+    const query = typeof args.query === "string" ? args.query.trim() : "";
+    return query ? `Searching "${query.slice(0, 60)}"` : "Searching the repository";
+  }
+  if (call.name === "propose_edits") return "Staging a change for review";
+  return `Calling ${call.name}`;
 }
 
 function parseArguments(argumentJson: string): Record<string, unknown> {

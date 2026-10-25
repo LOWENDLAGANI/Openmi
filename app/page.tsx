@@ -43,6 +43,7 @@ import {
   saveSelectedMode,
 } from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
+import { readAgentStream } from "@/lib/agentStream";
 import { refreshDew } from "@/lib/useDew";
 // getMode is used for the assistant message engine label below.
 import type {
@@ -119,6 +120,10 @@ export default function HomePage() {
   const [authError, setAuthError] = useState<string | null>(null);
   const preferencesRef = useRef<UserPreferences>(DEFAULT_PREFERENCES);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
+  // What the repository agent is doing at this instant, for the line under the
+  // thread. Set while a tool is announced or the model is thinking, cleared the
+  // moment text starts arriving, so it never competes with the answer itself.
+  const [agentActivity, setAgentActivity] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
   const [tutorialFinished, setTutorialFinished] = useState(false);
@@ -920,6 +925,7 @@ export default function HomePage() {
 
       setStreamingId(assistantId);
       setModelNotice(null);
+      setAgentActivity(null);
 
       const history = (await threadHistory(chatId))
         .filter((entry) => entry.role !== "system" && entry.content.trim().length > 0)
@@ -930,66 +936,137 @@ export default function HomePage() {
       let transcript: unknown[] = [];
       let turnToken: string | undefined;
       let content = "";
+      let answerModel = getMode("code").display;
+      // Steps are placed by the index the server gives them, counted from the
+      // start of the steps this request produced. A tool is announced before it
+      // runs and its result arrives at the same index, so the timeline fills in
+      // while the work is happening instead of appearing all at once at the end.
       const steps: AgentStep[] = [];
 
+      // ── Live writes ────────────────────────────────────────────────────────
+      // A delta can arrive many times a second. Writing every one of them to
+      // IndexedDB — and from there to the account — would cost more than the
+      // answer is worth, so patches are coalesced into roughly one every 120ms
+      // and flushed before anything that has to see the final text.
+      let lastPatch = 0;
+      let patchTimer: ReturnType<typeof setTimeout> | null = null;
+      let patchChain: Promise<unknown> = Promise.resolve();
+      const writeNow = () => {
+        lastPatch = Date.now();
+        const snapshot = { content, steps: steps.filter(Boolean).map((step) => ({ ...step })), model: answerModel };
+        patchChain = patchChain.then(() => patchMessage(assistantId, snapshot)).catch(() => undefined);
+      };
+      const schedulePatch = () => {
+        if (patchTimer) return;
+        patchTimer = setTimeout(() => {
+          patchTimer = null;
+          writeNow();
+        }, Math.max(0, 120 - (Date.now() - lastPatch)));
+      };
+      const flushPatches = async () => {
+        if (patchTimer) {
+          clearTimeout(patchTimer);
+          patchTimer = null;
+        }
+        writeNow();
+        await patchChain;
+      };
+
       try {
-        for (let step = 0; step < 10; step += 1) {
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const stepOffset = steps.filter(Boolean).length;
           const response = await fetch("/api/agent/step", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...(await authHeader()) },
             body: JSON.stringify({ projectId: project.id, history, transcript, turnToken }),
             signal: controller.signal,
           });
-          const payload = (await response.json().catch(() => null)) as
-            | {
-                content?: string;
-                steps?: AgentStep[];
-                transcript?: unknown[];
-                turnToken?: string;
-                done?: boolean;
-                model?: string;
-                usage?: { prompt: number; completion: number };
-                changesetId?: string | null;
-                changesetWarning?: string | null;
-                error?: string;
-              }
-            | null;
 
           if (!response.ok) {
+            const payload = (await response.json().catch(() => null)) as { error?: string } | null;
             const message = payload?.error ?? `The agent request failed (HTTP ${response.status}).`;
             noteRateLimit(message);
             await markError(assistantId, message);
             return;
           }
-          if (!payload) {
-            await markError(assistantId, "The agent returned an unreadable response.");
+          if (!response.body) {
+            await markError(assistantId, "The agent returned an empty stream. Try again.");
             return;
           }
 
-          transcript = payload.transcript ?? transcript;
-          turnToken = payload.turnToken ?? turnToken;
-          if (payload.steps?.length) steps.push(...payload.steps);
-          if (payload.content) content = content ? `${content}\n\n${payload.content}` : payload.content;
-          // The id follows the answer, so the review card survives a reload and
-          // still points at the change the server signed.
-          if (payload.changesetWarning) setModelNotice(payload.changesetWarning);
-          await patchMessage(assistantId, {
-            content,
-            steps: [...steps],
-            ...(payload.model ? { model: payload.model } : {}),
-            ...(payload.changesetId ? { changesetId: payload.changesetId } : {}),
+          // Mutated from the stream callback, so it lives in an object: a plain
+          // `let` would be read as its initial value after the await.
+          const state = { failure: null as string | null, finished: false, changesetId: undefined as string | undefined };
+          let stepText = "";
+
+          const { sawDone } = await readAgentStream(response.body, (event) => {
+            if (event.type === "thinking") {
+              setAgentActivity("Thinking about your repository…");
+              return;
+            }
+            if (event.type === "delta") {
+              // One step's prose can follow another's; a paragraph break keeps
+              // two rounds of writing from running together.
+              if (!stepText && content.trim()) content += "\n\n";
+              content += event.text;
+              stepText += event.text;
+              setAgentActivity(null);
+              schedulePatch();
+              return;
+            }
+            if (event.type === "step") {
+              steps[stepOffset + event.index] = event.step;
+              setAgentActivity(event.pending ? event.step.label : null);
+              schedulePatch();
+              return;
+            }
+            if (event.type === "error") {
+              state.failure = event.error;
+              return;
+            }
+
+            // The prose already arrived as deltas; only what the server added on
+            // top of it (the turn-budget note) is still missing here.
+            if (event.content && event.content.startsWith(stepText)) {
+              const rest = event.content.slice(stepText.length).replace(/^\s+/, "");
+              if (rest) content = content ? `${content}\n\n${rest}` : rest;
+            } else if (!stepText && event.content) {
+              content = content ? `${content}\n\n${event.content}` : event.content;
+            }
+            for (const [index, step] of event.steps.entries()) steps[stepOffset + index] = step;
+            if (event.transcript.length > 0) transcript = event.transcript;
+            if (event.turnToken) turnToken = event.turnToken;
+            if (event.model) answerModel = event.model;
+            if (event.changesetId) state.changesetId = event.changesetId;
+            // The id follows the answer, so the review card survives a reload and
+            // still points at the change the server signed.
+            if (event.changesetWarning) setModelNotice(event.changesetWarning);
+            if (event.usage.prompt || event.usage.completion) {
+              void writeUsage(assistantId, {
+                prompt: event.usage.prompt,
+                completion: event.usage.completion,
+                total: event.usage.prompt + event.usage.completion,
+              });
+            }
+            state.finished = event.done;
           });
-          if (payload.usage) {
-            await writeUsage(assistantId, {
-              prompt: payload.usage.prompt,
-              completion: payload.usage.completion,
-              total: payload.usage.prompt + payload.usage.completion,
-            });
+
+          await flushPatches();
+          if (state.changesetId) await patchMessage(assistantId, { changesetId: state.changesetId });
+
+          if (state.failure) {
+            noteRateLimit(state.failure);
+            await markError(assistantId, state.failure);
+            return;
           }
-          if (payload.done) break;
+          if (!state.finished && !sawDone) {
+            await markError(assistantId, "The agent connection dropped before it finished. Try again.");
+            return;
+          }
+          if (state.finished) break;
         }
 
-        if (!content.trim() && steps.length === 0 && !controller.signal.aborted) {
+        if (!content.trim() && steps.filter(Boolean).length === 0 && !controller.signal.aborted) {
           await markError(assistantId, "The agent did not return an answer. Try asking again.");
         }
       } catch (error) {
@@ -1009,6 +1086,15 @@ export default function HomePage() {
           }
         }
       } finally {
+        // A tool that was still running when the turn stopped must not be left
+        // looking live on the next load: the stored copy is what a reload reads,
+        // and nothing is going to finish that step now.
+        if (steps.some((step) => step?.running)) {
+          await patchMessage(assistantId, {
+            steps: steps.filter(Boolean).map((step) => ({ tool: step.tool, label: step.label, ok: step.ok })),
+          });
+        }
+        setAgentActivity(null);
         setStreamingId(null);
         abortRef.current = null;
         void refreshDew();
@@ -1334,6 +1420,7 @@ export default function HomePage() {
                 onEditMessage={handleEditMessage}
                 onCopyConversation={handleCopyConversation}
                 onSwitchVariant={handleSwitchVariant}
+                activity={agentActivity}
               />
             )}
             {project && !focusHome && (

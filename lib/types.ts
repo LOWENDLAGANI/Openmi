@@ -49,6 +49,12 @@ export interface AgentStep {
   tool: "list_files" | "read_file" | "search_code" | "propose_edits";
   label: string;
   ok: boolean;
+  /**
+   * True while the tool is still running. Live-only: a step loaded from the
+   * database or the account is always finished, so this is never trusted
+   * across a reload.
+   */
+  running?: boolean;
 }
 
 /**

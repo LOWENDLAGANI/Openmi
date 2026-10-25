@@ -20,6 +20,12 @@ interface ChatThreadProps {
   onCopyConversation: () => void;
   /** Which answer is on screen for a message that has more than one. */
   onSwitchVariant: (messageId: string, index: number | null) => void;
+  /**
+   * What the agent is doing right now, when it is working on something that has
+   * not produced text yet. The repository agent reports each read before it
+   * runs, so a turn that takes half a minute never looks like it stopped.
+   */
+  activity?: string | null;
 }
 
 const STREAMING_MESSAGES = [
@@ -445,9 +451,13 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
               >
                 <span
                   aria-hidden
-                  className={`mt-[5px] h-1 w-1 shrink-0 rounded-full ${step.ok ? "bg-emerald-500/70" : "bg-red-400/70"}`}
+                  className={`mt-[5px] h-1 w-1 shrink-0 rounded-full ${
+                    step.running ? "animate-pulse bg-accent" : step.ok ? "bg-emerald-500/70" : "bg-red-400/70"
+                  }`}
                 />
-                <span className="min-w-0 flex-1 break-words">{step.label}</span>
+                <span className={`min-w-0 flex-1 break-words ${step.running ? "text-text-hi" : ""}`}>
+                  {step.label}
+                </span>
               </div>
             ))}
           </div>
@@ -735,6 +745,7 @@ export default function ChatThread({  messages,
   onEditMessage,
   onCopyConversation,
   onSwitchVariant,
+  activity = null,
 }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -831,6 +842,11 @@ export default function ChatThread({  messages,
                 })()}
               </div>
               <TypingDots message={loadingMessage} />
+            </div>
+          )}
+          {streamingId && activity && messages.find((m) => m.id === streamingId)?.content && (
+            <div className="animate-rise pl-1">
+              <TypingDots message={activity} />
             </div>
           )}
           <div ref={bottomRef} className="h-px" />

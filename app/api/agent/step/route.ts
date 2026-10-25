@@ -10,18 +10,27 @@ import {
 import { readProject } from "@/lib/projects";
 import { resolveGithubLink } from "@/lib/github/store";
 import { GithubError } from "@/lib/github/client";
-import { runAgentStep, type RepoChatMessage } from "@/lib/agent/run";
+import { runAgentStep } from "@/lib/agent/run";
+import { cleanHistory, cleanTranscript } from "@/lib/agent/transcript";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
-import type { AgentMessage } from "@/lib/agent/model";
 import { canAfford, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 import { resolveDew } from "@/lib/serverRedeem";
 
-// ── One agent step ───────────────────────────────────────────────────────────
+// ── One agent step, streamed ─────────────────────────────────────────────────
 //
 // The client drives the loop: send a step, render what came back, send the next
 // one. That keeps each request inside the host's time limit and gives "stop" a
 // meaning — cancelling the fetch cancels the step.
+//
+// A step used to be a single JSON response, which meant the answer to "what is
+// it doing?" was nothing until the whole step finished. It is now one JSON
+// object per line (NDJSON) over a streamed response, emitted as the work
+// happens: `thinking`, then a `step` line when a tool starts and another when it
+// finishes, `delta` lines as the model writes, and one `done` line carrying the
+// same state the JSON response used to carry. Everything before the model call
+// — the checks, the balance, the project — still answers with a JSON error and
+// a status code, because those are refusals, not progress.
 //
 // What the client *cannot* choose is the budget. Steps used, tokens spent and
 // "this turn has been paid for" live in a signed blob (lib/agent/turns.ts); the
@@ -37,94 +46,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const MAX_HISTORY_MESSAGES = 12;
-const MAX_HISTORY_CHARS = 40_000;
-const MAX_TRANSCRIPT_ENTRIES = 60;
-const MAX_TRANSCRIPT_CHARS = 240_000;
-
 interface StepBody {
   projectId?: unknown;
   history?: unknown;
   transcript?: unknown;
   turnToken?: unknown;
-}
-
-function cleanHistory(raw: unknown): RepoChatMessage[] {
-  if (!Array.isArray(raw)) return [];
-  const out: RepoChatMessage[] = [];
-  let chars = 0;
-  for (const entry of raw.slice(-MAX_HISTORY_MESSAGES)) {
-    if (!entry || typeof entry !== "object") continue;
-    const value = entry as Record<string, unknown>;
-    if (value.role !== "user" && value.role !== "assistant") continue;
-    if (typeof value.content !== "string" || !value.content.trim()) continue;
-    const content = value.content.slice(0, 12_000);
-    chars += content.length;
-    if (chars > MAX_HISTORY_CHARS) break;
-    out.push({ role: value.role, content });
-  }
-  return out;
-}
-
-/**
- * Validates the echoed transcript.
- *
- * It is model-shaped data that has made a round trip through the browser, so
- * nothing about it is trusted: roles are an allowlist, content is capped, and a
- * tool call must carry a name and string arguments. An entry that fails is
- * dropped rather than repaired — a half-valid conversation is worse than a
- * shorter one.
- */
-function cleanTranscript(raw: unknown): AgentMessage[] {
-  if (!Array.isArray(raw)) return [];
-  const out: AgentMessage[] = [];
-  let chars = 0;
-  for (const entry of raw.slice(-MAX_TRANSCRIPT_ENTRIES)) {
-    if (!entry || typeof entry !== "object") continue;
-    const value = entry as Record<string, unknown>;
-    const role = value.role;
-    if (role !== "assistant" && role !== "tool" && role !== "user") continue;
-    const content = typeof value.content === "string" ? value.content.slice(0, 24_000) : null;
-    chars += content?.length ?? 0;
-    if (chars > MAX_TRANSCRIPT_CHARS) break;
-
-    if (role === "tool") {
-      if (typeof value.tool_call_id !== "string") continue;
-      out.push({
-        role: "tool",
-        tool_call_id: value.tool_call_id,
-        name: typeof value.name === "string" ? value.name.slice(0, 40) : undefined,
-        content,
-      });
-      continue;
-    }
-
-    const toolCalls = Array.isArray(value.tool_calls)
-      ? value.tool_calls
-          .slice(0, 4)
-          .map((call) => {
-            if (!call || typeof call !== "object") return null;
-            const fn = (call as Record<string, unknown>).function as Record<string, unknown> | undefined;
-            if (!fn || typeof fn.name !== "string") return null;
-            return {
-              id: typeof (call as Record<string, unknown>).id === "string" ? ((call as Record<string, unknown>).id as string) : "",
-              type: "function" as const,
-              function: {
-                name: fn.name.slice(0, 40),
-                arguments: typeof fn.arguments === "string" ? fn.arguments.slice(0, 8_000) : "{}",
-              },
-            };
-          })
-          .filter((call): call is NonNullable<typeof call> => call !== null)
-      : [];
-
-    out.push({
-      role,
-      content,
-      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-    });
-  }
-  return out;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -205,91 +131,122 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "A conversation is required." }, { status: 400 });
   }
 
-  try {
-    const result = await runAgentStep({
-      authorization,
-      uid: identity.uid,
-      project,
-      token: link.token,
-      history,
-      transcript: cleanTranscript(body.transcript),
-      turnToken: typeof body.turnToken === "string" ? body.turnToken : undefined,
-      signal: req.signal,
-    });
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+      const send = (event: unknown): void => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        } catch {
+          closed = true; // The client went away mid-line; the work is stopped below.
+        }
+      };
 
-    // ── The charge ────────────────────────────────────────────────────────
-    // Once per turn, after the first step actually produced something. A step
-    // that failed before reaching a model was refused above and costs nothing.
-    if (result.chargedNow && !isCallerAdmin && dewState && (result.content.trim() || result.steps.length > 0)) {
-      const billed = result.usage;
-      const deducted = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
-        (cause: unknown) => ({
-          ok: false,
-          newSpent: dewState!.spent,
-          conflict: false,
-          reason: cause instanceof Error ? cause.message : "threw",
-        })
-      );
-      if (!deducted.ok) {
-        console.warn(
-          `[dew] agent charge of ${price} not recorded for uid ${identity.uid} (conflict=${deducted.conflict}, reason=${deducted.reason ?? "unknown"})`
-        );
-      } else {
-        await recordDewTransaction(authorization, identity.uid, {
-          dew: price,
-          model: "code",
-          prompt: billed.prompt,
-          completion: billed.completion,
-          repo: project.repoFullName,
-        }).catch(() => undefined);
+      try {
+        const result = await runAgentStep({
+          authorization,
+          uid: identity.uid,
+          project,
+          token: link.token,
+          history,
+          transcript: cleanTranscript(body.transcript),
+          turnToken: typeof body.turnToken === "string" ? body.turnToken : undefined,
+          signal: req.signal,
+          onEvent: send,
+        });
+
+        // ── The charge ──────────────────────────────────────────────────────
+        // Once per turn, after the first step actually produced something. A
+        // step that failed before reaching a model was refused above and costs
+        // nothing.
+        if (result.chargedNow && !isCallerAdmin && dewState && (result.content.trim() || result.steps.length > 0)) {
+          const billed = result.usage;
+          const deducted = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
+            (cause: unknown) => ({
+              ok: false,
+              newSpent: dewState!.spent,
+              conflict: false,
+              reason: cause instanceof Error ? cause.message : "threw",
+            })
+          );
+          if (!deducted.ok) {
+            console.warn(
+              `[dew] agent charge of ${price} not recorded for uid ${identity.uid} (conflict=${deducted.conflict}, reason=${deducted.reason ?? "unknown"})`
+            );
+          } else {
+            await recordDewTransaction(authorization, identity.uid, {
+              dew: price,
+              model: "code",
+              prompt: billed.prompt,
+              completion: billed.completion,
+              repo: project.repoFullName,
+            }).catch(() => undefined);
+          }
+        }
+
+        // ── The proposal, made reviewable ───────────────────────────────────
+        // Staging lives in memory for the length of this request, so a proposal
+        // that is not written down here is a diff the user can read once and can
+        // never commit. The row is signed by the server; the signature — not the
+        // row — is what the approve and commit endpoints will check.
+        let changesetId: string | null = null;
+        let changesetWarning: string | null = null;
+        if (result.proposals.length > 0) {
+          const changeSet = buildChangeSet({ project, proposals: result.proposals });
+          if (changeSet) {
+            const stored = await saveChangeSet(authorization, identity.uid, changeSet).catch(() => false);
+            if (stored) changesetId = changeSet.id;
+            else
+              changesetWarning =
+                "This change could not be saved for review, so it cannot be committed from here. Check the `change_sets` policies in the Supabase project.";
+          }
+        }
+
+        send({
+          type: "done",
+          content: result.content,
+          steps: result.steps,
+          transcript: result.transcript,
+          turnToken: result.turnToken,
+          done: result.done,
+          exhausted: result.exhausted,
+          model: result.label,
+          usage: { prompt: result.usage.prompt, completion: result.usage.completion },
+          charged: result.chargedNow,
+          // Staged changes, with diffs the server computed. They are returned for
+          // display only: this route has no path to a GitHub write, and the
+          // change set is committed only by the commit endpoint, after approval.
+          proposals: result.proposals,
+          changesetId,
+          changesetWarning,
+        });
+      } catch (error) {
+        if (req.signal.aborted) return;
+        if (error instanceof GithubError) {
+          send({ type: "error", error: error.message, status: error.status, resetAt: error.resetAt ?? null });
+        } else {
+          const message = error instanceof Error ? error.message : "The repository agent failed.";
+          console.error("[agent] step failed", error);
+          send({ type: "error", error: message, status: 502 });
+        }
+      } finally {
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // Already closed by an abort.
+        }
       }
-    }
+    },
+  });
 
-    // ── The proposal, made reviewable ─────────────────────────────────────
-    // Staging lives in memory for the length of this request, so a proposal
-    // that is not written down here is a diff the user can read once and can
-    // never commit. The row is signed by the server; the signature — not the
-    // row — is what the approve and commit endpoints will check.
-    let changesetId: string | null = null;
-    let changesetWarning: string | null = null;
-    if (result.proposals.length > 0) {
-      const changeSet = buildChangeSet({ project, proposals: result.proposals });
-      if (changeSet) {
-        const stored = await saveChangeSet(authorization, identity.uid, changeSet).catch(() => false);
-        if (stored) changesetId = changeSet.id;
-        else
-          changesetWarning =
-            "This change could not be saved for review, so it cannot be committed from here. Check the `change_sets` policies in the Supabase project.";
-      }
-    }
-
-    return Response.json(
-      {
-        content: result.content,
-        steps: result.steps,
-        transcript: result.transcript,
-        turnToken: result.turnToken,
-        done: result.done,
-        exhausted: result.exhausted,
-        model: result.label,
-        usage: { prompt: result.usage.prompt, completion: result.usage.completion },
-        charged: result.chargedNow,
-        // Staged changes, with diffs the server computed. They are returned for
-        // display only: this route has no path to a GitHub write, and the
-        // change set is committed only by the commit endpoint, after approval.
-        proposals: result.proposals,
-        changesetId,
-        changesetWarning,
-      },
-      { headers: { "Cache-Control": "no-store" } }
-    );
-  } catch (error) {
-    if (error instanceof GithubError) {
-      const status = error.status === 401 ? 401 : error.status === 429 ? 429 : 502;
-      return Response.json({ error: error.message, resetAt: error.resetAt ?? null }, { status });
-    }
-    const message = error instanceof Error ? error.message : "The repository agent failed.";
-    console.error("[agent] step failed", error);
-    return Response.json({ error: message }, { status: 502 });
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

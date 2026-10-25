@@ -22,9 +22,10 @@ import { filterTree, type TreeFile } from "@/lib/github/tree";
 import { pickSearchCandidates, searchFiles, type SearchableFile } from "@/lib/github/search";
 import { OPENMI_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import type { AgentStep } from "@/lib/types";
-import { AGENT_TOOL_SCHEMAS, runTool, type ToolContext, type ToolResult } from "./tools";
+import { AGENT_TOOL_SCHEMAS, describeToolCall, runTool, type ToolContext, type ToolResult } from "./tools";
 import { stageEdits, type StagedChange } from "./edits";
 import { callAgentModel, type AgentMessage } from "./model";
+import { TOOL_CALL_PLACEHOLDER } from "./transcript";
 import {
   MAX_STEPS,
   MAX_TURN_TOKENS,
@@ -59,7 +60,28 @@ export interface StepRequest {
   transcript?: AgentMessage[];
   turnToken?: string;
   signal?: AbortSignal;
+  /** Called as the step progresses, so the client can render it live. */
+  onEvent?: (event: AgentEvent) => void;
 }
+
+/**
+ * What a step reports while it is still running.
+ *
+ * Deliberately small and serialisable: it crosses the wire one JSON object per
+ * line and lands in a message the browser is already showing. Nothing here is
+ * stored — the finished step is, through the message's `steps` list.
+ */
+export type AgentEvent =
+  /** The model call has started; nothing has come back yet. */
+  | { type: "thinking" }
+  /** A fragment of the model's prose, as it arrives. */
+  | { type: "delta"; text: string }
+  /**
+   * One tool call, before and after it runs. `index` is the position inside this
+   * step's own tool batch, so a client that already holds earlier steps can
+   * place it without guessing.
+   */
+  | { type: "step"; index: number; step: AgentStep; pending: boolean };
 
 export interface StepResult {
   content: string;
@@ -173,7 +195,11 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
     ...transcript,
   ];
 
-  const reply = await callAgentModel(messages, AGENT_TOOL_SCHEMAS, request.signal);
+  const emit = request.onEvent ?? (() => undefined);
+  emit({ type: "thinking" });
+  const reply = await callAgentModel(messages, AGENT_TOOL_SCHEMAS, request.signal, {
+    onDelta: (text) => emit({ type: "delta", text }),
+  });
   const usage: TurnUsage = reply.usage;
 
   const context = contextFor(filtered.files, token, project.repoFullName);
@@ -196,17 +222,22 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
   };
 
   const results: ToolResult[] = [];
+  const steps: AgentStep[] = [];
+  let index = 0;
   for (const call of reply.toolCalls.slice(0, 4)) {
+    const tool = (call.name as AgentStep["tool"]) ?? "read_file";
+    // Announced before it runs, so the timeline says what is happening now
+    // rather than only what has already happened.
+    emit({ type: "step", index, step: { tool, label: describeToolCall(call), ok: true, running: true }, pending: true });
     // Sequential on purpose: each result can change what the next call should
     // be, and parallel GitHub reads are the fastest way to a rate limit.
-    results.push(await runTool(call, context));
+    const result = await runTool(call, context);
+    results.push(result);
+    const finished: AgentStep = { tool, label: result.summary, ok: result.ok };
+    steps.push(finished);
+    emit({ type: "step", index, step: finished, pending: false });
+    index += 1;
   }
-
-  const steps: AgentStep[] = results.map((result) => ({
-    tool: (result.name as AgentStep["tool"]) ?? "read_file",
-    label: result.summary,
-    ok: result.ok,
-  }));
 
   // The transcript is exactly the wire format the next step needs: the
   // assistant's decision, then one tool message per call it made.
@@ -214,13 +245,19 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
   if (reply.toolCalls.length > 0 || reply.content.trim()) {
     nextTranscript.push({
       role: "assistant",
-      content: reply.content.trim() ? reply.content : null,
+      // A tool-call turn carries non-empty content because the wire refuses a
+      // null content part; the placeholder is not shown to the reader, it only
+      // has to exist in the assistant turn that asked for the tools.
+      content: reply.content.trim() ? reply.content : TOOL_CALL_PLACEHOLDER,
       ...(reply.toolCalls.length > 0
         ? {
             tool_calls: reply.toolCalls.map((call) => ({
               id: call.id,
               type: "function" as const,
               function: { name: call.name, arguments: call.argumentJson },
+              // The signature has to come back exactly as it arrived, or Gemini 3
+              // refuses the next request in the loop.
+              ...(call.extraContent ? { extra_content: call.extraContent } : {}),
             })),
           }
         : {}),

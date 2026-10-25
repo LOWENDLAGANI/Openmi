@@ -46,9 +46,11 @@ when you say so**, on a branch of its own.
   can read, a filtered file tree, and a read-only file viewer, all pinned to one
   commit (the project records `baseSha` when it is attached).
 - **The repository agent.** Native function calling, up to eight steps and 60k
-  tokens per turn, one flat Code charge per turn. Each step's reads are shown in
-  the message as they happen. Turn state is HMAC-signed, so a client cannot
-  raise its own step budget or claim a turn was already paid.
+  tokens per turn, one flat Code charge per turn. A step is streamed rather than
+  answered once: each read is announced in the message before it runs and marked
+  done when it returns, and the model's prose arrives as it is written, so a
+  turn that takes half a minute never looks frozen. Turn state is HMAC-signed,
+  so a client cannot raise its own step budget or claim a turn was already paid.
 - **Proposals with derived diffs.** `propose_edits` stages a whole-file rewrite
   or a unique `old_string`/`new_string` replacement, up to six files per call.
   The diff is computed on the server from the file at the base commit — the
