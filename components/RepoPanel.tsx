@@ -189,6 +189,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [fileText, setFileText] = useState<string | null>(null);
   const [patToken, setPatToken] = useState("");
+  // Whether the token form is open when there is an OAuth App. Without one the
+  // form is always shown — pasting a token is then the only door — and with one
+  // it stays folded behind a link, so the easier door is the one people see.
+  const [patOpen, setPatOpen] = useState(false);
   const [patLabel, setPatLabel] = useState("");
   /** The connection a new paste would replace, when one was picked to fix. */
   const [replaceFor, setReplaceFor] = useState<GithubConnectionItem | null>(null);
@@ -695,22 +699,48 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                 Connect GitHub to let the agent read a repository. Your Openmi account stays the account — GitHub is
                 attached to it, so your chats and Dew do not move.
               </p>
-              {tokenForm}
               {status?.oauth ? (
-                <button
-                  type="button"
-                  onClick={() => void connect()}
-                  disabled={busy === "connect"}
-                  className="w-full rounded-xl px-4 py-2.5 text-[13px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
-                  style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
-                >
-                  {busy === "connect" ? "Waiting for GitHub…" : "Connect GitHub"}
-                </button>
+                <>
+                  {/* The round trip is the door most people should take: no
+                      console tab, no scope to look up, no secret handled by
+                      hand. It is offered first for that reason; the token
+                      form is still one tap away for anyone who wants it. */}
+                  <button
+                    type="button"
+                    onClick={() => void connect()}
+                    disabled={busy === "connect"}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
+                    style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M12 2.2A9.8 9.8 0 0 0 2.2 12c0 4.3 2.8 8 6.7 9.3.5.1.7-.2.7-.5v-1.7c-2.7.6-3.3-1.3-3.3-1.3-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.3-1.1.6-1.4-2.2-.3-4.4-1.1-4.4-4.8 0-1.1.4-1.9 1-2.6-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.5 1 2.6 0 3.7-2.2 4.5-4.4 4.8.3.3.6.9.6 1.9v2.8c0 .3.2.6.7.5a9.8 9.8 0 0 0 6.7-9.3A9.8 9.8 0 0 0 12 2.2Z" />
+                    </svg>
+                    {busy === "connect" ? "Waiting for GitHub…" : "Continue with GitHub"}
+                  </button>
+                  <p className="text-[11px] leading-relaxed text-white/35">
+                    Read-only access to the repositories you choose. Nothing is committed without your approval, and no
+                    token is handled by hand.
+                  </p>
+                  {patOpen ? (
+                    tokenForm
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPatOpen(true)}
+                      className="text-[11px] text-white/50 underline-offset-2 transition-colors hover:text-white/80 hover:underline"
+                    >
+                      Use a personal access token instead
+                    </button>
+                  )}
+                </>
               ) : (
-                <p className="text-[11px] leading-relaxed text-white/35">
-                  The agent gets read access to the repositories you choose. It cannot change anything without your
-                  approval.
-                </p>
+                <>
+                  {tokenForm}
+                  <p className="text-[11px] leading-relaxed text-white/35">
+                    The agent gets read access to the repositories you choose. It cannot change anything without your
+                    approval.
+                  </p>
+                </>
               )}
             </div>
           ) : (
