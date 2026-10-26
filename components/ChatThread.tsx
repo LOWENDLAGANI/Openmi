@@ -36,11 +36,11 @@ interface ChatThreadProps {
 }
 
 const STREAMING_MESSAGES = [
-  "umm, finding ai suitable for your weird request",
-  "Whatt?",
-  "Almost done.. Just kidding",
-  "Hacking your computer",
-  "Please wait while we're staying your data",
+  "Extrapolating…",
+  "Tokenizing…",
+  "Synthesizing…",
+  "Computing…",
+  "Inference…",
 ] as const;
 
 /**
