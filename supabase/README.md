@@ -73,6 +73,14 @@ exchanges the PKCE code for a session.
 the sign-in screen is the whole interface until one of the four doors returns a
 session.
 
+**Manual linking** (Authentication → Sign In / Providers) must be on for
+**Settings → Account → Sign-in methods** to attach a second provider to an
+existing account. It is what keeps one person from ending up with two accounts
+when they press a different provider than the one they first used; with it off,
+linking is refused with `manual_linking_disabled` and the account screen says so.
+Unlinking is refused by Supabase when the credential is the account's last way
+in, which is why the screen does not offer it there.
+
 ## What the policies promise
 
 - Every user-scoped row is owned by `auth.uid()`. A token for one person cannot

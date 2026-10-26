@@ -80,6 +80,60 @@ export function providerLabel(provider: AccountProvider): string {
   return provider ? PROVIDER_LABELS[provider] : "an account";
 }
 
+// ── One account, several sign-in methods ────────────────────────────────────
+// Supabase keeps a credential per identity, not per account: signing in with
+// Google and then attaching GitHub leaves one `auth.users` row with two
+// `auth.identities`. Naming them here, rather than at each call site, is what
+// keeps "Microsoft" from becoming "azure" in the one place a person manages
+// them.
+
+/** Supabase's provider id for each door the product offers. */
+export const OAUTH_PROVIDER_IDS = {
+  google: "google",
+  github: "github",
+  microsoft: "azure",
+} as const;
+
+/** The doors a signed-in account can attach to itself. */
+export type LinkableProvider = keyof typeof OAUTH_PROVIDER_IDS;
+
+/** In the order the sign-in screen lists them. */
+export const LINKABLE_PROVIDERS: readonly LinkableProvider[] = ["google", "github", "microsoft"];
+
+/** One credential attached to the account, as Settings shows it. */
+export interface SignInMethod {
+  /** Supabase's identity id. Unlinking names exactly this credential. */
+  id: string;
+  /** Supabase's provider id: `google`, `github`, `azure`, `email`, … */
+  provider: string;
+  /** The address on that credential, when the provider supplied one. */
+  email: string | null;
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  google: "Google",
+  github: "GitHub",
+  azure: "Microsoft",
+  email: "Email and password",
+  phone: "Phone",
+};
+
+/** The provider's familiar name, or its own id when it is not one of ours. */
+export function signInMethodLabel(provider: string): string {
+  return METHOD_LABELS[provider] ?? provider;
+}
+
+/**
+ * The doors this account has not attached yet.
+ *
+ * Compares Supabase's ids, because the product's word for a provider is not the
+ * dashboard's: an account signed in with Microsoft holds an `azure` identity.
+ */
+export function linkableProviders(providers: readonly string[]): LinkableProvider[] {
+  const attached = new Set(providers);
+  return LINKABLE_PROVIDERS.filter((provider) => !attached.has(OAUTH_PROVIDER_IDS[provider]));
+}
+
 const SIGNED_OUT: AccountView = {
   status: "signed-out",
   id: null,
@@ -182,7 +236,7 @@ const AUTH_ERRORS: Record<string, string> = {
   manual_linking_disabled:
     "This project cannot attach a second sign-in method to an account. In Auth → Settings, turn on manual linking.",
   identity_already_exists:
-    "That account is already linked elsewhere. Sign in to it there instead.",
+    "That account is already linked to a different Openmi account. Sign in with it there, unlink it in Settings, then attach it here.",
   bad_oauth_state: "The sign-in link expired. Start again from the sign-in screen.",
   bad_oauth_callback:
     "The sign-in came back in a shape this project does not accept. Start again from the sign-in screen.",
@@ -196,6 +250,11 @@ const AUTH_ERRORS: Record<string, string> = {
   user_banned: "That account has been disabled.",
   provider_email_needs_verification:
     "The provider did not confirm your address. Confirm it and try again.",
+  single_identity_not_deletable:
+    "That is the only way to sign in to this account. Attach another method first, then remove this one.",
+  email_conflict_identity_not_deletable:
+    "That address already belongs to another account, so this method cannot be removed. Attach a different method first.",
+  identity_not_found: "That sign-in method is no longer attached to this account. Reopen Settings.",
   session_not_found: "That session has expired. Sign in again.",
   session_expired: "That session has expired. Sign in again.",
   reauthentication_needed:
@@ -224,6 +283,25 @@ export function describeLinkError(cause: unknown): string {
   const code = error?.code ?? error?.name ?? "";
   if (AUTH_ERRORS[code]) return AUTH_ERRORS[code];
   return cause instanceof Error ? cause.message : String(cause ?? "Something went wrong.");
+}
+
+/**
+ * A failed link that came back as a redirect rather than as a thrown error.
+ *
+ * A duplicate identity is not reported by `linkIdentity()` — the round trip to
+ * the provider happens first, so the refusal arrives in the URL as a sentence
+ * ("Identity is already linked to another user"), not as a code. That sentence
+ * is the one case worth rewriting, because "already linked" does not say whose
+ * account holds it or what to do next.
+ */
+export function describeLinkReturn(provider: string, message: string): string {
+  const label = signInMethodLabel(provider);
+  const text = message.trim();
+  if (/already linked to another user|identity_already_exists/i.test(text)) {
+    return `That ${label} account is already linked to a different Openmi account. Sign in with it there, unlink it in Settings, then attach it here — Openmi does not merge two accounts automatically.`;
+  }
+  if (/manual.?linking/i.test(text)) return AUTH_ERRORS.manual_linking_disabled!;
+  return text ? `Could not link ${label}: ${text}` : `Could not link ${label}.`;
 }
 
 /** True when a failure is the person closing the window, which is not a problem. */

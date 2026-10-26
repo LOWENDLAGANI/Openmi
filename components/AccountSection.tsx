@@ -1,14 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { signOutAccount, watchAccount } from "@/lib/account";
+import {
+  linkSignInMethod,
+  listSignInMethods,
+  signOutAccount,
+  takeLinkNotice,
+  unlinkSignInMethod,
+  watchAccount,
+  type OAuthProvider,
+} from "@/lib/account";
 import { changePassword } from "@/lib/emailAuth";
 import {
   accountExplanation,
   accountHeadline,
   describeLinkError,
+  linkableProviders,
   providerLabel,
+  signInMethodLabel,
   type AccountView,
+  type SignInMethod,
 } from "@/lib/accountState";
 import { compressFiles } from "@/lib/imageUtils";
 import { nameInitial } from "@/lib/visitorName";
@@ -244,6 +255,8 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
 
             {view.provider === "email" && <PasswordForm />}
 
+            <SignInMethods />
+
             <button
               type="button"
               onClick={() => void signOut()}
@@ -270,6 +283,170 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
       {/* Collapsed by default: it is a diagnostic, not part of the account row. */}
       <AuthDiagnostics />
     </section>
+  );
+}
+
+/**
+ * The credentials attached to this account, and the way to add another.
+ *
+ * This is the answer to the duplicate-account problem: someone who signed in
+ * with Google and later pressed GitHub gets one account with both doors, not two
+ * accounts with half the chats each. Attaching happens against the account that
+ * is signed in here, so nothing can land in a different one.
+ *
+ * The list is read from Supabase rather than from the session that is already in
+ * memory, because identities change server-side and the session's copy is only
+ * as fresh as the last token refresh. A refusal to remove the last method is
+ * prevented on screen — the control is not offered — and still refused by the
+ * server if it is reached some other way.
+ */
+function SignInMethods() {
+  const [methods, setMethods] = useState<SignInMethod[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setMethods(await listSignInMethods());
+    } catch (cause) {
+      setError(describeLinkError(cause));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    // Linking leaves the page for the provider and comes back as a reload, so
+    // its result was put aside for this screen — the sign-in screen is not the
+    // one that was open when the button was pressed.
+    const outcome = takeLinkNotice();
+    if (outcome) setNotice(outcome);
+  }, [load]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(timeout);
+  }, [notice]);
+
+  const link = useCallback(async (provider: OAuthProvider) => {
+    if (busy) return;
+    setBusy(provider);
+    setError(null);
+    setNotice(null);
+    try {
+      // A success navigates away to the provider; this page reloads on return.
+      await linkSignInMethod(provider);
+    } catch (cause) {
+      setError(describeLinkError(cause));
+      setBusy(null);
+    }
+  }, [busy]);
+
+  const unlink = useCallback(async (method: SignInMethod) => {
+    setBusy(method.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await unlinkSignInMethod(method.id);
+      setConfirming(null);
+      setNotice(`${signInMethodLabel(method.provider)} can no longer sign in to this account.`);
+      await load();
+    } catch (cause) {
+      setError(describeLinkError(cause));
+    } finally {
+      setBusy(null);
+    }
+  }, [load]);
+
+  const missing = linkableProviders((methods ?? []).map((method) => method.provider));
+
+  return (
+    <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5">
+      <p className="text-[12px] font-medium text-white/80">Sign-in methods</p>
+      <p className="mt-1 text-[10.5px] leading-relaxed text-white/35">
+        Sign in with any of these and you land in this account. Attaching one here does not create a second account.
+      </p>
+
+      <ul className="mt-2 space-y-1">
+        {methods === null ? (
+          <li className="text-[11px] text-white/30">Reading the methods on this account…</li>
+        ) : (
+          methods.map((method) => (
+            <li key={method.id} className="flex items-center gap-2 rounded-lg bg-white/[0.02] px-2 py-1.5">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11.5px] text-white/80">
+                  {signInMethodLabel(method.provider)}
+                </span>
+                {method.email && (
+                  <span className="block truncate text-[10px] text-white/35">{method.email}</span>
+                )}
+              </span>
+              {confirming === method.id ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void unlink(method)}
+                    disabled={busy !== null}
+                    className="shrink-0 rounded-lg border border-red-300/25 px-2 py-1 text-[10.5px] text-red-200/80 transition hover:bg-red-500/[0.08] disabled:opacity-40"
+                  >
+                    {busy === method.id ? "Removing…" : "Remove"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(null)}
+                    disabled={busy !== null}
+                    className="shrink-0 rounded-lg px-2 py-1 text-[10.5px] text-white/45 transition hover:bg-white/[0.06] disabled:opacity-40"
+                  >
+                    Keep
+                  </button>
+                </>
+              ) : methods.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirming(method.id)}
+                  disabled={busy !== null}
+                  className="shrink-0 rounded-lg px-2 py-1 text-[10.5px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/75 disabled:opacity-40"
+                >
+                  Unlink
+                </button>
+              ) : (
+                <span className="shrink-0 text-[10px] text-white/25">only method</span>
+              )}
+            </li>
+          ))
+        )}
+      </ul>
+
+      {/* Not before the list is read: a provider that is already attached must
+          never be offered as an addition, even for the first frame. */}
+      {methods && missing.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] text-white/30">Attach</span>
+          {missing.map((provider) => (
+            <button
+              key={provider}
+              type="button"
+              onClick={() => void link(provider)}
+              disabled={busy !== null}
+              className="rounded-lg border border-white/[0.12] px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.06] disabled:opacity-40"
+            >
+              {busy === provider ? `Opening ${signInMethodLabel(provider)}…` : signInMethodLabel(provider)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {methods && methods.length === 1 && (
+        <p className="mt-1.5 text-[10px] leading-relaxed text-amber-100/50">
+          Attach a second method so losing access to this one does not lock you out of the account.
+        </p>
+      )}
+
+      {error && <p className="mt-2 text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}
+      {notice && <p className="mt-2 text-[10.5px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}
+    </div>
   );
 }
 

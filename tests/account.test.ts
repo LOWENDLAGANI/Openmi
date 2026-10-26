@@ -15,12 +15,15 @@ import {
   accountHeadline,
   describeAccount,
   describeLinkError,
+  describeLinkReturn,
   greetingName,
   isDismissed,
+  linkableProviders,
   NAME_MAX,
   normalizeName,
   providerLabel,
   resolveName,
+  signInMethodLabel,
 } from "../lib/accountState";
 import { explainSignInError } from "../lib/authDiagnostics";
 import { passwordProblem, recoveryRedirectUrl, RECOVERY_PATH } from "../lib/passwordRecovery";
@@ -211,6 +214,54 @@ test("a disabled sign-in method is reported as the fixable thing it is", () => {
 test("an account that already exists says so rather than failing cryptically", () => {
   assert.match(describeLinkError({ code: "identity_already_exists" }), /already linked/);
   assert.match(describeLinkError({ code: "email_exists" }), /Sign in instead/);
+});
+
+console.log("\none account, several sign-in methods");
+
+test("each sign-in method is named the way the sign-in screen names it", () => {
+  assert.equal(signInMethodLabel("google"), "Google");
+  assert.equal(signInMethodLabel("github"), "GitHub");
+  assert.equal(signInMethodLabel("azure"), "Microsoft");
+  assert.equal(signInMethodLabel("email"), "Email and password");
+  assert.equal(signInMethodLabel("saml"), "saml", "an unknown provider keeps its own id");
+});
+
+test("only the doors that are not attached are offered", () => {
+  assert.deepEqual(linkableProviders([]), ["google", "github", "microsoft"]);
+  assert.deepEqual(linkableProviders(["google", "azure"]), ["github"], "Microsoft is azure in Supabase");
+  assert.deepEqual(linkableProviders(["google", "github", "azure"]), []);
+});
+
+test("a provider that belongs to another account is named as that, with the way out", () => {
+  const message = describeLinkReturn("google", "Identity is already linked to another user.");
+  assert.match(message, /different Openmi account/);
+  assert.match(message, /unlink it in Settings/);
+  assert.match(message, /does not merge/);
+});
+
+test("manual linking switched off is reported as the dashboard setting it is", () => {
+  assert.match(describeLinkReturn("github", "Manual linking is disabled"), /manual linking/);
+});
+
+test("an unrecognised linking refusal keeps the provider's own words", () => {
+  assert.equal(describeLinkReturn("github", "boom"), "Could not link GitHub: boom");
+});
+
+test("removing the last way into an account is refused with a next step", () => {
+  assert.match(describeLinkError({ code: "single_identity_not_deletable" }), /Attach another method/);
+  assert.match(describeLinkError({ code: "email_conflict_identity_not_deletable" }), /another account/);
+  assert.match(describeLinkError({ code: "identity_not_found" }), /no longer attached/);
+});
+
+test("the account screen binds and unbinds through Supabase's identity API", () => {
+  const account = code("lib/account.ts");
+  assert.match(account, /getUserIdentities/);
+  assert.match(account, /linkIdentity/);
+  assert.match(account, /unlinkIdentity/);
+  const section = code("components/AccountSection.tsx");
+  assert.match(section, /Sign-in methods/);
+  assert.match(section, /linkSignInMethod/);
+  assert.match(section, /unlinkSignInMethod/);
 });
 
 test("anonymous-only advice is gone", () => {

@@ -30,20 +30,21 @@ import { currentUser, getSupabase, withTimeout } from "./supabase";
 import { isSupportedTimeZone } from "./dew";
 import {
   describeAccount as viewFromUser,
+  describeLinkReturn,
   normalizeName,
+  OAUTH_PROVIDER_IDS,
+  signInMethodLabel,
   type AccountProvider,
   type AccountView,
+  type LinkableProvider,
+  type SignInMethod,
 } from "./accountState";
 
 /** The three OAuth doors the interface offers. */
-export type OAuthProvider = "google" | "github" | "microsoft";
+export type OAuthProvider = LinkableProvider;
 
 /** Supabase's provider id for each door. Microsoft is `azure` in the dashboard. */
-const PROVIDER_IDS: Record<OAuthProvider, Provider> = {
-  google: "google",
-  github: "github",
-  microsoft: "azure",
-};
+const PROVIDER_IDS: Record<OAuthProvider, Provider> = OAUTH_PROVIDER_IDS;
 
 /**
  * The scopes each provider needs.
@@ -175,6 +176,130 @@ export async function signInWithProvider(provider: OAuthProvider): Promise<void>
  * the device-local name so the next account is not greeted by the previous
  * person's.
  */
+// ── One account, several sign-in methods ────────────────────────────────────
+//
+// A second credential is attached to the account that is already signed in, not
+// to a new one. That is the whole point: without this, someone who first used
+// Google and later pressed GitHub on the sign-in screen gets a second account
+// with none of their chats. Supabase stores each credential as an identity under
+// the same `auth.users` row, and signing in with any of them resolves to that
+// row.
+//
+// Linking is a full-page round trip through the provider, exactly like signing
+// in. The pending provider is remembered for the length of that trip so the
+// result — success, or a provider that belongs to another account — is reported
+// in Settings rather than on a sign-in screen the person is not looking at.
+
+const PENDING_LINK_KEY = "openmi.account.linking";
+const LINK_NOTICE_KEY = "openmi.account.linkNotice";
+
+function store(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // A browser that refuses session storage still links; it only loses the
+    // sentence explaining the result.
+  }
+}
+
+function take(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.sessionStorage.getItem(key);
+    if (value) window.sessionStorage.removeItem(key);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function drop(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // Nothing to undo.
+  }
+}
+
+/** The credentials attached to the signed-in account, in Supabase's order. */
+export async function listSignInMethods(): Promise<SignInMethod[]> {
+  const client = getSupabase();
+  if (!client) return [];
+  const { data, error } = await client.auth.getUserIdentities();
+  if (error) throw error;
+  return (data.identities ?? []).map((identity) => {
+    const meta = (identity.identity_data ?? {}) as Record<string, unknown>;
+    const email = typeof meta.email === "string" ? meta.email : null;
+    return {
+      id: identity.identity_id,
+      provider: identity.provider,
+      email,
+    };
+  });
+}
+
+/**
+ * Attaches one more provider to the account signed in here.
+ *
+ * The browser leaves for the provider and comes back to this origin; the
+ * returned session still belongs to the same user. A refusal can arrive before
+ * the navigation (bad configuration) or on the way back (the credential already
+ * belongs to somebody else), so both are handled — the second by
+ * `consumeOAuthError`.
+ */
+export async function linkSignInMethod(provider: OAuthProvider): Promise<void> {
+  const client = getSupabase();
+  if (!client) throw unconfigured();
+  store(PENDING_LINK_KEY, provider);
+  const { error } = await client.auth.linkIdentity({
+    provider: PROVIDER_IDS[provider],
+    options: {
+      redirectTo: oauthReturnUrl(),
+      scopes: PROVIDER_SCOPES[provider],
+    },
+  });
+  if (error) {
+    drop(PENDING_LINK_KEY);
+    throw error;
+  }
+}
+
+/**
+ * Removes one credential from the account.
+ *
+ * The identity is read fresh rather than carried in the interface state: an id
+ * from a stale list must not be able to name somebody else's credential. Supabase
+ * refuses the last remaining identity itself; the screen also hides the button
+ * in that case, because a control that cannot work should not be offered.
+ */
+export async function unlinkSignInMethod(identityId: string): Promise<void> {
+  const client = getSupabase();
+  if (!client) throw unconfigured();
+  const { data, error } = await client.auth.getUserIdentities();
+  if (error) throw error;
+  const identity = data.identities.find((candidate) => candidate.identity_id === identityId);
+  if (!identity) {
+    throw Object.assign(new Error("That sign-in method is no longer attached to this account."), {
+      code: "identity_not_found",
+    });
+  }
+  const { error: refused } = await client.auth.unlinkIdentity(identity);
+  if (refused) throw refused;
+}
+
+/**
+ * The outcome of a linking round trip, read once.
+ *
+ * Set by `consumeOAuthError` when the page loads after the provider. Taking it
+ * rather than reading it means a success is announced once instead of every
+ * time Settings is opened.
+ */
+export function takeLinkNotice(): string | null {
+  return take(LINK_NOTICE_KEY);
+}
+
 export async function signOutAccount(): Promise<void> {
   const client = getSupabase();
   if (!client) throw unconfigured();
@@ -193,17 +318,32 @@ export async function signOutAccount(): Promise<void> {
 export function consumeOAuthError(): string | null {
   if (typeof window === "undefined") return null;
   const url = new URL(window.location.href);
-  const error =
+  const raw =
     url.searchParams.get("error_description") ??
     url.searchParams.get("error") ??
     readHashError(url.hash);
+  const error = raw ? raw.replace(/\+/g, " ") : null;
+
+  // A link attempt began in Settings, so its outcome belongs there. On success
+  // the provider merely returns to the app with a session; only the remembered
+  // attempt can tell that apart from an ordinary page load.
+  const linking = take(PENDING_LINK_KEY);
+  if (linking) {
+    store(
+      LINK_NOTICE_KEY,
+      error
+        ? describeLinkReturn(linking, error)
+        : `${signInMethodLabel(linking)} is now a way to sign in to this account.`
+    );
+  }
+
   if (!error) return null;
 
   for (const key of ["error", "error_code", "error_description"]) {
     url.searchParams.delete(key);
   }
   window.history.replaceState({}, "", `${url.pathname}${url.search}`);
-  return error.replace(/\+/g, " ");
+  return error;
 }
 
 function readHashError(hash: string): string | null {

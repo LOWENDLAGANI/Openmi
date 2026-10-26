@@ -192,6 +192,29 @@ All four methods are dashboard switches (Authentication → Sign In / Providers)
 not build settings. `supabase/README.md` has the click-by-click version,
 including the callback URLs each provider needs.
 
+### One account, several sign-in methods
+
+**Settings → Account → Sign-in methods** attaches another provider to the account
+that is already signed in, so someone who began with Google and later uses
+GitHub ends up with one account and one set of chats instead of two. Each method
+can be unlinked again, except the last one — Supabase refuses to leave an account
+with no way in, and the screen does not offer it. Attaching is a Supabase
+identity link (`linkIdentity`), so the new provider resolves to the same
+`auth.users` row from any browser.
+
+One project switch is required, because identity linking is opt-in:
+**Authentication → Sign In / Providers → Manual linking** must be on. Without it,
+attaching fails with `manual_linking_disabled` and the screen says which toggle
+to flip. Supabase also links a *verified* email that already has an account when
+that person signs in with a new provider, which is why the plain sign-in flow
+already avoids most duplicates; the Settings screen is for attaching a method
+beforehand, seeing what is attached, and unlinking one.
+
+Two accounts that already exist are not merged automatically, and this app does
+not merge them: the duplicate provider is reported with the account it belongs
+to, and the way out is to sign in with that provider and unlink it there, then
+attach it to the account you want to keep.
+
 ### What follows the account
 
 Chats, messages, memories, GitHub connections, projects, change sets, Dew, push
