@@ -27,6 +27,7 @@ import {
   syncVisitorProfile,
 } from "@/lib/cloudHistory";
 import { consumeOAuthError, loadAccountName, saveAccountName, watchAccount } from "@/lib/account";
+import { adoptDeviceAccount } from "@/lib/deviceAccount";
 import { describeLinkError, normalizeName, type AccountView } from "@/lib/accountState";
 import {
   DEFAULT_PREFERENCES,
@@ -120,6 +121,9 @@ export default function HomePage() {
   // after that is a real answer: the sign-in screen is the interface.
   const [account, setAccount] = useState<AccountView | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  // The account whose history this browser is holding. Null until the handover
+  // has run, which is what keeps the previous account's chats off the screen.
+  const [deviceAccount, setDeviceAccount] = useState<string | null>(null);
   const preferencesRef = useRef<UserPreferences>(DEFAULT_PREFERENCES);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   // What the repository agent is doing at this instant, for the line under the
@@ -260,13 +264,51 @@ export default function HomePage() {
   // Signing out clears this device's copy of the name/avatar. The next account on this
   // browser must not inherit the previous person's greeting; the account keeps
   // its own name in `profiles` and `user_preferences`.
+  //
+  // The screen's own state goes with it: an open temporary thread is content
+  // that must not survive the session, a selected chat id points at rows that
+  // belong to the previous account, and the repository chip named their
+  // repository. The stored history is handled by the device handover, which
+  // runs when the next account signs in.
   useEffect(() => {
     if (account?.signedIn !== false) return;
     saveDisplayName("");
     setDisplayName("");
     saveAvatar("");
     setAvatarUrl("");
-  }, [account?.signedIn]);
+    endTemporary();
+    setActiveChatId(null);
+    setProject(null);
+  }, [account?.signedIn, endTemporary]);
+
+  // ── Whose history this browser holds ────────────────────────────────────
+  // IndexedDB is one database per browser, not one per account. Before the
+  // product renders for this account the cache is handed over: kept when it is
+  // this account's, cleared when the last person on this browser was somebody
+  // else. Without this the second account's sidebar showed the first account's
+  // conversations, and the push uploaded them into the second account.
+  useEffect(() => {
+    if (!account?.signedIn || !account.id) {
+      setDeviceAccount(null);
+      return;
+    }
+    const uid = account.id;
+    let cancelled = false;
+    void adoptDeviceAccount(uid)
+      .then(() => {
+        if (!cancelled) setDeviceAccount(uid);
+      })
+      .catch((error: unknown) => {
+        // The stale rows are still stored, so this account's history must not be
+        // shown as if it were the device's: the splash stays and a reload tries
+        // again. The push guard in `syncCloudHistory` already keeps the previous
+        // account's rows out of this account in the meantime.
+        console.error("[Openmi] Could not clear the previous account's history", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account?.signedIn, account?.id]);
 
   // ── Once a session exists ───────────────────────────────────────────────
   // Resolve the name, adopt the account's preferences, and pull the account's
@@ -274,10 +316,16 @@ export default function HomePage() {
   // the first paint, and the live Dexie query already watching `chats` puts the
   // conversations on screen the moment they land.
   useEffect(() => {
-    if (!hydrated || !account?.signedIn) return;
+    if (!hydrated || !account?.signedIn || !account.id) return;
+    const uid = account.id;
     let cancelled = false;
 
     void (async () => {
+      // Awaited before anything is read or written: a pull that ran first would
+      // merge this account's history into the previous person's list, and the
+      // push would write that list into this account.
+      await adoptDeviceAccount(uid);
+      if (cancelled) return;
       const localName = normalizeName(loadDisplayName());
       let chosen = localName;
       if (!chosen) {
@@ -1327,6 +1375,18 @@ export default function HomePage() {
         />
         <SplashScreen />
       </>
+    );
+  }
+
+  // The local history has to belong to this account before any of it is shown:
+  // the sidebar reads IndexedDB, and until the handover has run that database
+  // still holds whoever was signed in here before.
+  if (deviceAccount !== account.id) {
+    return (
+      <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
+        <OpenmiMark className="h-8 w-8 animate-pulse" />
+        <SplashScreen />
+      </div>
     );
   }
 

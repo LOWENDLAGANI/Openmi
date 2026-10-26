@@ -74,3 +74,14 @@ export function clearTrashDecision(
   if (decisions.delete(chatId)) write(store, decisions);
   return decisions;
 }
+
+/**
+ * Forgets every decision, for a browser that is changing hands.
+ *
+ * A pending "purge this chat" belongs to the account that recorded it. Left in
+ * place, the next account's sign-in would deliver it against its own trash,
+ * where the id means nothing at best and somebody else's chat at worst.
+ */
+export function clearTrashDecisions(store: KeyValueStore | null): void {
+  write(store, new Map());
+}

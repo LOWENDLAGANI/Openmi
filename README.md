@@ -226,6 +226,13 @@ still the first read, so the interface paints instantly and works offline; the
 account's copy is adopted right after the session is known, which is what makes
 a second browser open with the same settings.
 
+**The copy on a browser belongs to one account.** IndexedDB is per browser, not
+per account, so signing in as somebody else on the same machine hands the device
+over: the previous account's chats, messages, folders, trash and pending trash
+decisions are cleared *before* this account's history is pulled, and the cloud
+push refuses to upload local rows until the handover has run. The same account
+signing back in on the same browser keeps its cache and pulls only what is new.
+
 ## Connecting GitHub
 
 **A. Personal access token (the door that needs no console change)**

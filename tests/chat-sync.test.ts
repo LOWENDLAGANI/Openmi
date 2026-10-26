@@ -13,7 +13,9 @@
 //   bun run test
 
 import assert from "node:assert/strict";
-import { parseRemoteChat, planChatMerge } from "../lib/chatSync";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parseRemoteChat, planChatMerge, planHandover } from "../lib/chatSync";
 import type { Chat, ChatMessage } from "../lib/types";
 
 let failures = 0;
@@ -46,6 +48,47 @@ function message(over: Partial<ChatMessage> = {}): ChatMessage {
 function chat(over: Partial<Chat> = {}): Chat {
   return { id: "c1", title: "A chat", createdAt: 100, updatedAt: 100, ...over };
 }
+
+console.log("\nwhose history this browser holds");
+
+test("this account's own cache is kept", () => {
+  assert.equal(planHandover({ storedOwner: "a", uid: "a", hasLocalHistory: true }), "keep");
+});
+
+test("an untouched browser simply adopts the account", () => {
+  assert.equal(planHandover({ storedOwner: null, uid: "a", hasLocalHistory: false }), "claim");
+});
+
+test("a different account starts from an empty device", () => {
+  assert.equal(planHandover({ storedOwner: "a", uid: "b", hasLocalHistory: true }), "switch");
+  assert.equal(planHandover({ storedOwner: "a", uid: "b", hasLocalHistory: false }), "switch");
+});
+
+test("a cache with no remembered owner counts as somebody else's", () => {
+  // The state of every browser that existed before this rule. Assuming it is
+  // the signing-in account's is how the leak happened in the first place.
+  assert.equal(planHandover({ storedOwner: null, uid: "a", hasLocalHistory: true }), "switch");
+});
+
+test("nothing reaches the account until the device belongs to it", () => {
+  const source = readFileSync(join(process.cwd(), "lib/cloudHistory.ts"), "utf8");
+  const push = source.slice(source.indexOf("export async function syncCloudHistory"));
+  const beforeUpload = push.slice(0, push.indexOf("for (const chat of uploadable)"));
+  assert.match(beforeUpload, /deviceBelongsTo\(uid\)/, "the bulk push must check the device owner");
+
+  const page = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
+  assert.match(page, /adoptDeviceAccount/, "signing in must hand the device over");
+});
+
+test("signing out leaves none of the previous session on screen", () => {
+  const page = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
+  const start = page.indexOf("if (account?.signedIn !== false) return;");
+  assert.ok(start > 0, "the sign-out effect must exist");
+  const block = page.slice(start, page.indexOf("}, [account?.signedIn", start));
+  assert.match(block, /endTemporary\(\)/, "an open temporary thread must not survive the session");
+  assert.match(block, /setActiveChatId\(null\)/);
+  assert.match(block, /setProject\(null\)/, "the repository chip named the previous account's repository");
+});
 
 console.log("\na chat this browser has never seen");
 

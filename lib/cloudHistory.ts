@@ -31,6 +31,7 @@ import {
   readDeletedFolderIds,
   unmarkFolderDeleted,
 } from "./deletedFolders";
+import { deviceBelongsTo } from "./deviceAccount";
 import { currentUser, getSupabase, supabaseConfigured } from "./supabase";
 import { TRASH_RETENTION_MS, type TrashEntry } from "./trash";
 import {
@@ -176,6 +177,13 @@ export async function syncCloudHistory(): Promise<{ synced: boolean; reason?: st
   const current = await session();
   if (!current) return { synced: false, reason: "not-configured" };
   const { client, uid } = current;
+
+  // This push writes everything the browser holds, and the browser holds
+  // whatever the last account left in IndexedDB. Its timer is scheduled from a
+  // data change, so it can fire in the moment between a different account
+  // signing in and the handover clearing the cache: that is exactly how one
+  // person's conversations used to end up in another person's account.
+  if (!deviceBelongsTo(uid)) return { synced: false, reason: "device-not-adopted" };
 
   for (const chat of uploadable) {
     const messages = await db.messages.where("chatId").equals(chat.id).sortBy("createdAt");

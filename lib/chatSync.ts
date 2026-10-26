@@ -14,6 +14,43 @@
 
 import type { AgentStep, Chat, ChatMessage } from "./types";
 
+// ── Whose history this browser is holding ────────────────────────────────────
+//
+// IndexedDB is not scoped by an account: every chat this browser has ever held
+// sits in one database, and the sidebar reads it without asking who is signed
+// in. So when a second person signed in on the same device they found the first
+// person's conversations in the list — and the push then wrote those rows into
+// the second account. Nothing about that was ambiguous: the local copy belongs
+// to exactly one account, and it has to say which.
+//
+// The rule below is the whole decision, kept pure so it can be tested without a
+// browser. "Unknown owner" is treated as foreign on purpose: a cache written
+// before this rule existed cannot be proved to belong to whoever is signing in,
+// and the account's own copy is the one that survives the handover.
+
+/** What to do when this browser's stored history meets the account signed in. */
+export type DeviceHandover =
+  /** The cache is this account's. Nothing is thrown away. */
+  | "keep"
+  /** No cache and no remembered owner: adopt the account; nothing to clear. */
+  | "claim"
+  /** The cache belongs to somebody else, or predates this rule: clear it. */
+  | "switch";
+
+export function planHandover(input: {
+  /** The account id this browser last wrote down, if any. */
+  storedOwner: string | null;
+  /** The account that is signed in now. */
+  uid: string;
+  /** Whether any chat, message, folder or trash row is still stored here. */
+  hasLocalHistory: boolean;
+}): DeviceHandover {
+  const { storedOwner, uid, hasLocalHistory } = input;
+  if (storedOwner === uid) return "keep";
+  if (!storedOwner && !hasLocalHistory) return "claim";
+  return "switch";
+}
+
 /** The tools a stored step may name. Anything else is not one of ours. */
 const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "propose_edits"]);
 /** A change-set id, as lib/changesets.ts mints it — checked without importing
