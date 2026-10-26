@@ -1969,6 +1969,24 @@ test("the commit route checks caller, origin, approval and the branch head", () 
   assert.match(source, /"stale"/);
 });
 
+test("a proposal is made against the branch as it is now, not as it was attached", () => {
+  // The pin used to be written once, at attach time, so a single push to the
+  // default branch made every later proposal stale: the review screen refused
+  // it with "main has moved since this change was proposed" however many times
+  // the change was asked for again. The step route refreshes the pin before the
+  // agent reads, and the commit route keeps comparing the proposal with the
+  // tip at the moment the person approves.
+  const step = read("app/api/agent/step/route.ts");
+  assert.match(step, /refreshProjectHead\(/);
+  assert.ok(
+    step.indexOf("refreshProjectHead") < step.indexOf("runAgentStep"),
+    "the pin has to be refreshed before the model reads the repository"
+  );
+  const projects = read("lib/projects.ts");
+  assert.match(projects, /export async function refreshProjectHead/);
+  assert.match(projects, /getBranchHead\(token, project\.repoFullName, project\.defaultBranch\)/);
+});
+
 test("the approval route checks the same branch and permission before signing", () => {
   const source = read("app/api/changesets/[id]/approve/route.ts");
   assert.match(source, /isSameOriginRequest/);

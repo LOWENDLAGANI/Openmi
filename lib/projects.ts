@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { clientForToken } from "./supabase";
-import { normalizeRepoFullName } from "./github/client";
+import { getBranchHead, normalizeRepoFullName } from "./github/client";
 
 export interface ProjectSummary {
   id: string;
@@ -127,6 +127,44 @@ export async function readProject(
     return projectFromRow(data);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Brings a project's pinned commit up to the branch's current head.
+ *
+ * The pin is what the agent reads and what a proposal is based on. It used to
+ * be taken once, when the repository was attached, and never moved: the first
+ * push to the default branch — including merging the pull request Openmi itself
+ * opened — then left every later proposal based on a commit that was no longer
+ * the tip, so the review screen answered "main has moved since this change was
+ * proposed" for a change that had just been made, every time, for ever.
+ *
+ * Refreshing before the agent reads makes a new proposal relative to the branch
+ * as it is now. The commit endpoint's own comparison keeps its meaning, because
+ * it asks the different question: has the branch moved since *this* proposal,
+ * which is exactly the window a person is reviewing in.
+ *
+ * A head that cannot be read is not a reason to refuse the turn: the project is
+ * returned as it was, and the commit endpoint still refuses a stale base.
+ */
+export async function refreshProjectHead(
+  authorization: string | null,
+  uid: string,
+  project: ProjectSummary,
+  token: string
+): Promise<ProjectSummary> {
+  if (!uid || !token) return project;
+  try {
+    const head = await getBranchHead(token, project.repoFullName, project.defaultBranch);
+    if (!head || head === project.baseSha) return project;
+    const updated: ProjectSummary = { ...project, baseSha: head, updatedAt: Date.now() };
+    // Best effort: the turn runs against the head either way, and a failed row
+    // write costs the next step another read, not a wrong proposal.
+    await saveProject(authorization, uid, updated).catch(() => false);
+    return updated;
+  } catch {
+    return project;
   }
 }
 

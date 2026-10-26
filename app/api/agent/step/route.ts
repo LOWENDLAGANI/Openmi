@@ -8,7 +8,7 @@ import {
   readConfig,
   verifyCaller,
 } from "@/lib/serverControl";
-import { readProject } from "@/lib/projects";
+import { readProject, refreshProjectHead } from "@/lib/projects";
 import { resolveGithubLink } from "@/lib/github/store";
 import { GithubError } from "@/lib/github/client";
 import { runAgentStep } from "@/lib/agent/run";
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "A project is required." }, { status: 400 });
   }
 
-  const project = await readProject(authorization, identity.uid, projectId);
+  let project = await readProject(authorization, identity.uid, projectId);
   if (!project) {
     return Response.json({ error: "That project is not attached to this account." }, { status: 404 });
   }
@@ -107,6 +107,17 @@ export async function POST(req: NextRequest): Promise<Response> {
       { status: 401 }
     );
   }
+
+  // ── Read the branch as it is now ──────────────────────────────────────────
+  // The project's pin was only ever taken when the repository was attached, so
+  // one push to the default branch made every later proposal stale against a
+  // commit that was no longer the tip — the review screen then refused it with
+  // "main has moved since this change was proposed" no matter how many times
+  // the change was asked for again. Refreshing here means a proposal is always
+  // relative to the current tip; the commit endpoint still refuses a change
+  // whose branch moved while it was being reviewed, which is the window that
+  // check exists for.
+  project = await refreshProjectHead(authorization, identity.uid, project, link.token);
 
   // ── The Dew ledger ────────────────────────────────────────────────────────
   // Checked before the model runs, exactly like /api/chat. A turn that is
