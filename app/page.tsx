@@ -43,7 +43,10 @@ import {
   createChat,
   addMessage,
   maybeAutoTitle,
+  nextMessageTime,
   saveSelectedMode,
+  touchChat,
+  uid,
 } from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
 import { readAgentStream } from "@/lib/agentStream";
@@ -76,6 +79,7 @@ import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
 import { TempThread, type MessageInput } from "@/lib/tempChat";
 import { purgeTrash } from "@/lib/trash";
 import { parseRetrySeconds } from "@/lib/rateLimit";
+import { parseChatJob, type ChatJob } from "@/lib/chatJobs";
 
 /** The chat id a temporary thread uses. It is never a row in the database — it
     exists only so the send path has one variable to address either kind of
@@ -237,6 +241,10 @@ export default function HomePage() {
   const [pricingConflict, setPricingConflict] = useState<PricingConflict | null>(null);
   const [pricingBusy, setPricingBusy] = useState(false);
   const [pricingNotice, setPricingNotice] = useState<string | null>(null);
+  // Background mode: the answer keeps running on the server after this tab is
+  // closed. Off by default, because streaming into the open thread is the
+  // better experience while somebody is watching.
+  const [backgroundRun, setBackgroundRun] = useState(false);
   const dew = useDew();
 
   /** Publishes the thread to React after any change, so the screen follows a
@@ -278,6 +286,95 @@ export default function HomePage() {
   );
 
   const chats = useLiveQuery(() => db.chats.orderBy("updatedAt").reverse().toArray(), [], []);
+
+  // ── Background answers that outlive the tab ───────────────────────────────
+  // A background turn writes its question and answer into the account, and a
+  // receipt into `chat_jobs`. This effect is how the page learns about it: it
+  // polls the receipts, moves the tick on the question, and puts the answer
+  // into the thread exactly once. It runs on every visit, so a tab that was
+  // closed mid-answer is reconciled the next time the account is open.
+  //
+  // The metadata poll carries no answer text. A finished job's result is
+  // fetched by id only when its message is missing locally, which keeps an
+  // idle poll to a few hundred bytes instead of re-reading every answer.
+  useEffect(() => {
+    if (!account?.signedIn) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const applyJob = async (job: ChatJob): Promise<void> => {
+      const user = await db.messages.get(job.userMessageId);
+      if (!user) return;
+
+      const delivery: ChatMessage["delivery"] =
+        job.status === "done" ? "done" : job.status === "failed" ? "failed" : job.status === "processing" ? "processing" : "sent";
+      if (user.delivery !== delivery || user.jobId !== job.id) {
+        await db.messages.update(user.id, { delivery, jobId: job.id });
+      }
+
+      if (job.status !== "done" && job.status !== "failed") return;
+      if (await db.messages.get(job.assistantMessageId)) return;
+
+      const headers = await authHeader();
+      const response = await fetch(`/api/chat/jobs?id=${encodeURIComponent(job.id)}`, { headers, cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json().catch(() => null)) as { job?: unknown } | null;
+      const full = parseChatJob(payload?.job);
+      if (!full || (full.status !== "done" && full.status !== "failed")) return;
+
+      const result = full.result;
+      const createdAt = Math.max(nextMessageTime(user.createdAt), full.updatedAt || Date.now());
+      await db.messages.put({
+        id: full.assistantMessageId,
+        chatId: full.chatId,
+        role: "assistant",
+        content: result?.content ?? "",
+        model: result?.model ?? getMode(selectedMode).display,
+        ...(result?.searchQuery ? { searchQuery: result.searchQuery } : {}),
+        ...(result?.sources ? { sources: result.sources } : {}),
+        ...(result?.usage ? { usage: result.usage } : {}),
+        ...(result?.truncated ? { truncated: true } : {}),
+        error: full.status === "failed" ? full.error ?? "The background run failed." : undefined,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      await touchChat(full.chatId);
+    };
+
+    const poll = async (): Promise<void> => {
+      try {
+        const response = await fetch("/api/chat/jobs", { headers: await authHeader(), cache: "no-store" });
+        if (response.ok) {
+          const payload = (await response.json()) as { jobs?: unknown[] };
+          for (const raw of payload.jobs ?? []) {
+            const job = parseChatJob(raw);
+            if (job) await applyJob(job);
+          }
+        }
+      } catch {
+        // Offline: the receipts are still there on the next poll.
+      }
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      await poll();
+      if (cancelled) return;
+      // Fast only while this device is holding a question that has no answer
+      // yet. Otherwise the same poll is a slow recovery check for a turn that
+      // finished while another tab, or no tab at all, was open.
+      const waiting = await db.messages
+        .filter((message) => message.delivery === "sent" || message.delivery === "processing")
+        .count();
+      if (cancelled) return;
+      timer = window.setTimeout(tick, waiting > 0 ? 4_000 : 30_000);
+    };
+    timer = window.setTimeout(tick, 1_500);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [account?.signedIn, selectedMode]);
 
   // A GitHub connection made through GitHub's own OAuth App returns as a
   // full-page navigation to this app with `?github=…`. Open the repository
@@ -1108,6 +1205,82 @@ export default function HomePage() {
     [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
   );
 
+  // ── Send and leave ────────────────────────────────────────────────────────
+  // The question is written locally first, as it always is, and then handed to
+  // a route that starts the turn on the server. The stream is not read here:
+  // the page moves the tick on the question, and collects the answer the next
+  // time it polls — including after a reload or on another device.
+  //
+  // An hour session still covers the message when this chat owns one; the
+  // server decides that. Without one, the ordinary per-request price applies,
+  // which is why this path never opens the first-message price dialog: the
+  // dialog needs somebody present to answer it.
+  const sendInBackground = useCallback(
+    async (text: string, _images: ImageAttachment[], _documents: DocumentAttachment[] = []) => {
+      if (streamingId || temporary || !text.trim()) return;
+
+      let chatId: string | null = activeChatId;
+      if (!chatId) {
+        const chat = await createChat();
+        chatId = chat.id;
+        setActiveChatId(chatId);
+      }
+      if (!chatId) return;
+
+      const jobId = uid();
+      const assistantMessageId = uid();
+      const user = await appendMessage({ chatId, role: "user", content: text, delivery: "sent", jobId });
+      await maybeAutoTitle(chatId, text);
+      setModelNotice("Running in the background. You can close this tab — the answer will be here when you return.");
+
+      const history = await threadHistory(chatId);
+      const apiMessages: ApiMessage[] = history.flatMap((message): ApiMessage[] => {
+        if (message.error || (message.role !== "user" && message.role !== "assistant")) return [];
+        const visible = displayedContent(message).trim();
+        return visible ? [{ role: message.role, content: visible }] : [];
+      });
+      const chat = await db.chats.get(chatId);
+      const payload = JSON.stringify({
+        jobId,
+        chatId,
+        chatTitle: chat?.title ?? "New chat",
+        chatCreatedAt: chat?.createdAt ?? Date.now(),
+        userMessageId: user.id,
+        assistantMessageId,
+        messages: apiMessages,
+        mode: selectedMode,
+        searchMode,
+        responseLength,
+        reasoningEffort,
+      });
+
+      try {
+        const response = await fetch("/api/chat/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
+          body: payload,
+          // A sender who closes the tab immediately must not abort the request
+          // that starts the job. `keepalive` is bounded by the browser; a very
+          // long conversation is sent normally and is not guaranteed past an
+          // immediate close.
+          keepalive: payload.length < 60_000,
+        });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+          const message = detail?.error ?? `The background run could not start (HTTP ${response.status}).`;
+          await db.messages.update(user.id, { delivery: "failed", error: message });
+          setModelNotice(message);
+        }
+      } catch {
+        await db.messages.update(user.id, {
+          delivery: "failed",
+          error: "The background run could not start. Check your connection and try again.",
+        });
+      }
+    },
+    [activeChatId, appendMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory]
+  );
+
   // ── The repository agent ───────────────────────────────────────────────────
   //
   // One turn is one paid request: the first step charges the flat Code price and
@@ -1459,6 +1632,24 @@ export default function HomePage() {
         void sendAgentMessage(text);
         return;
       }
+      // Background mode skips the price dialog: there is nobody in front of it
+      // to choose, and the server prices the message per request. Attachments
+      // and temporary chats fall back to the ordinary send, because neither can
+      // survive the tab — saying so once is better than silently dropping them.
+      if (backgroundRun && !project) {
+        if (temporary) {
+          setModelNotice("Background mode needs a saved chat; this temporary one is sending here.");
+          void sendMessage(text, images, documents);
+          return;
+        }
+        if (images.length > 0 || (documents && documents.length > 0)) {
+          setModelNotice("Background mode sends text only, so this attachment is sending here.");
+          void sendMessage(text, images, documents);
+          return;
+        }
+        void sendInBackground(text, images, documents);
+        return;
+      }
       // The first message of a new chat is the one moment the hour price is
       // still a choice. The composed message waits here until one is picked.
       // Temporary chats have nothing to attach an hour to, so they are billed
@@ -1471,7 +1662,7 @@ export default function HomePage() {
       }
       void sendMessage(text, images, documents);
     },
-    [messages.length, project, selectedMode, sendAgentMessage, sendMessage, temporary]
+    [backgroundRun, messages.length, project, selectedMode, sendAgentMessage, sendInBackground, sendMessage, temporary]
   );
 
   // With a repository attached, an answer was produced by the agent and has to
@@ -1885,6 +2076,8 @@ export default function HomePage() {
               contextBudget={contextBudget ?? undefined}
               streaming={isStreaming}
               onNewChat={handleNewChat}
+              background={backgroundRun}
+              onToggleBackground={() => setBackgroundRun((on) => !on)}
               focusMode={
                 focusHome
                   ? { responseLength, onChange: handleResponseLengthChange }

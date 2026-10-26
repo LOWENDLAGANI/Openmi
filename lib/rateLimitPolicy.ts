@@ -13,6 +13,8 @@ export const BUCKET_WINDOW_MS = 60_000;
 
 export type RateLimitScope =
   | "chat"
+  | "background"
+  | "background-read"
   | "agent"
   | "commits"
   | "changesets"
@@ -44,6 +46,11 @@ export interface RateLimitPolicy {
 export const RATE_LIMITS: Record<RateLimitScope, RateLimitPolicy> = {
   // Expensive: one unit can be a whole model turn.
   chat: { perMinute: 30, label: "messages" },
+  // Starting a background turn is a write that will spend Dew without anyone
+  // watching, so it gets its own, smaller budget. Reading its receipt is what
+  // the page polls, and is cheap.
+  background: { perMinute: 10, label: "background runs" },
+  "background-read": { perMinute: 60, label: "background checks" },
   agent: { perMinute: 20, label: "agent steps" },
   commits: { perMinute: 10, label: "commit attempts" },
 

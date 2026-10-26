@@ -134,6 +134,14 @@ export interface ChatMessage {
   truncated?: boolean;
   error?: string;
   /**
+   * How far a background message got, for the tick beside it. Device-local:
+   * the account stores the answer, not the delivery state, and a job receipt
+   * is what restores this on the next visit.
+   */
+  delivery?: "sent" | "processing" | "done" | "failed";
+  /** The background job this question was sent under, when it has one. */
+  jobId?: string;
+  /**
    * Earlier versions of this answer, newest previous first.
    *
    * A retry or an edit used to delete the answer it replaced. It now keeps it:

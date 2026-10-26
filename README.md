@@ -42,6 +42,12 @@ when you say so**, on a branch of its own.
   enforces, with a breakdown and a fresh-chat offer past 90%.
 - **Rate limits you can see**: one policy table, one 429 shape carrying
   `Retry-After`, and a composer that counts the wait down instead of failing.
+- **Send and leave.** Background mode hands the message to the server, which
+  finishes the turn after the tab is closed and writes the answer into the
+  account. One tick on the question means it reached the server; two mean the
+  answer is ready. Background turns are text-only and billed per request — an
+  hour session that covers the chat still applies — and a failed run says so in
+  the thread instead of leaving a tick that never doubles.
 - **One small ad above the composer** (optional): AdSense, reserved height,
   hidden without both public ids, switchable off from the console. `/privacy`
   says what it collects.
