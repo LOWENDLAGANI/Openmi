@@ -573,17 +573,24 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
 
 function TypingDots({ message }: { message: string }) {
   return (
-    <div className="flex items-center gap-2 py-1" role="status" aria-live="polite">
-      <span className="flex items-center gap-1" aria-hidden="true">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="h-1 w-1 animate-blink rounded-full bg-text-mid"
-            style={{ animationDelay: `${i * 0.18}s` }}
-          />
-        ))}
-      </span>
-      <span className="text-[12px] leading-relaxed text-text-mid">{message}</span>
+    <div className="typing-waiter" role="status" aria-live="polite">
+      {/* A soft glowing pill behind the words, blurred rather than shadowed so
+          it does not repaint on every frame. The hue is the product accent, kept
+          low so the typing indicator is a presence cue, not a glow that fights
+          the message card above it. */}
+      <span className="typing-waiter-glow" aria-hidden="true" />
+      <div className="flex items-center gap-2 py-1">
+        <span className="flex items-center gap-1" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1 w-1 rounded-full animate-blink bg-text-mid"
+              style={{ animationDelay: `${i * 0.18}s` }}
+            />
+          ))}
+        </span>
+        <span className="text-[12px] leading-relaxed text-text-mid">{message}</span>
+      </div>
     </div>
   );
 }

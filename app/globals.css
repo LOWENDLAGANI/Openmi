@@ -783,6 +783,36 @@ button {
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* While-streaming typewriter line. A soft glowing pill sits behind the
+   “testimonial.” It is bordered to itself, blurred, and kept low-contrast so
+   the typing indicator feels present without turning into a glow behind every
+   message card. Transform + opacity only, so it sits on the compositor. */
+.typing-waiter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.typing-waiter-glow {
+  position: absolute;
+  inset: -7px -14px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  filter: blur(9px);
+  opacity: 0.7;
+  animation: typing-glow 2.4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+@keyframes typing-glow {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.03); }
+}
+
+/* Light mode: the same pill stays a cool blue wash instead of turning into a
+   visible neon disc behind every message while the answer is streaming. */
+html.light .typing-waiter-glow {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 /* Streaming caret. A soft glow with an eased fade rather than a hard blink,
    so the leading edge of an answer breathes instead of flickering. */
 .stream-cursor > :last-child::after {
