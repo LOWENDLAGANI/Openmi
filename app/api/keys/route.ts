@@ -52,6 +52,7 @@ export async function GET(req: NextRequest): Promise<Response> {
         openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
         gemini: Boolean(process.env.GEMINI_API_KEY?.trim()),
         groq: Boolean(process.env.GROQ_API_KEY?.trim()),
+        deepseek: Boolean(process.env.DEEPSEEK_API_KEY?.trim()),
       },
     },
     { headers: { "Cache-Control": "no-store" } }

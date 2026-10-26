@@ -919,10 +919,14 @@ export default function ChatThread({  messages,
 
 // ── Model identity badge (added for UI overhaul) ──────────────────────────
 // Visual indicator showing which Openmi model responded with color-coded styling
-import { getMode } from "@/lib/models";
+import { OPENMI_MODES } from "@/lib/models";
 
 function ModelBadge({ model }: { model?: string }) {
-  const mode = getMode(model ?? "auto");
+  // A stored message carries the display name rather than the mode id, so both
+  // are matched. Looking up the id alone made every pinned mode fall back to
+  // Auto's badge and label.
+  const mode =
+    OPENMI_MODES.find((m) => m.id === model || m.display === model) ?? OPENMI_MODES[0];
   const isCode = mode.id === "code";
   const badgeClass = isCode ? "model-badge model-badge-code" : "model-badge model-badge-auto";
   const label = mode.display;

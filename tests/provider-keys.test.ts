@@ -52,6 +52,7 @@ const VALID: Record<UserKeyProvider, string> = {
   openrouter: `sk-or-v1-${"a".repeat(40)}`,
   gemini: `AIza${"b".repeat(35)}`,
   groq: `gsk_${"c".repeat(40)}`,
+  deepseek: `sk-${"d".repeat(40)}`,
 };
 
 console.log("\nthe key an account brings");
@@ -126,6 +127,7 @@ test("every provider is validated against its own endpoint", () => {
   assert.match(keys, /openrouter\.ai\/api\/v1\/key/);
   assert.match(keys, /generativelanguage\.googleapis\.com/);
   assert.match(keys, /api\.groq\.com\/openai\/v1\/models/);
+  assert.match(keys, /api\.deepseek\.com\/models/);
 });
 
 test("chat, the mode picker and the agent all prefer the account's key", () => {

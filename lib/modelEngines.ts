@@ -22,6 +22,15 @@ const VERSION_NAMES: Record<string, string> = {
 export const AUTO_ENGINE = "openrouter/auto";
 
 /**
+ * The wire model behind DeepSeek mode.
+ *
+ * DeepSeek serves one current Flash model under a stable alias — its docs name
+ * `deepseek-flash`, which resolves to the newest V4.1 Flash build — so the
+ * product does not have to chase dated ids to stay on the current model.
+ */
+export const DEEPSEEK_ENGINE = "deepseek-flash";
+
+/**
  * The wire models Groq serves for Code mode, in the order it tries them — and
  * the only models Code is allowed to answer with.
  *
@@ -45,6 +54,7 @@ export const GEMINI_FALLBACKS = GEMINI_MODELS.slice(1);
 export const MODE_ENV_VARS: Record<string, string> = {
   auto: "OPENROUTER_API_KEY",
   code: "GROQ_API_KEY",
+  flash: "DEEPSEEK_API_KEY",
 };
 
 /**
@@ -59,6 +69,7 @@ export function toOpenmiName(model?: string): string {
   if (model === AUTO_ENGINE) return "Openmi Auto";
   // Every Groq model answers under the one name the product gives that mode.
   if (GROQ_MODELS.some((entry) => entry.model === model)) return "Groq";
+  if (model === DEEPSEEK_ENGINE) return "DeepSeek V4.1 Flash";
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];
   if (version && VERSION_NAMES[version]) return VERSION_NAMES[version]!;

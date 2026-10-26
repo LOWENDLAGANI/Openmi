@@ -26,14 +26,15 @@ import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew"
 //   OPENROUTER_API_KEY → Auto router
 //   GEMINI_API_KEY     → Auto fallback (V3 → V2 → V1)
 //   GROQ_API_KEY       → Groq, the Code model, and Auto's last resort
+//   DEEPSEEK_API_KEY   → DeepSeek V4.1 Flash, and only that mode
 //
 // Auto is resilient: if the requested provider is unavailable, the other
 // configured families are tried in order.
 //
-// Code is deliberately NOT cross-vendor: Groq is the only provider it may use.
-// A code answer produced by a different model family is a different answer, and
-// silently changing families mid-task is worse than reporting that no model was
-// reachable.
+// Code and DeepSeek are deliberately NOT cross-vendor: Code is Groq only, and
+// DeepSeek mode is DeepSeek only. An answer produced by a different model
+// family is a different answer, and silently changing families mid-task is
+// worse than reporting that no model was reachable.
 //
 // This route is the transport and the bill, not the agent. The tool-calling
 // loop that lets the agent read a repository is added in the next phase; the
@@ -360,7 +361,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     return errorStream(gate.error ?? "Openmi is not available to this device.");
   }
 
-  const requested: ModeId = body.mode === "code" ? "code" : "auto";
+  const requested: ModeId =
+    body.mode === "code" ? "code" : body.mode === "flash" ? "flash" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
   // ── The Dew ledger ────────────────────────────────────────────────────────
@@ -410,7 +412,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return textStream(
       requested === "code"
         ? "**Code mode has no model to run.** Add your own Groq key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
-        : "**Openmi isn't connected to a model yet.** Add your own key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
+        : requested === "flash"
+          ? "**DeepSeek mode has no model to run.** Add your own DeepSeek key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
+          : "**Openmi isn't connected to a model yet.** Add your own key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
     );
   }
 
@@ -774,6 +778,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const openrouter = Boolean(accountKeys.openrouter?.trim() || process.env.OPENROUTER_API_KEY?.trim());
   const gemini = Boolean(accountKeys.gemini?.trim() || process.env.GEMINI_API_KEY?.trim());
   const groq = Boolean(accountKeys.groq?.trim() || process.env.GROQ_API_KEY?.trim());
+  const deepseek = Boolean(accountKeys.deepseek?.trim() || process.env.DEEPSEEK_API_KEY?.trim());
 
   // Auto can answer through any of its configured families, the router first.
   if (openrouter || gemini || groq) available.push("auto");
@@ -781,6 +786,8 @@ export async function GET(req: NextRequest): Promise<Response> {
   // mode usable. Reporting it without the key would promise a fallback the
   // route will not actually take.
   if (groq) available.push("code");
+  // DeepSeek mode is one pinned model, so the same rule applies to its key.
+  if (deepseek) available.push("flash");
 
   return Response.json({
     available,

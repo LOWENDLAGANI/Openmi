@@ -5,9 +5,16 @@
 // these strings carry provider names and, via `key`, credentials.
 
 import type { ModeId } from "./models";
-import { AUTO_ENGINE, GEMINI_ENGINE, GEMINI_FALLBACKS, GROQ_MODELS, toOpenmiName } from "./modelEngines";
+import {
+  AUTO_ENGINE,
+  DEEPSEEK_ENGINE,
+  GEMINI_ENGINE,
+  GEMINI_FALLBACKS,
+  GROQ_MODELS,
+  toOpenmiName,
+} from "./modelEngines";
 
-export type ProviderFamily = "openrouter" | "gemini" | "groq";
+export type ProviderFamily = "openrouter" | "gemini" | "groq" | "deepseek";
 
 export interface ProviderConfig {
   id: ModeId;
@@ -31,6 +38,7 @@ export const FAMILY_MODE: Record<ProviderFamily, string> = {
   openrouter: "Openmi Auto",
   gemini: "the Auto fallback",
   groq: "Groq",
+  deepseek: "DeepSeek",
 };
 
 /**
@@ -50,6 +58,7 @@ export function getProviders(
   const openrouterKey = accountKeys.openrouter?.trim() || process.env.OPENROUTER_API_KEY?.trim();
   const geminiKey = accountKeys.gemini?.trim() || process.env.GEMINI_API_KEY?.trim();
   const groqKey = accountKeys.groq?.trim() || process.env.GROQ_API_KEY?.trim();
+  const deepseekKey = accountKeys.deepseek?.trim() || process.env.DEEPSEEK_API_KEY?.trim();
 
   const openrouter: ProviderConfig | null = openrouterKey
     ? {
@@ -110,10 +119,36 @@ export function getProviders(
       }))
     : [];
 
+  // DeepSeek mode is one pinned model, in the same spirit as Code: a person who
+  // chose it asked for that model, so no other family is offered as a silent
+  // substitute. DeepSeek is not part of Auto's chain either — Auto keeps its
+  // documented order, and adding a provider to it is a separate decision.
+  const deepseek: ProviderConfig[] = deepseekKey
+    ? [
+        {
+          id: "flash",
+          family: "deepseek",
+          label: "DeepSeek V4.1 Flash",
+          url: "https://api.deepseek.com/chat/completions",
+          key: deepseekKey,
+          model: DEEPSEEK_ENGINE,
+          supportsReasoning: true,
+          // Thinking is the reason `reasoning_effort` means anything here; the
+          // usage block is what makes the token count in the activity page
+          // honest rather than estimated.
+          extraBody: {
+            thinking: { type: "enabled" },
+            stream_options: { include_usage: true },
+          },
+        },
+      ]
+    : [];
+
   // Code mode never leaves its own family. OpenRouter and Gemini are excluded
   // from its fallback chain entirely, so an outage produces a clear error
   // instead of code written by a model the user did not ask for.
   if (requested === "code") return [...groq];
+  if (requested === "flash") return [...deepseek];
 
   // Auto prefers the router, then the stable fallbacks, then Groq.
   return [...(openrouter ? [openrouter] : []), ...gemini, ...groq];

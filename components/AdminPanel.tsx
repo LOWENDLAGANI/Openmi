@@ -61,7 +61,11 @@ type View =
   | { name: "chats"; uid: string; label: string }
   | { name: "chat"; uid: string; chatId: string; title: string };
 
-const PROVIDER_LABEL: Record<string, string> = { auto: "Openmi Auto", code: "Groq" };
+const PROVIDER_LABEL: Record<string, string> = {
+  auto: "Openmi Auto",
+  code: "Groq",
+  flash: "DeepSeek V4.1 Flash",
+};
 
 function when(ts?: number | null): string {
   if (!ts) return "—";

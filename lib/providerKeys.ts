@@ -187,7 +187,9 @@ export async function validateProviderKey(
       ? { url: "https://openrouter.ai/api/v1/key", headers: { Authorization: `Bearer ${key}` } }
       : provider === "gemini"
         ? { url: "https://generativelanguage.googleapis.com/v1beta/models", headers: { "x-goog-api-key": key } }
-        : { url: "https://api.groq.com/openai/v1/models", headers: { Authorization: `Bearer ${key}` } };
+        : provider === "deepseek"
+          ? { url: "https://api.deepseek.com/models", headers: { Authorization: `Bearer ${key}` } }
+          : { url: "https://api.groq.com/openai/v1/models", headers: { Authorization: `Bearer ${key}` } };
 
   try {
     const response = await fetch(request.url, {

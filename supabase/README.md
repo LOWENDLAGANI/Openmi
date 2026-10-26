@@ -24,6 +24,7 @@ carry the rules it used to hold.
 | `migrations/20261024000700_shares.sql` | `shared_chats` (owner-only, thirty-day expiry, revocable) and the anonymous `shared_public` view, which has no owner column and hides revoked or expired rows. |
 | `migrations/20261024000800_light_default_appearance.sql` | Light is the default appearance for a preference row that has not chosen one. Existing rows are left untouched. |
 | `migrations/20261026000000_provider_keys.sql` | `provider_keys`: an account's own OpenRouter, Gemini or Groq key, sealed before it is stored and readable only by its owner. Registered in `schema_expected`. |
+| `migrations/20261027000000_provider_keys_deepseek.sql` | Adds DeepSeek to the `provider_keys.provider` list, so the DeepSeek V4.1 Flash mode can use a key the account brought. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

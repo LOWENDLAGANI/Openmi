@@ -13,13 +13,14 @@ when you say so**, on a branch of its own.
 
 ## What works today
 
-- Chat with **Auto** and **Groq** modes, streamed over SSE with provider
-  fallback and continuation when a model hits its output limit.
+- Chat with **Auto**, **Groq** and **DeepSeek V4.1 Flash** modes, streamed over
+  SSE with provider fallback and continuation when a model hits its output
+  limit.
 - Local-first history in IndexedDB (Dexie), synced to the signed-in account.
 - **An account is required.** Sign in or register with Google, GitHub, Microsoft
   or an email address and password, all held by Supabase Auth.
 - **Dew**: one flat price per request, per model — `0.25` for Auto, `0.5` for
-  Groq. Every account also gets **5 free Dew a day**, refilled at midnight in
+  Groq, `0.2` for DeepSeek V4.1 Flash. Every account also gets **5 free Dew a day**, refilled at midnight in
   the account's own timezone (the browser's at registration, Malaysia until one
   is known) and spent before paid credit; unused free Dew does not carry over,
   while trial, redeemed and topped-up Dew never expires. A spend history on
@@ -155,6 +156,7 @@ The important ones for **this build**:
 | `OPENROUTER_API_KEY` | Auto mode routing. |
 | `GEMINI_API_KEY` | Auto fallback (V3 → V2 → V1). |
 | `GROQ_API_KEY` | Groq — the Code mode model, and Auto's last-resort fallback. |
+| `DEEPSEEK_API_KEY` | DeepSeek — the DeepSeek V4.1 Flash mode, and nothing else. |
 | `NEXT_PUBLIC_ADSENSE_CLIENT_ID` | Public AdSense publisher id (`ca-pub-…`). Absent means no banner and no gap. |
 | `NEXT_PUBLIC_ADSENSE_SLOT_ID` | Public ad-unit slot id. Both ids are required for the unit to render. |
 | `TAVILY_API_KEY` | Web search and source links. |

@@ -7,7 +7,7 @@
 // what a stored message is labelled, and what the price list in lib/dew.ts is
 // keyed by. Adding a model starts here.
 
-export type ModeId = "auto" | "code";
+export type ModeId = "auto" | "code" | "flash";
 
 export interface ModeOption {
   id: ModeId;
@@ -38,6 +38,16 @@ export const OPENMI_MODES: ModeOption[] = [
     separateSession: true,
     blurb: "Groq only — tuned for reading and changing a repository",
   },
+  {
+    // The id names the capability, like "code" does, rather than the vendor:
+    // this module is compiled into the browser, and a mode id is not a place a
+    // provider name may appear. The display name is the one sanctioned place.
+    id: "flash",
+    name: "Flash",
+    display: "DeepSeek V4.1 Flash",
+    separateSession: true,
+    blurb: "DeepSeek V4.1 Flash only — fast answers for a very long conversation",
+  },
 ];
 
 export const DEFAULT_MODE_ID: ModeId = "auto";
@@ -56,11 +66,13 @@ export function getMode(id: string): ModeOption {
  * must never happen.
  *
  * "Groq" is the product's name for the Code model, so it is whitelisted even
- * though it is also the name of the vendor that serves it. "Openmi Code" stays
- * listed so a message stored before the rename keeps the label it was written
- * with instead of silently degrading to plain "Openmi".
+ * though it is also the name of the vendor that serves it. The Flash mode's
+ * display name is whitelisted for the same reason: it is the product's name for
+ * that model, so the picker can say which one the person chose. "Openmi Code"
+ * stays listed so a message stored before the rename keeps the label it was
+ * written with instead of silently degrading to plain "Openmi".
  */
-const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?|Groq)$/;
+const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?|Groq|DeepSeek V4\.1 Flash)$/;
 
 export function getModelDisplayName(model?: string): string {
   if (!model) return "Openmi";

@@ -507,8 +507,18 @@ export default function HomePage() {
       const name = getMode(mode).display;
       // Each mode is served by its own key. Telling somebody who picked Code
       // to add an OpenRouter key sends them after the wrong value entirely.
-      const key = mode === "code" ? "GROQ_API_KEY" : "OPENROUTER_API_KEY";
-      const needs = mode === "code" ? "a Groq API key" : "an OpenRouter API key";
+      const key =
+        mode === "code"
+          ? "GROQ_API_KEY"
+          : mode === "flash"
+            ? "DEEPSEEK_API_KEY"
+            : "OPENROUTER_API_KEY";
+      const needs =
+        mode === "code"
+          ? "a Groq API key"
+          : mode === "flash"
+            ? "a DeepSeek API key"
+            : "an OpenRouter API key";
       setModelNotice(
         `${name} needs ${needs} (${key}). Add your own in Settings → API keys, or ask the site owner to configure it — the mode becomes selectable as soon as a key is available.`
       );

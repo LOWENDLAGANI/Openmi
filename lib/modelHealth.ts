@@ -134,7 +134,9 @@ export function modelTargetId(model: string): string {
 export function listModelTargets(): ModelTarget[] {
   const targets: ModelTarget[] = [];
   let backups = 0;
-  for (const provider of getProviders("auto")) {
+  // Auto's chain first, then every mode that is pinned to one model, so a key
+  // added for one of those modes still gets a row to check.
+  for (const provider of [...getProviders("auto"), ...getProviders("flash")]) {
     if (provider.family === "groq") {
       // The last-resort models all present to users as plain "Openmi", so a
       // list of identical names would be unreadable and untestable one by one.
@@ -154,10 +156,10 @@ export function listModelTargets(): ModelTarget[] {
 
 /** Resolves an opaque id back to the provider that serves it, or null. */
 function findProvider(id: string): ProviderConfig | null {
-  // Both mode lists are searched so an id from either resolves. In practice
-  // "auto" is a superset of "code", but a model being reachable from only one
-  // mode is exactly the sort of thing this panel exists to reveal.
-  for (const mode of ["auto", "code"] as const) {
+  // Every mode's list is searched so an id from any of them resolves. In
+  // practice "auto" is a superset of "code", but a model being reachable from
+  // only one mode is exactly the sort of thing this panel exists to reveal.
+  for (const mode of ["auto", "code", "flash"] as const) {
     const match = getProviders(mode).find((provider) => modelTargetId(provider.model) === id);
     if (match) return match;
   }

@@ -93,6 +93,7 @@ test("each wire model maps to a Openmi name", () => {
   assert.equal(toOpenmiName("gemini-3.6-flash"), "Openmi V1");
   assert.equal(toOpenmiName("gemini-3.7-flash"), "Openmi V2");
   assert.equal(toOpenmiName("gemini-3.8-flash"), "Openmi V3");
+  assert.equal(toOpenmiName("deepseek-flash"), "DeepSeek V4.1 Flash");
 });
 
 test("the router keeps its own name", () => {
@@ -119,14 +120,25 @@ test("a wire id never becomes the wire id", () => {
   for (const input of inputs) {
     const name = toOpenmiName(input);
     assert.ok(
-      name === "Openmi" || name.startsWith("Openmi ") || name === "Groq",
+      name === "Openmi" ||
+        name.startsWith("Openmi ") ||
+        name === "Groq" ||
+        name === "DeepSeek V4.1 Flash",
       `"${input}" became "${name}", which is not a product name`
     );
   }
 });
 
 test("a stored product name survives display unchanged", () => {
-  for (const name of ["Openmi V1", "Openmi V2", "Openmi V3", "Openmi Auto", "Openmi Code", "Groq"]) {
+  for (const name of [
+    "Openmi V1",
+    "Openmi V2",
+    "Openmi V3",
+    "Openmi Auto",
+    "Openmi Code",
+    "Groq",
+    "DeepSeek V4.1 Flash",
+  ]) {
     assert.equal(getModelDisplayName(name), name);
   }
 });
@@ -140,11 +152,12 @@ test("a stored provider id from an old backup is not shown", () => {
 
 const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
 
-// "Groq" is the product's name for the Code model, so it is the one vendor word
-// allowed on screen. It goes through this list rather than being dropped from
-// VENDOR_WORDS, so a *different* display name that happens to contain a
-// provider word is still caught — the exemption stays one name wide.
-const SANCTIONED_DISPLAY_NAMES: string[] = ["Groq"];
+// "Groq" is the product's name for the Code model, and "DeepSeek V4.1 Flash"
+// the name of its own mode, so those are the vendor words allowed on screen.
+// They go through this list rather than being dropped from VENDOR_WORDS, so a
+// *different* display name that happens to contain a provider word is still
+// caught — each exemption stays one name wide.
+const SANCTIONED_DISPLAY_NAMES: string[] = ["Groq", "DeepSeek V4.1 Flash"];
 
 /**
  * The source with the sanctioned display names removed.

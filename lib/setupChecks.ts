@@ -98,6 +98,15 @@ function items(): SetupItem[] {
       configured: present(process.env.GROQ_API_KEY),
     },
     {
+      keys: ["DEEPSEEK_API_KEY"],
+      label: "DeepSeek (Flash mode)",
+      missing:
+        "The DeepSeek V4.1 Flash mode is not offered, because no model is configured for it. Every other mode is unaffected.",
+      where: "platform.deepseek.com/api_keys — create a key in the DeepSeek console.",
+      severity: "optional",
+      configured: present(process.env.DEEPSEEK_API_KEY),
+    },
+    {
       keys: ["OPENMI_ADMIN_EMAIL"],
       label: "Admin console",
       missing:

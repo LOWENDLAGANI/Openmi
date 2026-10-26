@@ -78,11 +78,13 @@ export const DEW_PRECISION = 3;
  * costs, full stop: not a rate, not a per-1,000-token figure, and not something
  * a longer answer changes. `code` is dearer because it is the model tuned for
  * reading and changing a repository, which is the more expensive request to
- * serve.
+ * serve. `flash` is the cheapest: Flash is priced as the fast, economical
+ * model, and a price that did not reflect that would make the mode pointless.
  */
 export const DEW_PER_REQUEST: Record<ModeId, number> = {
   auto: 0.25,
   code: 0.5,
+  flash: 0.2,
 };
 
 export interface TokenUsage {

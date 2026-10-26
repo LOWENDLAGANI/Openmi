@@ -10,15 +10,21 @@
 // has a stable prefix that makes the mistake obvious.
 
 /** The providers an account may bring its own key for. */
-export type UserKeyProvider = "openrouter" | "gemini" | "groq";
+export type UserKeyProvider = "openrouter" | "gemini" | "groq" | "deepseek";
 
 /** In the order the settings screen lists them. */
-export const USER_KEY_PROVIDERS: readonly UserKeyProvider[] = ["openrouter", "gemini", "groq"];
+export const USER_KEY_PROVIDERS: readonly UserKeyProvider[] = [
+  "openrouter",
+  "gemini",
+  "groq",
+  "deepseek",
+];
 
 export const USER_KEY_LABELS: Record<UserKeyProvider, string> = {
   openrouter: "OpenRouter",
   gemini: "Google Gemini",
   groq: "Groq",
+  deepseek: "DeepSeek",
 };
 
 /** What this provider's key does in the product, in one line. */
@@ -26,6 +32,7 @@ export const USER_KEY_HELP: Record<UserKeyProvider, string> = {
   openrouter: "Auto mode's router — the first model Openmi tries.",
   gemini: "Auto mode's fallback when the router is unavailable.",
   groq: "Code mode, and Auto's last resort.",
+  deepseek: "The DeepSeek V4.1 Flash mode.",
 };
 
 /** Where a key can be obtained. Shown beside the field, never linked from data. */
@@ -33,6 +40,7 @@ export const USER_KEY_SOURCES: Record<UserKeyProvider, string> = {
   openrouter: "openrouter.ai/keys",
   gemini: "aistudio.google.com/apikey",
   groq: "console.groq.com/keys",
+  deepseek: "platform.deepseek.com/api_keys",
 };
 
 /** Every key starts with a vendor prefix; these are the ones we expect. */
@@ -40,9 +48,10 @@ const KEY_PREFIXES: Record<UserKeyProvider, string> = {
   openrouter: "sk-or-",
   gemini: "AIza",
   groq: "gsk_",
+  deepseek: "sk-",
 };
 
-/** The shortest key worth sending to a vendor. All three are longer. */
+/** The shortest key worth sending to a vendor. All of them are longer. */
 export const MIN_KEY_LENGTH = 20;
 
 /** True when `value` names a provider this deployment can route to. */
