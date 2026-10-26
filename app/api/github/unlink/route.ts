@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { isSameOriginRequest, checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { isSameOriginRequest, checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { GITHUB_CONNECTION_COOKIE, clearGithubLink } from "@/lib/github/store";
 
 // ── Disconnecting GitHub ─────────────────────────────────────────────────────
@@ -24,9 +24,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Sign in before disconnecting GitHub." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 10, "github");
+  const limit = await checkRateLimit(req, identity, "github-link");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const cleared = await clearGithubLink(authorization, identity.uid);

@@ -23,6 +23,26 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 const isDev = process.env.NODE_ENV !== "production";
 const devEval = isDev ? " 'unsafe-eval'" : "";
 
+// ── AdSense boundaries ──────────────────────────────────────────────────────
+// Named one host at a time, with what each is for. AdSense is the only
+// third-party script this app loads, and the policy still has to stop an
+// injected script from talking anywhere it likes — so no `*` and no scheme
+// wildcard for scripts, ever. These lists are also what the CSP test reads.
+const adScriptOrigins = [
+  "https://pagead2.googlesyndication.com", // the loader itself
+  "https://*.googlesyndication.com", // ad rendering and measurement
+  "https://*.googleadservices.com", // click and conversion measurement
+  "https://adservice.google.com", // ad serving
+];
+const adFrameOrigins = [
+  "https://googleads.g.doubleclick.net", // the ad iframe
+  "https://tpc.googlesyndication.com", // the ad iframe's static frame
+];
+const adImageOrigins = [
+  "https://*.doubleclick.net",
+  "https://*.googlesyndication.com",
+];
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   // 'unsafe-inline' for scripts is required by Next's hydration bootstrap, and
@@ -31,13 +51,13 @@ const contentSecurityPolicy = [
   // reload runtime — evaluates a string to register each component, and without
   // it every page of the development site renders as an empty black screen with
   // an EvalError in the console. Production never gets the directive.
-  `script-src 'self' 'unsafe-inline'${devEval}`,
+  `script-src 'self' 'unsafe-inline'${devEval} ${adScriptOrigins.join(" ")}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${adImageOrigins.join(" ")}`,
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-  // Nothing is framed but the app's own artifact preview.
-  "frame-src 'self'",
+  `connect-src 'self' https://*.supabase.co wss://*.supabase.co ${adScriptOrigins.join(" ")}`,
+  // The app's own artifact preview, plus the ad iframes. Nothing else.
+  `frame-src 'self' ${adFrameOrigins.join(" ")}`,
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, rateLimitRefusal, verifyCaller } from "@/lib/serverControl";
 import { githubStoreConfigured, resolveGithubLink } from "@/lib/github/store";
 import { githubOAuthConfigured } from "@/lib/github/oauth";
 import { connectionsConfigured, listGithubConnections, readDefaultConnectionId } from "@/lib/github/connections";
@@ -27,6 +27,11 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!identity) {
     return Response.json({ error: "Sign in to check your GitHub connection." }, { status: 401 });
   }
+
+  // Three database reads per request (link, connections, default). Cheap, but
+  // not free, and the workspace asks on every open.
+  const limit = await checkRateLimit(req, identity, "github-read");
+  if (!limit.allowed) return rateLimitRefusal(limit);
 
   const configured = githubStoreConfigured();
   const link = configured ? await resolveGithubLink(req, authorization, identity.uid) : null;

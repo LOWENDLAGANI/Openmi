@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { GithubError } from "@/lib/github/client";
 import { loadBlob, loadTree } from "@/lib/github/cache";
 import { MAX_FILE_BYTES, filterTree, isSafeRelativePath } from "@/lib/github/tree";
@@ -27,9 +27,9 @@ export async function GET(
     return Response.json({ error: "Sign in to read a repository file." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 120, "projects");
+  const limit = await checkRateLimit(req, identity, "project-files");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many requests. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many requests. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const { id } = await context.params;

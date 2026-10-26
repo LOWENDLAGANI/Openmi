@@ -1,8 +1,10 @@
 # Openmi — next work, in phases
 
-Status: **Phase 1 complete; Phase 0 complete except its live run.** This is the
-working plan and the progress record; update the tracker when a phase moves,
-not just at the end.
+Status: **Phases 1–3 complete; Phase 0 complete except its live run.** Phase 2's
+AdSense application, consent message and review are dashboard tasks, not code,
+and Phase 3's cross-tab acceptance needs a shared store. This is the working
+plan and the progress record; update the tracker when a phase moves, not just
+at the end.
 Last updated: 2026-10-25.
 
 ## Locked decisions (owner, 2026-10-25)
@@ -22,8 +24,8 @@ Last updated: 2026-10-25.
 |---|---|---|---|---|
 | 0 | Baseline verified; agent diagnosed | 2, 5 | 0.5–1 d | **Done, live run pending** |
 | 1 | Agent's propose-and-approve path is legible | 5 | 2–4 d | **Done** |
-| 2 | Composer gains a context ring and the AdSense banner | 4, 1 | 5–7 d | Planned |
-| 3 | Rate limits are complete, consistent and visible | 8 | 3–4 d | Planned |
+| 2 | Composer gains a context ring and the AdSense banner | 4, 1 | 5–7 d | **Done (code); review pending** |
+| 3 | Rate limits are complete, consistent and visible | 8 | 3–4 d | **Done** |
 | 4 | Bring your own key, free of Dew | 3 | 8–12 d | Planned |
 | — | Public promotion page | 9 | 4–6 d | **Deferred** |
 
@@ -180,29 +182,29 @@ small token count in `components/ChatThread.tsx`. The server caps a request
 at roughly 30k tokens (`app/api/chat/route.ts`: 120 messages, 32k chars each,
 200k total) and refuses a longer one with a 413 sentence.
 
-- [ ] `components/ContextRing.tsx`: one SVG ring, two arcs, no chart
+- [x] `components/ContextRing.tsx`: one SVG ring, two arcs, no chart
       dependency (the technique already used by the Dew ring on
       `app/plus/page.tsx`). Thresholds at 70% and 90%; percent inside;
       `role="img"` with numbers in the label; focusable button.
-- [ ] Placement: composer header, right side; hidden on Focus home. Clicking
+- [x] Placement: composer header, right side; hidden on Focus home. Clicking
       opens a popover, not a dialog, with the breakdown and **Start a new
       chat** at >90%.
-- [ ] Denominator: Openmi's per-request budget, served by `GET /api/chat` as
+- [x] Denominator: Openmi's per-request budget, served by `GET /api/chat` as
       `contextBudget` (a number, no model id). Never expose a provider's
       context window — it is not the limit enforced and it leaks the vendor.
-- [ ] Numerator: the last assistant message's actual `usage.prompt`, plus an
+- [x] Numerator: the last assistant message's actual `usage.prompt`, plus an
       estimate for the draft, attachments and selected web sources. Reuse
       `estimateTokenUsage` from `lib/dew.ts`; label it approximate.
-- [ ] Breakdown buckets: system & tools, conversation, attachments, repo
+- [x] Breakdown buckets: system & tools, conversation, attachments, repo
       context (files read this turn), web sources. The server already knows
       the tool reads; pass counts on the done event rather than re-deriving
       them in the browser.
-- [ ] States: new chat (0%, muted), streaming (last known + spinner), no
+- [x] States: new chat (0%, muted), streaming (last known + spinner), no
       usage yet (estimate only), over budget (red + new-chat CTA), error
       (keep last known, never blank).
-- [ ] Persist the last prompt count per chat in Dexie (usage is already on
+- [x] Persist the last prompt count per chat in Dexie (usage is already on
       the message; this is a read, not a new table).
-- [ ] Tests: percent clamping, thresholds, draft estimate, accessible label,
+- [x] Tests: percent clamping, thresholds, draft estimate, accessible label,
       and a source-contract test that the budget is a product number rather
       than a provider model name.
 
@@ -218,7 +220,7 @@ it from damaging the composer.
 
 What has to change before a single ad can render:
 
-- [ ] **CSP** in `next.config.mjs` currently allows `script-src 'self'` and
+- [x] **CSP** in `next.config.mjs` currently allows `script-src 'self'` and
       `frame-src 'self'`. Add only the AdSense origins, in the existing
       "boundaries" style, with a comment naming what each is for:
       - `script-src`: `https://pagead2.googlesyndication.com`,
@@ -231,33 +233,33 @@ What has to change before a single ad can render:
       - `connect-src`: the same origins as `script-src`
       Verify in dev with the console open; a blocked ad request is the
       failure this catches.
-- [ ] **Env**: `NEXT_PUBLIC_ADSENSE_CLIENT_ID` (`ca-pub-…`, public by design)
+- [x] **Env**: `NEXT_PUBLIC_ADSENSE_CLIENT_ID` (`ca-pub-…`, public by design)
       and `NEXT_PUBLIC_ADSENSE_SLOT_ID`. No key is a secret here. Add both to
       `.env.example` with the dashboard path; absent means no ad, not a
       broken box.
-- [ ] **`components/AdBanner.tsx`**: load `adsbygoogle.js` once with
+- [x] **`components/AdBanner.tsx`**: load `adsbygoogle.js` once with
       `next/script` (`strategy="afterInteractive"`), render one labelled
       `<ins class="adsbygoogle">`, push once. No refresh on message send, no
       auto ads, no second unit.
-- [ ] **Layout**: a reserved-height container above `ChatInput` in
+- [x] **Layout**: a reserved-height container above `ChatInput` in
       `app/page.tsx` (between the repo chip and the composer), centered,
       `max-w-[728px]`, 50px mobile / 60px desktop, hairline border,
       `overflow-hidden`, the word "Ad" in the corner. Reserving the height is
       the whole point: a banner that arrives late and pushes the composer is
       worse than no banner.
-- [ ] Do not render on the auth screen, in temporary chats, or in Focus home;
+- [x] Do not render on the auth screen, in temporary chats, or in Focus home;
       those are the places where an ad contradicts what the screen is for.
       State that in the component, so the choice is auditable.
-- [ ] **Kill switch**: `adsEnabled` in `app_config` (admin console) in
+- [x] **Kill switch**: `adsEnabled` in `app_config` (admin console) in
       addition to the env var, so the banner can be turned off without a
       deploy. Default on only when both id and slot are present.
 - [ ] **Consent**: configure Google's own GDPR message in AdSense →
       Privacy & messaging for EEA/UK/CH rather than adding a CMP dependency.
       The ad script must not load before consent where consent is required.
-- [ ] **`app/ads.txt/route.ts`**: derived from the client id (strip `ca-`),
+- [x] **`app/ads.txt/route.ts`**: derived from the client id (strip `ca-`),
       cached; an empty 404 when unset. Same single-source pattern as robots
       and sitemap.
-- [ ] **`app/privacy/page.tsx`**: a short factual page — what Openmi stores,
+- [x] **`app/privacy/page.tsx`**: a short factual page — what Openmi stores,
       what Google collects for ads, how to change ad settings, how to delete
       an account. Required by AdSense and by basic honesty; this is not the
       deferred promotion page.
@@ -268,7 +270,7 @@ What has to change before a single ad can render:
       is a public product overview at `/` for signed-out visitors — a slice
       of the deferred promotion page, not the whole thing. Do that only if
       review demands it.
-- [ ] Tests: no ad without env or flag, one push per mount, reserved height
+- [x] Tests: no ad without env or flag, one push per mount, reserved height
       constant, ads.txt content, and a source-contract test that the CSP
       contains no wildcard beyond the named AdSense hosts.
 
@@ -278,11 +280,23 @@ fills, clicking **Send** is nowhere near the ad, and removing the env id makes
 the slot disappear without a gap. With no consent, no ad request is made in a
 consent-required region.
 
+**Not done in this pass, and why:** the AdSense account application, the GDPR
+consent message and the review submission are dashboard and calendar tasks.
+None of them blocks the code: the banner renders only when both public ids
+exist, and `/privacy`, `/about` and the share pages are live for the review.
+
 ### Phase 2 order
 
 Do 2a first, then 2b in the same layout: the ring occupies the composer
 header, the banner sits above it. One visual pass, one set of screenshots,
 one round of layout review.
+
+Delivered: `lib/contextBudget.ts` (budget, thresholds, estimates),
+`components/ContextRing.tsx` (SVG ring, popover, new-chat CTA at 90%), the
+ring in the composer header hidden on Focus home, `GET /api/chat` serving
+`contextBudget`, `components/AdBanner.tsx` with a reserved 50/60 px slot,
+the CSP's named AdSense origins, `/ads.txt`, `/privacy`, and the `adsEnabled`
+console kill switch (migration `20261025000100_ads_enabled.sql`).
 
 ---
 
@@ -305,27 +319,38 @@ backed by Upstash when configured and an in-process Map otherwise. Chat is
 - Limits are literals at eighteen call sites, so the policy cannot be
   reviewed as a policy.
 
-- [ ] One table of scopes and limits (`RATE_LIMITS`), imported everywhere.
-- [ ] Guard the four unguarded routes (admin: identity + tight burst; status
+- [x] One table of scopes and limits (`RATE_LIMITS`), imported everywhere.
+- [x] Guard the four unguarded routes (admin: identity + tight burst; status
       and setup: cheap but public).
-- [ ] Return `Retry-After` plus `X-RateLimit-Limit/Remaining/Reset`; include
+- [x] Return `Retry-After` plus `X-RateLimit-Limit/Remaining/Reset`; include
       `retryAfterSeconds` in every body, including the SSE one.
-- [ ] Distinguish **burst (429)**, **daily identity cap (403, resets at local
+- [x] Distinguish **burst (429)**, **daily identity cap (403, resets at local
       midnight)** and **no Dew (402, top up)** in copy and code.
-- [ ] Client: one countdown source in `app/page.tsx` drives the composer hint
+- [x] Client: one countdown source in `app/page.tsx` drives the composer hint
       and disables send; no toast stacked on the inline notice; clear early
       when the server says remaining > 0.
-- [ ] Keep the existing properties: an aborted request still spends one unit;
+- [x] Keep the existing properties: an aborted request still spends one unit;
       a request that never reached a model spends no Dew.
-- [ ] Tests: fake clock for the local bucket, Redis-null fallback, per-uid
+- [x] Tests: fake clock for the local bucket, Redis-null fallback, per-uid
       isolation, header presence, parser against every server sentence.
-- [ ] State the deployment caveat where operators look: without Upstash the
+- [x] State the deployment caveat where operators look: without Upstash the
       limit is per instance and resets on cold start (`.env.example` and the
       admin console, not only a code comment).
 
 **Acceptance:** 31 messages in a minute returns 429 with `Retry-After`; the
 composer counts down; a second tab sees the same budget; BYOK and platform
 turns share the burst budget.
+
+Delivered: `lib/rateLimitPolicy.ts` as the single table (20 scopes, imported by
+every route — no literal ceilings remain), the four unguarded routes limited,
+`Retry-After` plus `X-RateLimit-*` on refusals, one JSON refusal shape with
+`retryAfterSeconds`, the SSE refusal carrying the same field, the composer
+reading the field before the sentence and clearing a stale countdown on the
+next success, and the per-instance caveat in `.env.example` and the console.
+The fake-clock, per-uid, header and parser tests live in
+`tests/rate-limit.test.ts`. The cross-tab half of the acceptance still needs
+Upstash configured in the deployment; without it each instance counts alone,
+which is the documented behaviour rather than a bug.
 
 ---
 
@@ -442,3 +467,5 @@ rejects the root.
 | 2026-10-25 | Phase 0 code items done: model-notice regression test, `/notes` sitemap fix, `docs/AGENT_CAPABILITIES.md`. Typecheck and tests pass. |
 | 2026-10-25 | Phase 1 delivered: “reads · proposes” chip, **Propose this change**, proposal refusal reasons in the thread, honest new-request disclosure, `/about` copy fixed. New source-contract tests pass; live repro still pending. |
 | 2026-10-25 | Verified: `bun run typecheck`, full `bun run test`, `bun run lint` (0 errors, 6 pre-existing warnings), `bun run build`, and dev-server HTTP checks for `/`, `/about` and `/sitemap.xml`. Five pre-existing `no-explicit-any` errors in `lib/preferences.ts` blocked the build; fixed without behaviour change. |
+| 2026-10-25 | Phase 2 delivered: context ring with popover and 70/90 thresholds, `contextBudget` from `GET /api/chat`, AdSense banner with reserved height, named CSP origins, `/ads.txt`, `/privacy`, `adsEnabled` kill switch. `tests/context-ring.test.ts` (20) and `tests/ads.test.ts` (15) pass. |
+| 2026-10-25 | Phase 3 delivered: one `RATE_LIMITS` table, four routes guarded, uniform 429 body and headers, SSE refusal field, composer countdown source. `tests/rate-limit.test.ts` (17) passes; the parser now reads “Try again in Ns”, which the old one missed. Typecheck, full suite (21 scripts), lint (0 errors) and build are green; 429 verified live against `/api/setup`. |

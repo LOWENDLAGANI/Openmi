@@ -60,9 +60,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return backTo(origin, next, { github: "cancelled" });
   }
 
-  const limit = await checkRateLimit(req, null, 30, "github");
+  const limit = await checkRateLimit(req, null, "github-read");
   if (!limit.allowed) {
-    return backTo(origin, next, { github: "error", reason: "exchange" });
+    // A full-page round trip cannot carry a JSON body, so the wait travels as
+    // the standard header and the failure reason as a query parameter.
+    const refusal = backTo(origin, next, { github: "error", reason: "exchange" });
+    refusal.headers.set("Retry-After", String(limit.retryAfterSeconds));
+    return refusal;
   }
 
   const config = githubOAuthConfig();

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, isSameOriginRequest, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { clientForToken } from "@/lib/supabase";
 import { isProjectId, readProject } from "@/lib/projects";
 
@@ -27,9 +27,9 @@ export async function DELETE(
     return Response.json({ error: "Sign in to remove a project." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "projects");
+  const limit = await checkRateLimit(req, identity, "projects");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many requests. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many requests. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const { id } = await context.params;

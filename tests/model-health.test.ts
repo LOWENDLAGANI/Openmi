@@ -210,9 +210,12 @@ await test("both admin model operations go through the administrator gate", () =
 await test("a check costs provider quota, so it is rate limited separately", () => {
   const route = read("app/api/admin/models/route.ts");
   assert.match(route, /PROBE_MIN_INTERVAL_MS/, "an unlimited button drains the deployment's quota");
-  // The chat's own limits must not apply here, or testing models could lock the
-  // administrator out of the console.
-  assert.ok(!/consumeUsage|checkRateLimit|identityGate/.test(route), "a model check is counted as a chat message");
+  // The route has its own burst scope since the rate-limit policy landed. The
+  // point of this check is unchanged: a model check must not spend the chat
+  // allowance, or testing models could lock the administrator out of chatting.
+  assert.match(route, /checkRateLimit\(req, null, "models"\)/, "the console has no burst limit of its own");
+  assert.ok(!/consumeUsage|identityGate/.test(route), "a model check is counted as a chat message");
+  assert.ok(!/checkRateLimit\([^)]*"chat"/.test(route), "a model check spends the chat bucket");
 });
 
 await test("only a hash can be sent as a model id", () => {

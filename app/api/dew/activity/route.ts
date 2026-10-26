@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { resolveDew } from "@/lib/serverRedeem";
 import { readDewCredits, readDewTransactions } from "@/lib/serverDew";
 import { summarizeDewActivity } from "@/lib/dewActivity";
@@ -31,9 +31,9 @@ export async function GET(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Sign in to see your Dew activity." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 30, "dew-activity");
+  const limit = await checkRateLimit(req, identity, "dew-activity");
   if (!limit.allowed) {
-    return Response.json({ error: "Too many activity checks. Try again shortly." }, { status: 429 });
+    return rateLimitRefusal(limit, "Too many activity checks. Try again shortly.");
   }
 
   const now = Date.now();

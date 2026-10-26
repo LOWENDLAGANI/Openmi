@@ -18,6 +18,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: `${base}/`, lastModified, changeFrequency: "weekly", priority: 1 },
     { url: `${base}/about`, lastModified, changeFrequency: "monthly", priority: 0.6 },
+    { url: `${base}/privacy`, lastModified, changeFrequency: "yearly", priority: 0.4 },
     { url: `${base}/plus`, lastModified, changeFrequency: "weekly", priority: 0.8 },
     // /share/[id] is per-conversation and generated at request time, so it
     // cannot be enumerated here. It carries its own canonical tag and is

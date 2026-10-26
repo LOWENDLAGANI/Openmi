@@ -7,6 +7,8 @@ import type { ResponseLength } from "@/lib/settings";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import QuickActions from "./QuickActions";
+import ContextRing from "./ContextRing";
+import { estimateContextUsage } from "@/lib/contextBudget";
 
 // ── ChatInput: floating composer with attachments — minimal, mobile-first ───
 
@@ -19,6 +21,15 @@ interface ChatInputProps {
   /** The Focus home's composer: one rounded card, a length picker along the
       bottom edge, and no suggestion row. Null keeps the classic capsule. */
   focusMode?: { responseLength: ResponseLength; onChange: (value: ResponseLength) => void } | null;
+  /** Prompt tokens of the last completed answer, from the server's own usage. */
+  contextUsed?: number;
+  /** The per-request token budget the server enforces; never a model window. */
+  contextBudget?: number;
+  /** True while an answer streams, so the ring can show it is still counting. */
+  streaming?: boolean;
+  /** The escape hatch at the top of the budget. */
+  onNewChat?: () => void;
+  canStartNewChat?: boolean;
 }
 
 const LENGTH_LABELS: Record<ResponseLength, string> = {
@@ -135,6 +146,11 @@ export default function ChatInput({
   onStop,
   rateLimitUntil,
   focusMode = null,
+  contextUsed = 0,
+  contextBudget,
+  streaming = false,
+  onNewChat,
+  canStartNewChat = true,
 }: ChatInputProps) {
   const focus = Boolean(focusMode);
   const [text, setText] = useState("");
@@ -176,6 +192,15 @@ export default function ChatInput({
   }, [showTools, showModes]);
 
   const hasContent = text.trim().length > 0 || attachments.length > 0 || documents.length > 0;
+  // The ring counts what the server last sent plus what is sitting in the
+  // composer. Attachments are estimated by size because they are not text.
+  const contextUsage = estimateContextUsage({
+    usedTokens: contextUsed,
+    draftText: text,
+    images: attachments.length,
+    documentChars: documents.reduce((total, document) => total + document.text.length, 0),
+    budget: contextBudget,
+  });
   const rateRemaining = rateLimitUntil ? secondsRemaining(rateLimitUntil, now) : 0;
   const rateLimited = rateRemaining > 0;
   const canSend = hasContent && !compressing && !rateLimited;
@@ -344,6 +369,19 @@ export default function ChatInput({
       {/* Same column and same gutter as the thread above, so the capsule's
           edges sit under the message cards rather than a few pixels off. */}
       <div className="mx-auto w-full max-w-3xl px-4 md:px-6">
+        {/* Composer header — the context ring alone. Focus home has no header:
+            its whole composition is the mark and the composer. */}
+        {!focus && (
+          <div className="mb-1 flex items-center justify-end">
+            <ContextRing
+              usage={contextUsage}
+              streaming={streaming}
+              onNewChat={onNewChat}
+              canStartNewChat={canStartNewChat}
+            />
+          </div>
+        )}
+
         {/* Errors */}
         {errors.length > 0 && (
           <div

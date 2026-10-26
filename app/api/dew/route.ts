@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { verifyCaller, isAdmin, checkRateLimit } from "@/lib/serverControl";
+import { verifyCaller, isAdmin, checkRateLimit, rateLimitRefusal } from "@/lib/serverControl";
 import { ensureTrialGrant } from "@/lib/serverDew";
 import { resolveDew } from "@/lib/serverRedeem";
 import { LOW_BALANCE_THRESHOLD, outOfDewMessage } from "@/lib/dew";
@@ -59,9 +59,9 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!identity) {
     return Response.json({ error: "Sign in to see your Dew balance." }, { status: 401 });
   }
-  const limit = await checkRateLimit(req, identity, 60, "dew");
+  const limit = await checkRateLimit(req, identity, "dew");
   if (!limit.allowed) {
-    return Response.json({ error: "Too many balance checks. Try again shortly." }, { status: 429 });
+    return rateLimitRefusal(limit, "Too many balance checks. Try again shortly.");
   }
   return respond(authorization, identity.uid);
 }
@@ -72,9 +72,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!identity) {
     return Response.json({ error: "Sign in to claim your welcome Dew." }, { status: 401 });
   }
-  const limit = await checkRateLimit(req, identity, 10, "dew");
+  const limit = await checkRateLimit(req, identity, "dew-claim");
   if (!limit.allowed) {
-    return Response.json({ error: "Too many requests. Try again shortly." }, { status: 429 });
+    return rateLimitRefusal(limit, "Too many requests. Try again shortly.");
   }
   const result = await ensureTrialGrant(authorization, identity.uid);
   if (!result.ok && !isAdmin(identity)) {

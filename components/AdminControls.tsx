@@ -156,7 +156,7 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
     [onError]
   );
 
-  const toggle = (key: "chatEnabled" | "searchEnabled") => (value: boolean) => {
+  const toggle = (key: "chatEnabled" | "searchEnabled" | "adsEnabled") => (value: boolean) => {
     void save({ ...config, [key]: value });
   };
 
@@ -224,7 +224,19 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
         />
         <Switch label="Chat" checked={config.chatEnabled} onChange={toggle("chatEnabled")} />
         <Switch label="Web search" checked={config.searchEnabled} onChange={toggle("searchEnabled")} />
+        {/* The ad slot's kill switch. Turning it off removes the unit and the
+            height it reserved, with no deploy. */}
+        <Switch label="Ads" checked={config.adsEnabled} onChange={toggle("adsEnabled")} />
       </div>
+
+      {/* The limiter's deployment caveat, where the operator actually looks:
+          without a shared store the minute bucket is per instance and resets
+          on a cold start, so the numbers below are a speed bump, not a wall. */}
+      <p className="mt-2 rounded-[12px] border border-white/10 bg-white/[0.03] px-3 py-2 text-[10.5px] leading-relaxed text-white/45">
+        Rate limits are per minute and per account. Without `UPSTASH_REDIS_REST_URL`
+        and `UPSTASH_REDIS_REST_TOKEN` the counter lives in this process only, so it
+        resets on a cold start and is not shared between instances.
+      </p>
 
       {config.maintenanceEnabled && (
         <div className="mt-2 rounded-[12px] border border-amber-300/20 bg-amber-400/[0.06] px-3 py-2.5">

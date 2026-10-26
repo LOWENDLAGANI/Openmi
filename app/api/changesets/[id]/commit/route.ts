@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, isSameOriginRequest, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { GithubError, getBranchHead, getRepo } from "@/lib/github/client";
 import { resolveGithubLink } from "@/lib/github/store";
 import { readProject } from "@/lib/projects";
@@ -56,9 +56,9 @@ export async function POST(
 
   // Deliberately tight: a commit costs GitHub requests and creates history, and
   // nothing a person does legitimately needs more than a few per minute.
-  const limit = await checkRateLimit(req, identity, 10, "commits");
+  const limit = await checkRateLimit(req, identity, "commits");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many commit attempts. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many commit attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const { id } = await context.params;

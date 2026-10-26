@@ -14,12 +14,15 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
   useEffect(() => {
     fetch("/api/chat")
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { available?: ModeId[]; searchAvailable?: boolean } | null) => {
+      .then((data: { available?: ModeId[]; searchAvailable?: boolean; contextBudget?: number } | null) => {
         if (data?.available) {
           window.dispatchEvent(new CustomEvent("openmi:availability", {
             detail: {
               available: data.available,
               searchAvailable: Boolean(data.searchAvailable),
+              // The token budget the server enforces, so the ring and the
+              // server's refusal cannot disagree.
+              contextBudget: data.contextBudget,
             },
           }));
         }

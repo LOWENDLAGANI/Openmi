@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { isSameOriginRequest, checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { isSameOriginRequest, checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import {
   authorizeUrl,
   createOAuthState,
@@ -70,12 +70,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "github");
+  const limit = await checkRateLimit(req, identity, "github-manage");
   if (!limit.allowed) {
-    return Response.json(
-      { error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.` },
-      { status: 429 }
-    );
+    return rateLimitRefusal(limit, `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   let body: StartBody = {};

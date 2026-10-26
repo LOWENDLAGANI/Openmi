@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { listModelTargets, probeModel } from "@/lib/modelHealth";
-import { requireAdmin } from "@/lib/serverControl";
+import { checkRateLimit, rateLimitRefusal, requireAdmin } from "@/lib/serverControl";
 
 // ── Administrator-only model health checks ──────────────────────────────────
 // Lists the models this deployment can reach, and answers "is this one up right
@@ -29,12 +29,20 @@ export async function GET(req: NextRequest): Promise<Response> {
   const admin = await requireAdmin(req.headers);
   if (!admin.allowed) return Response.json({ error: admin.error }, { status: admin.status });
 
+  // Listing is cheap but tells an attacker which models exist; the per-probe
+  // throttle on POST does not cover someone hammering the list.
+  const limit = await checkRateLimit(req, null, "models");
+  if (!limit.allowed) return rateLimitRefusal(limit);
+
   return Response.json({ models: listModelTargets() });
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
   const admin = await requireAdmin(req.headers);
   if (!admin.allowed) return Response.json({ error: admin.error }, { status: admin.status });
+
+  const limit = await checkRateLimit(req, null, "models");
+  if (!limit.allowed) return rateLimitRefusal(limit);
 
   let id: unknown;
   try {

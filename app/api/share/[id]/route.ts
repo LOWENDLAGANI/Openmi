@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { clientForToken } from "@/lib/supabase";
 import { isShareId, shareErrorMessage } from "@/lib/share";
 
@@ -27,9 +27,9 @@ export async function DELETE(
     return Response.json({ error: "Sign in to revoke a link." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 60, "share-revoke");
+  const limit = await checkRateLimit(req, identity, "share-revoke");
   if (!limit.allowed) {
-    return Response.json({ error: "Too many requests. Try again shortly." }, { status: 429 });
+    return rateLimitRefusal(limit, "Too many requests. Try again shortly.");
   }
 
   const { id } = await context.params;

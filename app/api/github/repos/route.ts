@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { GithubError, listRepos } from "@/lib/github/client";
 import { resolveGithubLink } from "@/lib/github/store";
 
@@ -29,9 +29,9 @@ export async function GET(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Sign in to list your repositories." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 30, "github");
+  const limit = await checkRateLimit(req, identity, "github-read");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many requests. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many requests. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const link = await resolveGithubLink(req, authorization, identity.uid);

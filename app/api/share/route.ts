@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
-import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { clientForToken } from "@/lib/supabase";
 import {
   SHARE_TTL_DAYS,
@@ -45,9 +45,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Sign in to share an answer." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "share-create");
+  const limit = await checkRateLimit(req, identity, "share-create");
   if (!limit.allowed) {
-    return Response.json({ error: "Too many links created. Try again later." }, { status: 429 });
+    return rateLimitRefusal(limit, "Too many links created. Try again later.");
   }
 
   let body: unknown;
@@ -105,9 +105,9 @@ export async function GET(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Sign in to manage your shared links." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 60, "share-list");
+  const limit = await checkRateLimit(req, identity, "share-list");
   if (!limit.allowed) {
-    return Response.json({ error: "Too many requests. Try again shortly." }, { status: 429 });
+    return rateLimitRefusal(limit, "Too many requests. Try again shortly.");
   }
 
   const token = authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";

@@ -1,5 +1,6 @@
 import { isBanActive, normalizeConfig, DEFAULT_CONFIG, type AppConfig, type BanRecord } from "./appConfig";
 import { clientForToken, publicClient, supabaseConfigured } from "./supabase";
+import { BUCKET_WINDOW_MS, RATE_LIMITS, rateLimitMessage, type RateLimitScope } from "./rateLimitPolicy";
 
 // ── Server-side enforcement of the administrator's controls ─────────────────
 // The deployment holds no service key, so this module does exactly two things
@@ -50,7 +51,7 @@ export async function readConfig(): Promise<AppConfig> {
     const { data, error } = await client
       .from("app_config")
       .select(
-        "chat_enabled, search_enabled, announcement, daily_chat_cap, bans, maintenance_enabled, maintenance_message, updated_at"
+        "chat_enabled, search_enabled, announcement, daily_chat_cap, bans, maintenance_enabled, maintenance_message, ads_enabled, updated_at"
       )
       .eq("id", 1)
       .maybeSingle();
@@ -73,6 +74,7 @@ function configRowToStored(row: Record<string, unknown>) {
     bans: row.bans,
     maintenanceEnabled: row.maintenance_enabled,
     maintenanceMessage: row.maintenance_message,
+    adsEnabled: row.ads_enabled,
     updatedAt:
       typeof row.updated_at === "string" ? new Date(row.updated_at).getTime() : row.updated_at,
   };
@@ -88,6 +90,7 @@ export function storedConfigFrom(config: AppConfig) {
     bans: config.bans,
     maintenance_enabled: config.maintenanceEnabled,
     maintenance_message: config.maintenanceMessage,
+    ads_enabled: config.adsEnabled,
     updated_at: new Date(config.updatedAt || Date.now()).toISOString(),
   };
 }
@@ -347,12 +350,16 @@ const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ?? "";
 export const sharedRateLimit = Boolean(redisUrl && redisToken);
 
 const buckets = new Map<string, { count: number; resetAt: number }>();
-const BUCKET_WINDOW_MS = 60_000;
 
 export interface RateLimit {
   allowed: boolean;
+  /** The policy's ceiling for this scope, per minute. */
+  limit: number;
   remaining: number;
   retryAfterSeconds: number;
+  /** Seconds until the window resets, whether or not this call was refused. */
+  resetSeconds: number;
+  scope: RateLimitScope;
 }
 
 /** Reads the client address from the headers a proxy sets. */
@@ -425,28 +432,81 @@ function localIncrement(key: string, now: number): { count: number; ttlMs: numbe
 export async function checkRateLimit(
   req: { headers: Headers },
   identity: CallerIdentity | null,
-  max: number,
   /**
    * Which budget this request spends.
    *
-   * Chat and memory suggestions share a client but not a purpose, so they get
-   * separate buckets. Sharing one would mean every suggestion request silently
-   * costs a message of the user's allowance.
+   * The ceiling is never passed in: it comes from RATE_LIMITS so one route
+   * cannot quietly use a size its neighbours do not share. Chat and memory
+   * suggestions share a client but not a purpose, so they get separate
+   * buckets — sharing one would mean every suggestion request silently costs a
+   * message of the user's allowance.
    */
-  scope = "chat"
+  scope: RateLimitScope = "chat",
+  /** Injectable clock, so the window can be tested without waiting a minute. */
+  now = Date.now()
 ): Promise<RateLimit> {
-  const now = Date.now();
+  const limit = RATE_LIMITS[scope].perMinute;
   const key = `openmi:rl:${clientKey(req, identity)}:${scope}`;
   const shared = sharedRateLimit ? await redisIncrement(key) : null;
   const { count, ttlMs } = shared ?? localIncrement(key, now);
-  if (count > max) {
+  const resetSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+  if (count > limit) {
     return {
       allowed: false,
+      limit,
       remaining: 0,
-      retryAfterSeconds: Math.max(1, Math.ceil(ttlMs / 1000)),
+      retryAfterSeconds: resetSeconds,
+      resetSeconds,
+      scope,
     };
   }
-  return { allowed: true, remaining: max - count, retryAfterSeconds: 0 };
+  return {
+    allowed: true,
+    limit,
+    remaining: Math.max(0, limit - count),
+    retryAfterSeconds: 0,
+    resetSeconds,
+    scope,
+  };
+}
+
+/**
+ * The headers a refusal owes its caller.
+ *
+ * `Retry-After` is the standard one a proxy or a sleep-and-retry client reads;
+ * the three `X-RateLimit-*` headers say which budget and how much of it is
+ * left, which a bare 429 does not. They are attached to refusals today — a
+ * successful chat stream sets its own headers and is not worth rewriting on
+ * every return — so this helper is what all 429s share, not every response.
+ * `X-RateLimit-Reset` is an epoch timestamp in seconds, the conventional shape.
+ */
+export function rateLimitHeaders(state: RateLimit, now = Date.now()): Record<string, string> {
+  const headers: Record<string, string> = {
+    "X-RateLimit-Limit": String(state.limit),
+    "X-RateLimit-Remaining": String(state.remaining),
+    "X-RateLimit-Reset": String(Math.ceil((now + state.resetSeconds * 1000) / 1000)),
+  };
+  if (!state.allowed) headers["Retry-After"] = String(state.retryAfterSeconds);
+  return headers;
+}
+
+/**
+ * One refusal shape for every JSON route.
+ *
+ * The wait is in the body as a number as well as in the headers, because the
+ * composer's countdown is built from the body and a proxy is entitled to strip
+ * headers it does not recognise. Copy comes from the policy's scope label, so
+ * the sentence and the budget cannot drift apart.
+ */
+export function rateLimitRefusal(state: RateLimit, message?: string): Response {
+  return Response.json(
+    {
+      error: message ?? rateLimitMessage(state.scope, state.retryAfterSeconds),
+      retryAfterSeconds: state.retryAfterSeconds,
+      limit: state.limit,
+    },
+    { status: 429, headers: rateLimitHeaders(state) }
+  );
 }
 
 /** The bans still in force at `now`. Expired ones lift by themselves. */

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, isSameOriginRequest, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { GithubError, getBranchHead, getRepo } from "@/lib/github/client";
 import { resolveGithubLink } from "@/lib/github/store";
 import { readProject } from "@/lib/projects";
@@ -46,9 +46,9 @@ export async function POST(
     return Response.json({ error: "Sign in to approve a change." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "changesets");
+  const limit = await checkRateLimit(req, identity, "changeset-approve");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const { id } = await context.params;

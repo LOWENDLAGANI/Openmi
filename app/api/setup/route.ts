@@ -1,3 +1,5 @@
+import { NextRequest } from "next/server";
+import { checkRateLimit, rateLimitRefusal } from "@/lib/serverControl";
 import { setupReport } from "@/lib/setupChecks";
 import {
   SCHEMA_HEALTH_RPC,
@@ -48,7 +50,13 @@ async function databaseHealth(): Promise<DatabaseHealth> {
   }
 }
 
-export async function GET(): Promise<Response> {
+export async function GET(req: NextRequest): Promise<Response> {
+  // Public and therefore unlimited by identity: the bucket is per address.
+  // The endpoint does real work (an RPC against the database), so it needs a
+  // ceiling even though it asks no one to sign in.
+  const limit = await checkRateLimit(req, null, "setup");
+  if (!limit.allowed) return rateLimitRefusal(limit);
+
   const database = await databaseHealth();
   return Response.json(
     { ...setupReport(), database },

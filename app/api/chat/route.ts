@@ -3,11 +3,20 @@ import { OPENMI_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getModelDisplayName, type ModeId } from "@/lib/models";
+import { CONTEXT_BUDGET } from "@/lib/contextBudget";
 import { toOpenmiName } from "@/lib/modelEngines";
 import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
-import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
+import {
+  checkRateLimit,
+  identityGate,
+  isAdmin,
+  rateLimitHeaders,
+  readConfig,
+  verifyCaller,
+} from "@/lib/serverControl";
+import { rateLimitMessage } from "@/lib/rateLimitPolicy";
 import { resolveDew } from "@/lib/serverRedeem";
 import { canAfford, estimateTokenUsage, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
@@ -125,15 +134,32 @@ function textStream(text: string): Response {
 }
 
 /** Stream an operational error separately from assistant output. */
-function errorStream(message: string): Response {
+/**
+ * A refusal delivered inside the SSE stream.
+ *
+ * Chat refuses in-stream rather than with a JSON status so the client has one
+ * parser for an answer and for a refusal. The cost is that the status line is
+ * always 200, so the wait has to travel twice: as a field on the error event
+ * (what the composer's countdown reads) and as the standard rate-limit headers
+ * (what a proxy or an operator can see). Both come from the same state.
+ */
+function errorStream(
+  message: string,
+  extra?: { retryAfterSeconds?: number; headers?: Record<string, string> }
+): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(encodeEvent({ error: message }));
+      controller.enqueue(
+        encodeEvent({
+          error: message,
+          ...(extra?.retryAfterSeconds ? { retryAfterSeconds: extra.retryAfterSeconds } : {}),
+        })
+      );
       controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
       controller.close();
     },
   });
-  return new Response(stream, { headers: sseHeaders() });
+  return new Response(stream, { headers: { ...sseHeaders(), ...(extra?.headers ?? {}) } });
 }
 
 function extractUpstreamError(detail: string): string {
@@ -319,9 +345,12 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   // A backstop that does not depend on anything the caller sends, so the
   // deployment's provider quota cannot be drained by one client.
-  const limit = await checkRateLimit(req, identity, 30);
+  const limit = await checkRateLimit(req, identity, "chat");
   if (!limit.allowed) {
-    return errorStream(`Too many messages at once. Please wait ${limit.retryAfterSeconds}s and try again.`);
+    return errorStream(rateLimitMessage(limit.scope, limit.retryAfterSeconds), {
+      retryAfterSeconds: limit.retryAfterSeconds,
+      headers: rateLimitHeaders(limit),
+    });
   }
   // Refuses an unidentified caller once a ban or a cap is configured, so those
   // controls cannot be sidestepped by leaving the Authorization header off.
@@ -746,5 +775,9 @@ export async function GET(): Promise<Response> {
   return Response.json({
     available,
     searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()),
+    // A product number: the most Openmi will send in one request. Never a
+    // provider's context window — it is not the limit this route refuses on,
+    // and naming it would put a vendor's number in the browser.
+    contextBudget: CONTEXT_BUDGET,
   });
 }

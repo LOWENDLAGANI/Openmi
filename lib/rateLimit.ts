@@ -3,9 +3,16 @@
 // job is to turn that sentence into a countdown the composer can show, so the
 // refusal reads as a queue position rather than as a failure.
 
-/** Pulls the wait out of a server message like "Please wait 12s and try again." */
+/**
+ * Pulls the wait out of a server message.
+ *
+ * Two phrasings are in the product — "Please wait 12s and try again." and
+ * "Try again in 12s." — and an older client only understood the first, so half
+ * the refusals produced no countdown at all. Both are read here, and the body's
+ * `retryAfterSeconds` (when the server sends it) stays authoritative.
+ */
 export function parseRetrySeconds(message: string): number | null {
-  const match = /wait\s+(\d+)\s*s\b/i.exec(message);
+  const match = /(?:wait|again\s+in)\s+(\d+)\s*s\b/i.exec(message);
   if (!match) return null;
   const seconds = Number(match[1]);
   if (!Number.isFinite(seconds) || seconds <= 0) return null;

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { isSameOriginRequest, checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { isSameOriginRequest, checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { GithubError, getBranchHead, getRepo, normalizeRepoFullName } from "@/lib/github/client";
 import { resolveGithubLink } from "@/lib/github/store";
 import {
@@ -60,9 +60,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Sign in before attaching a repository." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "projects");
+  const limit = await checkRateLimit(req, identity, "projects");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   let body: { repoFullName?: unknown };

@@ -4,6 +4,7 @@ import {
   checkRateLimit,
   identityGate,
   isAdmin,
+  rateLimitRefusal,
   readConfig,
   verifyCaller,
 } from "@/lib/serverControl";
@@ -73,12 +74,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Openmi is paused right now. Please try again shortly." }, { status: 503 });
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "agent");
+  const limit = await checkRateLimit(req, identity, "agent");
   if (!limit.allowed) {
-    return Response.json(
-      { error: `Too many agent steps at once. Please wait ${limit.retryAfterSeconds}s and try again.` },
-      { status: 429 }
-    );
+    return rateLimitRefusal(limit, `Too many agent steps at once. Please wait ${limit.retryAfterSeconds}s and try again.`);
   }
   const gate = identityGate(identity, config, config.dailyChatCap);
   if (!gate.allowed) {

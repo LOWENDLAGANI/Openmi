@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, isSameOriginRequest, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { GithubError, canListRepos, getViewerWithScopes } from "@/lib/github/client";
 import { looksLikeGithubToken } from "@/lib/github/oauth";
 import { assessPat, normalizeConnectionLabel } from "@/lib/github/pat";
@@ -98,12 +98,9 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // Ten attempts a minute, shared with the other GitHub doors: pasting a token
   // is a deliberate act, so a burst is a mistake or a script, not a person.
-  const limit = await checkRateLimit(req, identity, 10, "github");
+  const limit = await checkRateLimit(req, identity, "github-link");
   if (!limit.allowed) {
-    return Response.json(
-      { error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.` },
-      { status: 429 }
-    );
+    return rateLimitRefusal(limit, `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   let body: ConnectBody;

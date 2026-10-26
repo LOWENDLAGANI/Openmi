@@ -54,6 +54,15 @@ export interface AppConfig {  /** Master switch for chat. */
   maintenanceEnabled: boolean;
   /** Shown on the notice. The administrator sees it too. */
   maintenanceMessage: string;
+  /**
+   * Whether the ad slot above the composer may render.
+   *
+   * A kill switch that needs no deploy: ads are mandatory for this product, so
+   * the switch exists to be able to stop serving them in a hurry (a policy
+   * problem, a broken unit) without shipping code. The banner still requires
+   * both public ids, so this flag alone cannot conjure an ad.
+   */
+  adsEnabled: boolean;
   updatedAt: number;
 }
 
@@ -65,6 +74,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   bans: [],
   maintenanceEnabled: false,
   maintenanceMessage: "Openmi is down for maintenance. Please check back soon.",
+  adsEnabled: true,
   updatedAt: 0,
 };
 
@@ -139,6 +149,7 @@ export function normalizeConfig(raw: unknown): AppConfig {
       typeof value.maintenanceMessage === "string" && value.maintenanceMessage.trim()
         ? value.maintenanceMessage.slice(0, 300)
         : DEFAULT_CONFIG.maintenanceMessage,
+    adsEnabled: asBool(value.adsEnabled, DEFAULT_CONFIG.adsEnabled),
     updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : 0,
   };
 }
@@ -153,6 +164,7 @@ function rowToStored(row: Record<string, unknown>) {
     bans: row.bans,
     maintenanceEnabled: row.maintenance_enabled,
     maintenanceMessage: row.maintenance_message,
+    adsEnabled: row.ads_enabled,
     updatedAt:
       typeof row.updated_at === "string" ? new Date(row.updated_at).getTime() : row.updated_at,
   };
@@ -184,13 +196,12 @@ export function subscribeAppConfig(onChange: (config: AppConfig) => void): () =>
   let cancelled = false;
 
   void client
-    .from("app_config")
-    .select(
-      "chat_enabled, search_enabled, announcement, daily_chat_cap, bans, maintenance_enabled, maintenance_message, updated_at"
-    )
-    .eq("id", 1)
-    .maybeSingle()
-    .then(({ data }) => {
+    .from("app_config")      .select(
+        "chat_enabled, search_enabled, announcement, daily_chat_cap, bans, maintenance_enabled, maintenance_message, ads_enabled, updated_at"
+      )
+      .eq("id", 1)
+      .maybeSingle()
+      .then(({ data }) => {
       if (!cancelled && data) onChange(normalizeConfig(rowToStored(data)));
     });
 

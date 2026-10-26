@@ -1,6 +1,15 @@
 import { NextRequest } from "next/server";
 import { normalizeConfig, type AppConfig } from "@/lib/appConfig";
-import { invalidateConfig, isAdmin, requireAdmin, serverControlsConfigured, verifyCaller, writeAppConfig } from "@/lib/serverControl";
+import {
+  checkRateLimit,
+  invalidateConfig,
+  isAdmin,
+  rateLimitRefusal,
+  requireAdmin,
+  serverControlsConfigured,
+  verifyCaller,
+  writeAppConfig,
+} from "@/lib/serverControl";
 
 // ── Administrator-only control surface ──────────────────────────────────────
 // Read by anyone, because the public policy allows it and the server needs it to
@@ -33,6 +42,11 @@ export async function GET(req: NextRequest): Promise<Response> {
   // because maintenance mode has to let the administrator in while refusing
   // everyone else. The answer is the server's, never the page's.
   const identity = await verifyCaller(req.headers.get("authorization"));
+  // The one row every control reads, and a route that answers anyone. A
+  // signed-in caller spends their own bucket; a stranger spends their IP's.
+  const limit = await checkRateLimit(req, identity, "admin");
+  if (!limit.allowed) return rateLimitRefusal(limit);
+
   return Response.json({
     adminEmailConfigured: Boolean(configuredAdminEmail()),
     isAdmin: isAdmin(identity),
@@ -51,6 +65,12 @@ export async function PUT(req: NextRequest): Promise<Response> {
     return Response.json({ error: admin.error }, { status: admin.status });
   }
   const authorization = req.headers.get("authorization");
+
+  // A write to the controls table: no browser tab needs to do this in a loop.
+  // The identity was verified above, so this spends the administrator's own
+  // bucket rather than their address's.
+  const limit = await checkRateLimit(req, admin.identity ?? null, "admin");
+  if (!limit.allowed) return rateLimitRefusal(limit);
 
   let body: Partial<AppConfig>;
   try {

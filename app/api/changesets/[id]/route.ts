@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { commitResult, isChangeSetId, readChangeSet, readCommit, viewOf } from "@/lib/changesets";
 
 // ── One change set, for the review screen ────────────────────────────────────
@@ -26,9 +26,9 @@ export async function GET(
     return Response.json({ error: "Sign in to review a change." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 120, "changesets");
+  const limit = await checkRateLimit(req, identity, "changesets");
   if (!limit.allowed) {
-    return Response.json({ error: `Too many requests. Try again in ${limit.retryAfterSeconds}s.` }, { status: 429 });
+    return rateLimitRefusal(limit, `Too many requests. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const { id } = await context.params;

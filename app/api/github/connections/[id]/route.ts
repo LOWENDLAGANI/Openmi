@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, isSameOriginRequest, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, isSameOriginRequest, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { isConnectionId } from "@/lib/github/pat";
 import {
   deleteGithubConnection,
@@ -45,12 +45,9 @@ export async function PATCH(
     return Response.json({ error: "Sign in to change a GitHub connection." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "github");
+  const limit = await checkRateLimit(req, identity, "github-manage");
   if (!limit.allowed) {
-    return Response.json(
-      { error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.` },
-      { status: 429 }
-    );
+    return rateLimitRefusal(limit, `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const { id } = await context.params;
@@ -114,12 +111,9 @@ export async function DELETE(
     return Response.json({ error: "Sign in to remove a GitHub connection." }, { status: 401 });
   }
 
-  const limit = await checkRateLimit(req, identity, 20, "github");
+  const limit = await checkRateLimit(req, identity, "github-manage");
   if (!limit.allowed) {
-    return Response.json(
-      { error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.` },
-      { status: 429 }
-    );
+    return rateLimitRefusal(limit, `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
   const { id } = await context.params;

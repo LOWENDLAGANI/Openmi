@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import Sidebar from "@/components/Sidebar";
 import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
+import AdBanner from "@/components/AdBanner";
 import ModeSelector from "@/components/ModelSelector";
 import OpenmiMark from "@/components/OpenmiMark";
 import FocusHome from "@/components/FocusHome";
@@ -136,6 +137,9 @@ export default function HomePage() {
   // Epoch ms until the server has asked the composer to hold off, set from the
   // wait the server itself names in a 429 — never guessed locally.
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+  // The per-request token budget the server enforces, read from GET /api/chat.
+  // Null until it answers, which the ring reads as "use the product default".
+  const [contextBudget, setContextBudget] = useState<number | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const maintenance = useMaintenance();
   const abortRef = useRef<AbortController | null>(null);
@@ -410,9 +414,13 @@ export default function HomePage() {
       const detail = (e as CustomEvent).detail as {
         available?: ModeId[];
         searchAvailable?: boolean;
+        contextBudget?: number;
       };
       if (Array.isArray(detail.available)) setAvailable(detail.available);
       if (typeof detail.searchAvailable === "boolean") setSearchAvailable(detail.searchAvailable);
+      if (typeof detail.contextBudget === "number" && detail.contextBudget > 0) {
+        setContextBudget(detail.contextBudget);
+      }
     };
     window.addEventListener("openmi:availability", handler);
     return () => window.removeEventListener("openmi:availability", handler);
@@ -524,9 +532,13 @@ export default function HomePage() {
   }, []);
 
   // Turning the server's own refusal into a countdown the composer can show.
-  // Anything without a named wait in it is a plain error and changes nothing.
-  const noteRateLimit = useCallback((message: string) => {
-    const seconds = parseRetrySeconds(message);
+  // `retryAfterSeconds` from the body is authoritative when it is there; the
+  // sentence is the fallback for an older server, a proxy that rewrote the
+  // body, or a provider's own "wait 20s". Anything without a named wait is a
+  // plain error and changes nothing.
+  const noteRateLimit = useCallback((message: string, retryAfterSeconds?: number) => {
+    const named = typeof retryAfterSeconds === "number" && retryAfterSeconds > 0 ? Math.min(retryAfterSeconds, 600) : null;
+    const seconds = named ?? parseRetrySeconds(message);
     if (seconds) setRateLimitUntil(Date.now() + seconds * 1000);
   }, []);
 
@@ -815,11 +827,18 @@ export default function HomePage() {
           signal: controller.signal,
         });
         if (!res.ok) {
-          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          const payload = (await res.json().catch(() => null)) as {
+            error?: string;
+            retryAfterSeconds?: number;
+          } | null;
           const message = payload?.error || `Openmi request failed (HTTP ${res.status})`;
-          noteRateLimit(message);
+          noteRateLimit(message, payload?.retryAfterSeconds);
           throw new Error(message);
         }
+        // The server answered, so whatever wait it asked for last time is over.
+        // Clearing here rather than on a timer means a reopened tab never sits
+        // on a countdown the server has already forgotten.
+        setRateLimitUntil((current) => (current ? null : current));
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No response stream");
         const decoder = new TextDecoder();
@@ -831,14 +850,15 @@ export default function HomePage() {
           const data = trimmed.slice(5).trim();
           if (!data || data === "[DONE]") return;
           try {
-            const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
+            const evt = JSON.parse(data) as { content?: string; error?: string; retryAfterSeconds?: number; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await patchMessage(assistantMsg.id, { model: evt.model });
             }
             if (evt.error) {
               // The server refuses inside the stream as well as before it, so
-              // the countdown is read from both places.
-              noteRateLimit(evt.error);
+              // the countdown is read from both places. The event's own field
+              // is the exact wait the bucket computed.
+              noteRateLimit(evt.error, evt.retryAfterSeconds);
               sawError = true;
               await markError(assistantMsg.id, evt.error);
               return;
@@ -1026,9 +1046,12 @@ export default function HomePage() {
           });
 
           if (!response.ok) {
-            const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+            const payload = (await response.json().catch(() => null)) as {
+              error?: string;
+              retryAfterSeconds?: number;
+            } | null;
             const message = payload?.error ?? `The agent request failed (HTTP ${response.status}).`;
-            noteRateLimit(message);
+            noteRateLimit(message, payload?.retryAfterSeconds);
             await markError(assistantId, message);
             return;
           }
@@ -1245,6 +1268,19 @@ export default function HomePage() {
   const visibleMessages = threadMessages.filter(
     (m) => m.content || m.images || m.documents?.length || m.error || (m.steps && m.steps.length > 0)
   );
+
+  // The composer's context ring reads the last completed request's real prompt
+  // count — the number the server actually sent and metered. Scanning backwards
+  // rather than looking only at the final message keeps the last known number
+  // on screen while the next turn is being written, instead of blanking it.
+  let contextUsed = 0;
+  for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
+    const usage = visibleMessages[i]?.usage;
+    if (usage?.prompt) {
+      contextUsed = usage.prompt;
+      break;
+    }
+  }
 
   // Nothing is rendered until localStorage has been read, so a returning
   // visitor never sees the chat flash before their name is known.
@@ -1512,11 +1548,23 @@ export default function HomePage() {
                 </button>
               </div>
             )}
+            {/* The mandatory unit, directly above the composer and inside its
+                own reserved height. Not in a temporary chat (nothing there is
+                written down or kept), not on Focus home (the screen exists to
+                have no furniture), and not when the administrator's kill
+                switch is off. The id/slot gate lives in the component. */}
+            {!focusHome && !temporary && (
+              <AdBanner enabled={appConfig?.adsEnabled !== false} />
+            )}
             <ChatInput
               onSend={handleSend}
               disabled={isStreaming}
               onStop={stopStreaming}
               rateLimitUntil={rateLimitUntil}
+              contextUsed={contextUsed}
+              contextBudget={contextBudget ?? undefined}
+              streaming={isStreaming}
+              onNewChat={handleNewChat}
               focusMode={
                 focusHome
                   ? { responseLength, onChange: handleResponseLengthChange }
