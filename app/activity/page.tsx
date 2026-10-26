@@ -33,6 +33,7 @@ function shortDay(day: string): string {
 function modelLabel(model: string): string {
   if (model === "auto") return "Auto";
   if (model === "code") return "Code";
+  if (model === "flash") return "DeepSeek V4.1 Flash";
   if (model === "unknown") return "Unrecorded";
   return model;
 }

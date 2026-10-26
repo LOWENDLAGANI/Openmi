@@ -11,6 +11,7 @@ import {
   deleteRedeemCode,
   getChat,
   grantDew,
+  grantPlan,
   listAdminAudit,
   listChats,
   listRedeemCodes,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/cloudAdmin";
 import { summarizeUsage } from "@/lib/usageStats";
 import { formatDew } from "@/lib/dew";
+import { PAID_PLANS } from "@/lib/pricing";
 import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
 
 // ── Admin console ────────────────────────────────────────────────────────────
@@ -109,6 +111,13 @@ export default function AdminPanel({
   const [topUpNote, setTopUpNote] = useState("");
   const [topUpError, setTopUpError] = useState<string | null>(null);
   const [topUpDone, setTopUpDone] = useState<string | null>(null);
+  // A paid pass is activated by hand after a manual payment, exactly like a Dew
+  // top-up. The grant goes through `admin_grant_plan()`, which checks the admin
+  // grant in the database rather than trusting this screen.
+  const [planFromUid, setPlanFromUid] = useState("");
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planDone, setPlanDone] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
   // One read answers every row: uid → balance, from the wallet node.
   const [dewBalances, setDewBalances] = useState<Record<string, number> | null>(null);
 
@@ -313,6 +322,35 @@ export default function AdminPanel({
     }
   }, [topUp, topUpAmount, topUpNote, logAudit]);
 
+  /** Activates one pass for the visitor id in the form above. */
+  const runGrantPlan = useCallback(
+    async (days: number) => {
+      const uid = planFromUid.trim();
+      if (!uid || planBusy) return;
+      setPlanBusy(true);
+      setPlanError(null);
+      setPlanDone(null);
+      try {
+        const grant = await grantPlan(uid, days);
+        await logAudit({
+          at: Date.now(),
+          action: "grantPlan",
+          uid: grant.uid,
+          note: `${days}-day paid pass`,
+        });
+        setPlanDone(
+          `${days}-day pass active for ${grant.uid} until ${new Date(grant.until).toLocaleString()}`
+        );
+      } catch (e: unknown) {
+        console.error("[openmi] Pass activation failed", e);
+        setPlanError(e instanceof Error ? e.message : "The pass was not activated.");
+      } finally {
+        setPlanBusy(false);
+      }
+    },
+    [logAudit, planBusy, planFromUid]
+  );
+
   // Filtering by name or by uid — the two things an owner has in hand when a
   // person needs finding in a long list.
   const query = peopleQuery.trim().toLowerCase();
@@ -439,6 +477,47 @@ export default function AdminPanel({
                     {topUpDone}
                   </p>
                 )}
+
+                {/* The subscription half of a manual sale. A pass raises the
+                    daily bucket to 15 and expires on its own. */}
+                <div className="mt-2 rounded-[14px] border border-[#2f6b48]/25 bg-[#2f6b48]/[0.07] p-3.5">
+                  <h3 className="text-[12px] font-semibold text-[#a9d8bb]">Activate a paid pass</h3>
+                  <p className="mt-0.5 text-[10px] leading-relaxed text-white/40">
+                    After a pass payment lands, extend the buyer&apos;s daily Dew to 15. Extending an
+                    unexpired pass adds the days rather than replacing them.
+                  </p>
+                  <input
+                    value={planFromUid}
+                    onChange={(event) => setPlanFromUid(event.target.value)}
+                    placeholder="Visitor id"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="mt-2 w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 font-mono text-[12px] text-white/90 placeholder:font-sans placeholder:text-white/25"
+                  />
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {PAID_PLANS.map((plan) => (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        disabled={planBusy || planFromUid.trim().length < 4}
+                        onClick={() => void runGrantPlan(plan.days)}
+                        className="rounded-[10px] bg-[#2f6b48]/25 px-3 py-2 text-[12px] font-semibold text-[#d7f0e1] transition hover:bg-[#2f6b48]/35 disabled:opacity-40"
+                      >
+                        {plan.days} days
+                      </button>
+                    ))}
+                  </div>
+                  {planDone && (
+                    <p className="mt-2 rounded-[12px] border border-[#2f6b48]/25 bg-[#2f6b48]/10 px-3 py-2 text-[11px] leading-relaxed text-[#a9d8bb]">
+                      {planDone}
+                    </p>
+                  )}
+                  {planError && (
+                    <p className="mt-2 rounded-[12px] border border-red-400/25 bg-red-500/10 px-3 py-2 text-[11px] leading-relaxed text-red-200">
+                      {planError}
+                    </p>
+                  )}
+                </div>
               </section>
 
               <UsageSection />
@@ -1111,6 +1190,8 @@ function AuditSection({
                   ? "Deleted"
                   : entry.action === "grantDew"
                     ? "Top-up"
+                    : entry.action === "grantPlan"
+                      ? "Pass"
                     : entry.action === "toggleCode"
                       ? off
                         ? "Off"
@@ -1118,7 +1199,7 @@ function AuditSection({
                       : entry.action;
             const tone = off
               ? "bg-red-500/15 text-red-300"
-              : entry.action === "createCode" || entry.action === "grantDew"
+              : entry.action === "createCode" || entry.action === "grantDew" || entry.action === "grantPlan"
                 ? "bg-[#2f6b48]/20 text-[#a9d8bb]"
                 : "bg-white/[0.07] text-white/70";
             return (

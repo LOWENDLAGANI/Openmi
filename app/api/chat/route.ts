@@ -19,6 +19,7 @@ import {
 import { rateLimitMessage } from "@/lib/rateLimitPolicy";
 import { resolveDew } from "@/lib/serverRedeem";
 import { readUserKeys } from "@/lib/providerKeys";
+import { readHourSessionForChat } from "@/lib/hourSession";
 import { canAfford, estimateTokenUsage, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 
@@ -52,6 +53,8 @@ export const maxDuration = 120;
 interface ChatRequestBody {
   messages: ApiMessage[];
   mode?: string;
+  /** The chat this message belongs to, used only to match a live hour session. */
+  chatId?: string;
   searchMode?: SearchMode;
   reasoningEffort?: "low" | "medium" | "high";
   responseLength?: "short" | "balanced" | "detailed";
@@ -363,6 +366,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const requested: ModeId =
     body.mode === "code" ? "code" : body.mode === "flash" ? "flash" : "auto";
+  const chatId = typeof body.chatId === "string" ? body.chatId.trim().slice(0, 200) : "";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
   // ── The Dew ledger ────────────────────────────────────────────────────────
@@ -381,7 +385,20 @@ export async function POST(req: NextRequest): Promise<Response> {
   const price = requestPrice(requested);
   let dewState: DewState | null = null;
 
-  if (!isCallerAdmin) {
+  // A live hour session is the only thing besides the administrator's exemption
+  // that makes a message free. It is read from `hour_sessions` with this
+  // caller's own token and matched to the chat; a client that omits the chat is
+  // simply billed per request, and a session for a different chat never covers
+  // this one. The session was charged when it started, in the same transaction
+  // that wrote the row.
+  const coveredBySession = Boolean(
+    identity &&
+      requested === "flash" &&
+      chatId &&
+      (await readHourSessionForChat(authorization, identity.uid, chatId))
+  );
+
+  if (!isCallerAdmin && !coveredBySession) {
     if (!identity) {
       // "You're out of Dew" is the wrong sentence for a browser whose identity
       // could not be checked: it sends somebody to the top-up page for a problem
@@ -715,7 +732,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // Awaited, not fired-and-forgotten: once this stream closes, a serverless
       // deployment is free to freeze the process, and a charge still in flight
       // in that window is a charge that never happens.
-      if (!isCallerAdmin && identity && dewState && answer.trim().length > 0) {
+      if (!isCallerAdmin && !coveredBySession && identity && dewState && answer.trim().length > 0) {
         const billed = { prompt: totalUsage.prompt, completion: totalUsage.completion };
         const deduct = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
           (cause: unknown) => ({

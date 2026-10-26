@@ -27,6 +27,7 @@ import {
   DUST_THRESHOLD,
   TRIAL_DEW,
   canAfford as balanceCovers,
+  dailyAllowance,
   dailyDewRemaining,
   dewBalanceFrom,
   dewDay,
@@ -45,8 +46,12 @@ export interface DewState {
   paidBalance: number;
   /** Free Dew still available today; resets at midnight in the reset zone. */
   dailyRemaining: number;
-  /** Free Dew granted at the start of every day. */
+  /** Free Dew granted at the start of every day: 10 free, 15 with a pass. */
   dailyAllowance: number;
+  /** When the paid pass ends, epoch ms, or null when there is none. */
+  paidUntil: number | null;
+  /** True when a paid pass is live right now. */
+  paid: boolean;
   /** The IANA zone this account's day turns over in. */
   timeZone: string;
   credits: Record<string, number>;
@@ -59,6 +64,8 @@ const EMPTY: DewState = {
   paidBalance: 0,
   dailyRemaining: 0,
   dailyAllowance: DAILY_FREE_DEW,
+  paidUntil: null,
+  paid: false,
   timeZone: DEW_RESET_TIME_ZONE,
   credits: {},
   spent: 0,
@@ -66,6 +73,15 @@ const EMPTY: DewState = {
 
 function bearer(authorization: string | null): string {
   return authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+}
+
+/** Epoch ms from a timestamptz the database returned, or 0. */
+function timestamp(value: unknown): number {
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
 }
 
 /** Keys are upper-case words and the reserved meta keys. */
@@ -87,9 +103,13 @@ export async function readDewState(authorization: string | null, uid: string): P
   if (!client || !uid) return EMPTY;
 
   try {
-    const [credits, profile] = await Promise.all([
+    // The pass lives in its own select-only table, so this read can be refused
+    // by a project that has not applied 20261028000000_pricing_sessions.sql
+    // without costing the balance: no readable pass is a free account.
+    const [credits, profile, pass] = await Promise.all([
       client.from("dew_credits").select("code, amount").eq("owner", uid),
       client.from("profiles").select("timezone").eq("id", uid).maybeSingle(),
+      client.from("paid_passes").select("expires_at").eq("owner", uid).maybeSingle(),
     ]);
     if (credits.error) return EMPTY;
 
@@ -97,6 +117,9 @@ export async function readDewState(authorization: string | null, uid: string): P
     // default zone is what the database used in that window too.
     const storedZone = (profile.data as { timezone?: unknown } | null)?.timezone;
     const timeZone = isSupportedTimeZone(storedZone) ? storedZone : DEW_RESET_TIME_ZONE;
+    const paidUntilMs = timestamp((pass.data as { expires_at?: unknown } | null)?.expires_at);
+    const isPaid = paidUntilMs > Date.now();
+    const allowance = dailyAllowance(isPaid);
 
     // The daily bucket arrives with 20261024000200_daily_dew.sql. If this code
     // reaches a project before that migration, fall back to the paid-only
@@ -137,13 +160,15 @@ export async function readDewState(authorization: string | null, uid: string): P
     const paid = Number.isFinite(spent) && spent > 0 ? spent : 0;
     const paidBalance = dewBalanceFrom({ credits: map, spent: paid });
     const dailyRemaining = dailyTracked
-      ? dailyDewRemaining({ dailyDay, dailySpent }, dewDay(Date.now(), timeZone))
+      ? dailyDewRemaining({ dailyDay, dailySpent }, dewDay(Date.now(), timeZone), allowance)
       : 0;
     return {
       balance: roundDew(paidBalance + dailyRemaining),
       paidBalance,
       dailyRemaining,
-      dailyAllowance: DAILY_FREE_DEW,
+      dailyAllowance: allowance,
+      paidUntil: paidUntilMs > 0 ? paidUntilMs : null,
+      paid: isPaid,
       timeZone,
       credits: map,
       spent: paid,

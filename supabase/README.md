@@ -25,6 +25,7 @@ carry the rules it used to hold.
 | `migrations/20261024000800_light_default_appearance.sql` | Light is the default appearance for a preference row that has not chosen one. Existing rows are left untouched. |
 | `migrations/20261026000000_provider_keys.sql` | `provider_keys`: an account's own OpenRouter, Gemini or Groq key, sealed before it is stored and readable only by its owner. Registered in `schema_expected`. |
 | `migrations/20261027000000_provider_keys_deepseek.sql` | Adds DeepSeek to the `provider_keys.provider` list, so the DeepSeek V4.1 Flash mode can use a key the account brought. |
+| `migrations/20261028000000_pricing_sessions.sql` | `paid_passes` (read-only to its owner, granted only by `admin_grant_plan()`), the 10-free/15-paid daily bucket in `deduct_dew_split()`, and `hour_sessions` with the `start_hour_session()`/`end_hour_session()` pair that charges and enforces one live session per account. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

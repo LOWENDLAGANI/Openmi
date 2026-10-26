@@ -18,6 +18,7 @@
 import { getSupabase } from "./supabase";
 import {
   DEW_RESET_TIME_ZONE,
+  dailyAllowance,
   dewAvailableFrom,
   dewBalanceFrom,
   dewDay,
@@ -400,13 +401,36 @@ async function readTimeZones(uid?: string): Promise<Map<string, string>> {
   return zones;
 }
 
+/**
+ * The owners whose paid pass is live right now.
+ *
+ * The pass table is readable by its owner and by the administrator under the
+ * existing policies. A project without 20261028000000_pricing_sessions.sql has
+ * no passes, which is the same answer as "nobody is paid".
+ */
+async function readPaidPasses(uid?: string): Promise<Set<string>> {
+  const client = requireClient();
+  const query = client.from("paid_passes").select("owner, expires_at");
+  const { data, error } = await (uid ? query.eq("owner", uid) : query);
+  const paid = new Set<string>();
+  if (error) return paid;
+  const now = Date.now();
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const owner = typeof row.owner === "string" ? row.owner : "";
+    const expires = typeof row.expires_at === "string" ? Date.parse(row.expires_at) : 0;
+    if (owner && expires > now) paid.add(owner);
+  }
+  return paid;
+}
+
 /** One visitor's Dew, derived the same way the server derives it. */
 export async function readDewBalance(uid: string): Promise<number> {
   const client = requireClient();
-  const [credits, wallets, zones] = await Promise.all([
+  const [credits, wallets, zones, passes] = await Promise.all([
     client.from("dew_credits").select("code, amount").eq("owner", uid),
     readWalletSnapshots(uid),
     readTimeZones(uid),
+    readPaidPasses(uid),
   ]).catch(rethrow);
   if (credits.error) rethrow(credits.error);
 
@@ -427,7 +451,8 @@ export async function readDewBalance(uid: string): Promise<number> {
       dailyDay: wallet?.dailyDay ?? null,
       dailySpent: wallet?.dailySpent ?? 0,
     },
-    dewDay(Date.now(), zones.get(uid) ?? DEW_RESET_TIME_ZONE)
+    dewDay(Date.now(), zones.get(uid) ?? DEW_RESET_TIME_ZONE),
+    dailyAllowance(passes.has(uid))
   );
 }
 
@@ -439,10 +464,11 @@ export async function readDewBalance(uid: string): Promise<number> {
  */
 export async function readDewBalances(): Promise<Record<string, number>> {
   const client = requireClient();
-  const [credits, wallets, zones] = await Promise.all([
+  const [credits, wallets, zones, passes] = await Promise.all([
     client.from("dew_credits").select("owner, code, amount"),
     readWalletSnapshots(),
     readTimeZones(),
+    readPaidPasses(),
   ]).catch(rethrow);
   if (credits.error) rethrow(credits.error);
 
@@ -473,7 +499,8 @@ export async function readDewBalances(): Promise<Record<string, number>> {
             dailyDay: wallet?.dailyDay ?? null,
             dailySpent: wallet?.dailySpent ?? 0,
           },
-          dewDay(now, zones.get(uid) ?? DEW_RESET_TIME_ZONE)
+          dewDay(now, zones.get(uid) ?? DEW_RESET_TIME_ZONE),
+          dailyAllowance(passes.has(uid))
         )
       : dewBalanceFrom({ credits: map, spent: wallet?.spent ?? 0 });
   }
@@ -508,6 +535,41 @@ export async function grantDew(uid: string, dew: number): Promise<DewGrant> {
 
   const balance = await readDewBalance(visitor);
   return { uid: visitor, dew: amount, balance };
+}
+
+export interface PlanGrant {
+  uid: string;
+  /** Epoch ms the pass now ends. */
+  until: number;
+}
+
+/**
+ * Activates a paid pass after a manual payment.
+ *
+ * The write goes through `admin_grant_plan()`, which re-checks `is_admin()` in
+ * the database: this function cannot grant a pass on its own, and a modified
+ * browser can only call a door that will refuse it. Extension starts from
+ * whichever is later, now or an unexpired pass, so renewing early never loses
+ * the days still owed.
+ */
+export async function grantPlan(uid: string, days: number): Promise<PlanGrant> {
+  const client = requireClient();
+  const visitor = uid.replace(/[^A-Za-z0-9-]/g, "");
+  if (!visitor) throw new Error("Enter the visitor id first.");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(visitor)) {
+    throw new Error("That is not a visitor id.");
+  }
+
+  const span = Math.round(days);
+  if (!Number.isFinite(span) || span < 1 || span > 366) {
+    throw new Error("A pass needs between 1 and 366 days.");
+  }
+
+  const { data, error } = await client.rpc("admin_grant_plan", { p_uid: visitor, p_days: span });
+  if (error) rethrow(error);
+  const until = ms(data);
+  if (!until) throw new Error("The pass was not saved. Check that the account exists.");
+  return { uid: visitor, until };
 }
 
 // ── Redeem codes ────────────────────────────────────────────────────────────
@@ -705,7 +767,7 @@ export async function saveAppConfig(config: AppConfig): Promise<void> {
 export interface AdminAuditEntry {
   id: string;
   at: number;
-  action: "createCode" | "deleteCode" | "toggleCode" | "grantDew";
+  action: "createCode" | "deleteCode" | "toggleCode" | "grantDew" | "grantPlan";
   /** The word the entry is about. */
   code?: string;
   /** The Dew the code carried, when it carried any. */

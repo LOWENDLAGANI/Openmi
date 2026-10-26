@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import Sidebar from "@/components/Sidebar";
 import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
+import PricingDialog, { type PricingChoice, type PricingConflict } from "@/components/PricingDialog";
 import AdBanner from "@/components/AdBanner";
 import ModeSelector from "@/components/ModelSelector";
 import OpenmiMark from "@/components/OpenmiMark";
@@ -46,7 +47,8 @@ import {
 } from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
 import { readAgentStream } from "@/lib/agentStream";
-import { refreshDew } from "@/lib/useDew";
+import { refreshDew, useDew } from "@/lib/useDew";
+import { DEW_PER_REQUEST, sessionPrice } from "@/lib/dew";
 // getMode is used for the assistant message engine label below.
 import type {
   ApiContentPart,
@@ -101,6 +103,75 @@ interface SessionUsage {
 interface SendOptions {
   editMessageId?: string;
   regenerateAssistantId?: string;
+  /** The chat this send belongs to, when the caller has already created it
+      (the pricing dialog does, so an hour can be started for it first). */
+  chatId?: string;
+}
+
+// ── The hour session, from the browser's side ────────────────────────────────
+// The server owns whether an hour may start; these two calls only ask. A 409
+// carries the chat that already owns the hour so the dialog can offer to go
+// there or end it, and a 402 carries the shortfall so it can point at the
+// wallet. Neither response is trusted for pricing: the price is the server's.
+
+interface HourStartOk {
+  ok: true;
+  chatId: string;
+  expiresAt: number;
+}
+
+interface HourStartFail {
+  ok: false;
+  code?: string;
+  chatId?: string;
+  expiresAt?: number;
+  error?: string;
+}
+
+async function requestHourSession(chatId: string): Promise<HourStartOk | HourStartFail> {
+  try {
+    const response = await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ action: "start", chatId }),
+    });
+    const data = (await response.json().catch(() => null)) as {
+      session?: { chatId?: unknown; expiresAt?: unknown } | null;
+      code?: unknown;
+      chatId?: unknown;
+      expiresAt?: unknown;
+      error?: unknown;
+    } | null;
+
+    const session = data?.session;
+    if (response.ok && session && typeof session.chatId === "string" && typeof session.expiresAt === "number") {
+      return { ok: true, chatId: session.chatId, expiresAt: session.expiresAt };
+    }
+    return {
+      ok: false,
+      code: typeof data?.code === "string" ? data.code : undefined,
+      chatId: typeof data?.chatId === "string" ? data.chatId : undefined,
+      expiresAt: typeof data?.expiresAt === "number" ? data.expiresAt : undefined,
+      error:
+        typeof data?.error === "string"
+          ? data.error
+          : "The hour session could not be started. Try again in a moment.",
+    };
+  } catch {
+    return { ok: false, error: "Could not reach the session service. Check your connection and try again." };
+  }
+}
+
+async function requestEndHourSession(): Promise<void> {
+  try {
+    await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ action: "end" }),
+    });
+  } catch {
+    // Ending is best effort here; the row expires on its own either way.
+  }
 }
 
 export default function HomePage() {
@@ -155,6 +226,18 @@ export default function HomePage() {
   const [temporary, setTemporary] = useState(false);
   const tempThreadRef = useRef(new TempThread());
   const [tempMessages, setTempMessages] = useState<ChatMessage[]>([]);
+  // The account's live hour session, if any, and the first-message price
+  // dialog. The dialog holds the composed message until a price is chosen.
+  const [hourSession, setHourSession] = useState<{ chatId: string; expiresAt: number } | null>(null);
+  const [pricingPrompt, setPricingPrompt] = useState<{
+    text: string;
+    images: ImageAttachment[];
+    documents: DocumentAttachment[];
+  } | null>(null);
+  const [pricingConflict, setPricingConflict] = useState<PricingConflict | null>(null);
+  const [pricingBusy, setPricingBusy] = useState(false);
+  const [pricingNotice, setPricingNotice] = useState<string | null>(null);
+  const dew = useDew();
 
   /** Publishes the thread to React after any change, so the screen follows a
       message being written exactly as it follows one read from the database. */
@@ -585,6 +668,49 @@ export default function HomePage() {
     if (temporary) endTemporary();
   }, [endTemporary, temporary]);
 
+  // The session is account-wide, so it is read once per sign-in rather than per
+  // chat. Every change the page makes updates the state directly as well.
+  useEffect(() => {
+    if (!account?.signedIn) {
+      setHourSession(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/session", { headers: await authHeader(), cache: "no-store" });
+        if (!response.ok) return;
+        const data = (await response.json()) as { session?: { chatId?: unknown; expiresAt?: unknown } | null };
+        const row = data.session;
+        if (cancelled) return;
+        setHourSession(
+          row && typeof row.chatId === "string" && typeof row.expiresAt === "number"
+            ? { chatId: row.chatId, expiresAt: row.expiresAt }
+            : null
+        );
+      } catch {
+        // A session that cannot be read is simply not shown; the route still
+        // enforces it when a message is sent.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [account?.signedIn]);
+
+  // The banner follows the row's own expiry; a timer at that moment clears it
+  // rather than a one-second countdown re-rendering the page for an hour.
+  useEffect(() => {
+    if (!hourSession) return;
+    const remaining = hourSession.expiresAt - Date.now();
+    if (remaining <= 0) {
+      setHourSession(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setHourSession(null), remaining + 1_000);
+    return () => window.clearTimeout(timer);
+  }, [hourSession]);
+
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
   }, []);
@@ -785,7 +911,7 @@ export default function HomePage() {
       if (streamingId) return;
       if (!text && images.length === 0 && documents.length === 0 && !options) return;
 
-      let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
+      let chatId: string | null = options?.chatId ?? (temporary ? TEMP_CHAT_ID : activeChatId);
       // The row the new answer streams into. Normally a fresh message; when a
       // retry or an edit turns the old reply into a branch point, it is that
       // reply — emptied above, with the previous answer kept beside it.
@@ -878,6 +1004,9 @@ export default function HomePage() {
           body: JSON.stringify({
             messages: apiMessages,
             mode: selectedMode,
+            // The chat is what matches a live hour session on the server. The
+            // message is free only when this id owns that session.
+            chatId,
             searchMode,
             responseLength,
             reasoningEffort,
@@ -1227,6 +1356,95 @@ export default function HomePage() {
     [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, project, publishTemp, readMessage, streamingId, temporary, threadHistory, writeUsage]
   );
 
+  const titleForChat = useCallback(
+    (chatId: string) => chats.find((chat) => chat.id === chatId)?.title ?? "another chat",
+    [chats]
+  );
+
+  /**
+   * Starts an hour for the composed message and sends it.
+   *
+   * `endFirst` is the "end it and start a new hour here" answer to the
+   * server's 409. Nothing here decides whether an hour is allowed: the server
+   * refuses, names the live chat, and this offers the two honest replies.
+   */
+  const runHourStart = useCallback(
+    async (
+      payload: { text: string; images: ImageAttachment[]; documents: DocumentAttachment[] },
+      endFirst: boolean
+    ) => {
+      if (pricingBusy) return;
+      setPricingBusy(true);
+      setPricingNotice(null);
+      try {
+        if (endFirst) {
+          await requestEndHourSession();
+          setHourSession(null);
+        }
+        // The session has to name the chat it covers, so the chat exists before
+        // the hour does. The send then uses this id explicitly rather than the
+        // state, which has not re-rendered yet.
+        let chatId = activeChatId;
+        if (!chatId) {
+          const chat = await createChat();
+          chatId = chat.id;
+          setActiveChatId(chatId);
+        }
+        const started = await requestHourSession(chatId);
+        if (started.ok) {
+          setHourSession({ chatId: started.chatId, expiresAt: started.expiresAt });
+          setPricingConflict(null);
+          setPricingPrompt(null);
+          void refreshDew();
+          void sendMessage(payload.text, payload.images, payload.documents, { chatId: started.chatId });
+          return;
+        }
+        if (started.code === "session-active") {
+          setPricingConflict({
+            chatId: started.chatId ?? "",
+            chatLabel: titleForChat(started.chatId ?? ""),
+            expiresAt: started.expiresAt ?? Date.now(),
+          });
+          return;
+        }
+        if (started.code === "insufficient-dew") {
+          setPricingNotice(
+            "Your free Dew and wallet together cannot cover the hour. Top up in the Dew wallet and try again."
+          );
+          void refreshDew();
+          return;
+        }
+        setPricingNotice(started.error ?? "The hour session could not be started.");
+      } finally {
+        setPricingBusy(false);
+      }
+    },
+    [activeChatId, pricingBusy, sendMessage, titleForChat]
+  );
+
+  const resolvePricing = useCallback(
+    (choice: PricingChoice) => {
+      const payload = pricingPrompt;
+      if (!payload || pricingBusy) return;
+      if (choice === "request") {
+        setPricingPrompt(null);
+        setPricingConflict(null);
+        setPricingNotice(null);
+        void sendMessage(payload.text, payload.images, payload.documents);
+        return;
+      }
+      void runHourStart(payload, false);
+    },
+    [pricingBusy, pricingPrompt, runHourStart, sendMessage]
+  );
+
+  const handleEndHour = useCallback(async () => {
+    await requestEndHourSession();
+    setHourSession(null);
+    void refreshDew();
+    setModelNotice("Hour session ended. The next message is billed per request.");
+  }, []);
+
   const handleSend = useCallback(
     (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
       // Someone who has sent a message has decided Openmi is worth a second
@@ -1241,9 +1459,19 @@ export default function HomePage() {
         void sendAgentMessage(text);
         return;
       }
+      // The first message of a new chat is the one moment the hour price is
+      // still a choice. The composed message waits here until one is picked.
+      // Temporary chats have nothing to attach an hour to, so they are billed
+      // per request like everything else.
+      if (!temporary && selectedMode === "flash" && messages.length === 0) {
+        setPricingConflict(null);
+        setPricingNotice(null);
+        setPricingPrompt({ text, images, documents: documents ?? [] });
+        return;
+      }
       void sendMessage(text, images, documents);
     },
-    [project, sendAgentMessage, sendMessage]
+    [messages.length, project, selectedMode, sendAgentMessage, sendMessage, temporary]
   );
 
   // With a repository attached, an answer was produced by the agent and has to
@@ -1623,6 +1851,28 @@ export default function HomePage() {
                 written down or kept), not on Focus home (the screen exists to
                 have no furniture), and not when the administrator's kill
                 switch is off. The id/slot gate lives in the component. */}
+            {hourSession && activeChatId === hourSession.chatId && (
+              <div
+                role="status"
+                className="mx-4 mb-1 flex items-center gap-2 rounded-full border border-[#a9d8bb]/15 bg-[#a9d8bb]/[0.06] px-3.5 py-2 text-[11px] leading-relaxed text-white/65 backdrop-blur-md"
+              >
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#a9d8bb]" />
+                <span className="min-w-0 truncate">
+                  Hour session active · ends{" "}
+                  {new Date(hourSession.expiresAt).toLocaleTimeString(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleEndHour()}
+                  className="ml-auto shrink-0 rounded-full px-2 py-0.5 font-medium text-[#a9d8bb] transition-colors hover:bg-[#a9d8bb]/10"
+                >
+                  End
+                </button>
+              </div>
+            )}
             {!focusHome && !temporary && (
               <AdBanner enabled={appConfig?.adsEnabled !== false} />
             )}
@@ -1645,6 +1895,46 @@ export default function HomePage() {
 
         </div>
       </main>
+
+      {pricingPrompt && (
+        <PricingDialog
+          modeLabel={getMode("flash").display}
+          sessionDew={sessionPrice("flash") ?? 0}
+          requestDew={DEW_PER_REQUEST.flash}
+          balance={dew.balance}
+          dailyRemaining={dew.dailyRemaining}
+          paid={dew.paid}
+          busy={pricingBusy}
+          notice={pricingNotice}
+          conflict={pricingConflict}
+          onChoose={resolvePricing}
+          onContinueConflict={() => {
+            const chatId = pricingConflict?.chatId;
+            setPricingPrompt(null);
+            setPricingConflict(null);
+            setPricingNotice(null);
+            if (chatId) handleSelectChat(chatId);
+          }}
+          onEndAndStart={() => {
+            if (pricingPrompt) void runHourStart(pricingPrompt, true);
+          }}
+          onRequestInstead={() => {
+            const payload = pricingPrompt;
+            if (!payload) return;
+            setPricingConflict(null);
+            setPricingPrompt(null);
+            setPricingNotice(null);
+            void sendMessage(payload.text, payload.images, payload.documents);
+          }}
+          onClose={() => {
+            if (!pricingBusy) {
+              setPricingPrompt(null);
+              setPricingConflict(null);
+              setPricingNotice(null);
+            }
+          }}
+        />
+      )}
 
       {!tutorialFinished && (
         <OpenmiTutorial

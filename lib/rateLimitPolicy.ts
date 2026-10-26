@@ -20,6 +20,7 @@ export type RateLimitScope =
   | "dew"
   | "dew-claim"
   | "dew-activity"
+  | "hour-session"
   | "github-link"
   | "github-manage"
   | "github-read"
@@ -55,6 +56,9 @@ export const RATE_LIMITS: Record<RateLimitScope, RateLimitPolicy> = {
   dew: { perMinute: 60, label: "balance checks" },
   "dew-claim": { perMinute: 10, label: "top-up claims" },
   "dew-activity": { perMinute: 30, label: "activity reads" },
+  // Starting a session spends Dew and can be refused with a choice, so it is a
+  // write budget rather than a read one; status is read by the chat page.
+  "hour-session": { perMinute: 20, label: "hour session changes" },
 
   // Linking a credential is a write with a vendor round trip; reading a list is
   // not. The callback is unauthenticated, so it gets the loosest bucket.

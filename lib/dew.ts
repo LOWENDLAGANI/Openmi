@@ -36,7 +36,15 @@ export const TRIAL_DEW = 25; // granted once at account creation
  * midnight is discarded and the bucket is full again, so it can never be saved
  * up into a paid-sized balance. It is spent before any paid credit.
  */
-export const DAILY_FREE_DEW = 5;
+export const DAILY_FREE_DEW = 10;
+/**
+ * The bucket a paid account gets instead.
+ *
+ * A paid pass is not a new kind of currency: it raises the same daily bucket,
+ * which keeps one rule for "what can I spend today" and one place the database
+ * and the server read it from.
+ */
+export const PAID_DAILY_FREE_DEW = 15;
 /**
  * The zone the day turns over in when the account has not named its own.
  *
@@ -78,14 +86,36 @@ export const DEW_PRECISION = 3;
  * costs, full stop: not a rate, not a per-1,000-token figure, and not something
  * a longer answer changes. `code` is dearer because it is the model tuned for
  * reading and changing a repository, which is the more expensive request to
- * serve. `flash` is the cheapest: Flash is priced as the fast, economical
- * model, and a price that did not reflect that would make the mode pointless.
+ * serve. `flash` is the premium model and is priced accordingly; it is also the
+ * one model with an hourly session, which costs more than a single message but
+ * covers every answer in that chat for the next hour.
  */
 export const DEW_PER_REQUEST: Record<ModeId, number> = {
   auto: 0.25,
   code: 0.5,
-  flash: 0.2,
+  flash: 2,
 };
+
+/**
+ * The models that can be bought by the hour, and the price of that hour.
+ *
+ * A session is a different product from a message: it pays for every answer in
+ * one chat for an hour, so it is only offered for a model whose hourly price is
+ * deliberately set. A mode absent here has no session price and is always
+ * billed per request.
+ */
+export const DEW_PER_HOUR_SESSION: Partial<Record<ModeId, number>> = {
+  flash: 3,
+};
+
+/** One session lasts this long from the moment the server starts it. */
+export const HOUR_SESSION_MS = 60 * 60 * 1000;
+
+/** The hourly price of a model, or null when it has no session option. */
+export function sessionPrice(mode: ModeId): number | null {
+  const price = DEW_PER_HOUR_SESSION[mode];
+  return typeof price === "number" && price > 0 ? price : null;
+}
 
 export interface TokenUsage {
   prompt: number;
@@ -244,13 +274,14 @@ export function dewBalanceFrom(raw: DewLedger | null | undefined): number {
  */
 export function dailyDewRemaining(
   raw: DewLedger | null | undefined,
-  today: string = dewDay()
+  today: string = dewDay(),
+  allowance: number = DAILY_FREE_DEW
 ): number {
   const day = typeof raw?.dailyDay === "string" ? raw.dailyDay.slice(0, 10) : "";
-  if (!day || day < today) return DAILY_FREE_DEW;
+  if (!day || day < today) return allowance;
   const used = raw?.dailySpent;
   const spent = typeof used === "number" && Number.isFinite(used) && used > 0 ? used : 0;
-  return roundDew(Math.max(0, DAILY_FREE_DEW - spent));
+  return roundDew(Math.max(0, allowance - spent));
 }
 
 /**
@@ -260,8 +291,17 @@ export function dailyDewRemaining(
  * against. The charge itself spends the free bucket first (see `deduct_dew()`),
  * so the two always agree.
  */
-export function dewAvailableFrom(raw: DewLedger | null | undefined, today: string = dewDay()): number {
-  return roundDew(dewBalanceFrom(raw) + dailyDewRemaining(raw, today));
+export function dewAvailableFrom(
+  raw: DewLedger | null | undefined,
+  today: string = dewDay(),
+  allowance: number = DAILY_FREE_DEW
+): number {
+  return roundDew(dewBalanceFrom(raw) + dailyDewRemaining(raw, today, allowance));
+}
+
+/** The bucket size a given account gets: the paid pass raises it to 15. */
+export function dailyAllowance(paid: boolean): number {
+  return paid ? PAID_DAILY_FREE_DEW : DAILY_FREE_DEW;
 }
 
 /**
@@ -284,5 +324,5 @@ export function canAfford(balance: number, price: number = DUST_THRESHOLD): bool
 
 /** The sentence the chat shows when somebody has run dry. */
 export function outOfDewMessage(): string {
-  return `**You're out of Dew.** You get ${formatDew(DAILY_FREE_DEW)} free Dew every day — it refills at midnight in Malaysia, and whatever is left does not carry over. Top up on the /plus page, or redeem a Dew code. Each message costs a fixed amount of Dew for the model you pick, so you can see the price before you send it.`;
+  return `**You're out of Dew.** You get ${formatDew(DAILY_FREE_DEW)} free Dew every day (${formatDew(PAID_DAILY_FREE_DEW)} with a paid pass) — it refills at midnight in your account's timezone, and whatever is left does not carry over. Top up on the /plus page, or redeem a Dew code. Each message or hour session costs a fixed amount of Dew for the model you pick, so you can see the price before you send it.`;
 }

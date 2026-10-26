@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { authHeader } from "./supabase";
-import { DEW_RESET_TIME_ZONE, LOW_BALANCE_THRESHOLD, roundDew } from "./dew";
+import { DAILY_FREE_DEW, DEW_RESET_TIME_ZONE, LOW_BALANCE_THRESHOLD, roundDew } from "./dew";
 
 // ── The balance, as the interface sees it ────────────────────────────────────
 //
@@ -28,8 +28,14 @@ export interface DewSnapshot {
   balance: number;
   /** Free Dew left today; resets at midnight and is not carried over. */
   dailyRemaining: number;
+  /** Today's bucket size: 10 free, 15 with a paid pass. */
+  dailyAllowance: number;
   /** The IANA zone this account's midnight falls in. */
   dailyTimeZone: string;
+  /** True while a paid pass is live. */
+  paid: boolean;
+  /** Epoch ms the paid pass ends, or null. */
+  paidUntil: number | null;
   /** True under LOW_BALANCE_THRESHOLD with no free Dew left, for the amber chip. */
   low: boolean;
   /** True when the caller has a verified identity. False when signed out,
@@ -42,7 +48,10 @@ const UNKNOWN: DewSnapshot = {
   ready: false,
   balance: 0,
   dailyRemaining: 0,
+  dailyAllowance: DAILY_FREE_DEW,
   dailyTimeZone: DEW_RESET_TIME_ZONE,
+  paid: false,
+  paidUntil: null,
   low: false,
   signedIn: false,
 };
@@ -68,7 +77,10 @@ function publishUnknown(): void {
     ready: true,
     balance: 0,
     dailyRemaining: 0,
+    dailyAllowance: DAILY_FREE_DEW,
     dailyTimeZone: DEW_RESET_TIME_ZONE,
+    paid: false,
+    paidUntil: null,
     low: false,
     signedIn: false,
   });
@@ -93,7 +105,8 @@ async function load(): Promise<void> {
     const data = (await response.json()) as {
       balance?: number;
       low?: boolean;
-      daily?: { remaining?: number; timeZone?: string };
+      daily?: { remaining?: number; allowance?: number; timeZone?: string };
+      plan?: { paid?: boolean; until?: number | null };
     };
     const value = typeof data.balance === "number" && Number.isFinite(data.balance) ? roundDew(data.balance) : 0;
     const dailyRemaining =
@@ -104,11 +117,21 @@ async function load(): Promise<void> {
       typeof data.daily?.timeZone === "string" && data.daily.timeZone
         ? data.daily.timeZone
         : DEW_RESET_TIME_ZONE;
+    const dailyAllowance =
+      typeof data.daily?.allowance === "number" && Number.isFinite(data.daily.allowance)
+        ? data.daily.allowance
+        : DAILY_FREE_DEW;
+    const paid = data.plan?.paid === true;
+    const paidUntil =
+      typeof data.plan?.until === "number" && Number.isFinite(data.plan.until) ? data.plan.until : null;
     publish({
       ready: true,
       balance: value,
       dailyRemaining,
+      dailyAllowance,
       dailyTimeZone,
+      paid,
+      paidUntil,
       low:
         typeof data.low === "boolean"
           ? data.low
@@ -143,8 +166,14 @@ export interface UseDew {
   balance: number;
   /** Free Dew left today; resets at midnight and is not carried over. */
   dailyRemaining: number;
+  /** Today's bucket size: 10 free, 15 with a paid pass. */
+  dailyAllowance: number;
   /** The IANA zone this account's midnight falls in. */
   dailyTimeZone: string;
+  /** True while a paid pass is live. */
+  paid: boolean;
+  /** Epoch ms the paid pass ends, or null. */
+  paidUntil: number | null;
   /** True under LOW_BALANCE_THRESHOLD with no free Dew left, for the amber chip. */
   low: boolean;
   /** True when the caller has a verified identity. False when signed out. */
@@ -176,7 +205,10 @@ export function useDew(): UseDew {
     ready: state.ready,
     balance: state.balance,
     dailyRemaining: state.dailyRemaining,
+    dailyAllowance: state.dailyAllowance,
     dailyTimeZone: state.dailyTimeZone,
+    paid: state.paid,
+    paidUntil: state.paidUntil,
     low: state.low,
     signedIn: state.signedIn,
     refresh,

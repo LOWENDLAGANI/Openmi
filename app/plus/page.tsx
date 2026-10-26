@@ -5,17 +5,19 @@ import Link from "next/link";
 import MaintenanceGate from "@/components/MaintenanceGate";
 import RedeemCodeBox from "@/components/RedeemCodeBox";
 import DewQrDialog from "@/components/DewQrDialog";
+import PassQrDialog from "@/components/PassQrDialog";
 import { watchAccount } from "@/lib/account";
 import type { AccountView } from "@/lib/accountState";
-import { getSupabase } from "@/lib/supabase";
+import { authHeader, getSupabase } from "@/lib/supabase";
 import { useDew } from "@/lib/useDew";
+import { DEW_PACKS, formatDew, formatRinggit, type DewPack } from "@/lib/dew";
 import {
-  DAILY_FREE_DEW,
-  DEW_PACKS,
-  formatDew,
-  formatRinggit,
-  type DewPack,
-} from "@/lib/dew";
+  PAID_BENEFITS,
+  PAID_PLANS,
+  browserLocale,
+  formatPlanPrice,
+  type PaidPlan,
+} from "@/lib/pricing";
 import {
   REFERRAL_DEW,
   REFERRAL_LIMIT,
@@ -26,7 +28,7 @@ import {
 } from "@/lib/referral";
 
 function DewPanel() {
-  const { ready, balance, dailyRemaining, dailyTimeZone, refresh } = useDew();
+  const { ready, balance, dailyRemaining, dailyAllowance, dailyTimeZone, paid, paidUntil, refresh } = useDew();
   useEffect(() => {
     void (async () => {
       try {
@@ -53,11 +55,16 @@ function DewPanel() {
       </h2>
       <p className="mt-2 text-[12px] leading-relaxed text-white/50">
         {ready
-          ? `${formatDew(dailyRemaining)} of ${formatDew(DAILY_FREE_DEW)} free Dew left today.`
-          : `${formatDew(DAILY_FREE_DEW)} free Dew every day.`}{" "}
+          ? `${formatDew(dailyRemaining)} of ${formatDew(dailyAllowance)} free Dew left today.`
+          : `${formatDew(dailyAllowance)} free Dew every day.`}{" "}
         Free Dew refills at midnight in your account&apos;s timezone
         {ready ? ` (${dailyTimeZone.replace(/_/g, " ")})` : ""} and whatever is left does not carry over.
       </p>
+      {paid && paidUntil && (
+        <p className="mt-2 inline-flex rounded-full border border-[#a9d8bb]/25 bg-[#a9d8bb]/10 px-2.5 py-1 text-[10.5px] font-medium text-[#a9d8bb]">
+          Paid pass · until {new Date(paidUntil).toLocaleDateString()}
+        </p>
+      )}
       <Link
         href="/activity"
         className="mt-2 inline-flex text-[12px] font-medium text-[#a9d8bb]/80 transition-colors hover:text-[#a9d8bb]"
@@ -226,8 +233,142 @@ function ReferralPanel() {
   );
 }
 
+// ── The live hour ───────────────────────────────────────────────────────────
+// A session belongs to the account, so it is worth showing here even though it
+// was started from a chat: this is the page where spending is understood, and
+// an hour that is still running is the largest thing the balance paid for.
+
+function SessionPanel() {
+  const [session, setSession] = useState<{ expiresAt: number; price: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/session", { headers: await authHeader(), cache: "no-store" });
+        if (!response.ok) return;
+        const data = (await response.json()) as {
+          session?: { expiresAt?: unknown; price?: unknown } | null;
+        };
+        const row = data.session;
+        if (cancelled) return;
+        if (row && typeof row.expiresAt === "number" && row.expiresAt > Date.now()) {
+          setSession({ expiresAt: row.expiresAt, price: Number(row.price) || 0 });
+        }
+      } catch {
+        // No readable session means no card; nothing else depends on it.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!session) return null;
+
+  const end = async () => {
+    setBusy(true);
+    try {
+      await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ action: "end" }),
+      });
+      setSession(null);
+    } catch {
+      // The row expires on its own; failing to end early is not a loss.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="mt-4 rounded-[22px] border border-[#a9d8bb]/20 bg-[#a9d8bb]/[0.05] p-4 sm:p-5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#a9d8bb]/70">
+        Hour session running
+      </p>
+      <p className="mt-1 text-[12.5px] leading-relaxed text-white/55">
+        Every answer in the chat it was started from is already paid for until{" "}
+        <span className="font-medium text-white">
+          {new Date(session.expiresAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+        </span>{" "}
+        ({formatDew(session.price)} Dew). Ending it early does not refund the hour.
+      </p>
+      <button
+        type="button"
+        onClick={() => void end()}
+        disabled={busy}
+        className="mt-3 rounded-full border border-white/[0.12] px-3 py-1.5 text-[11.5px] font-medium text-white/70 transition-colors hover:border-white/25 hover:text-white disabled:opacity-40"
+      >
+        {busy ? "Ending…" : "End session"}
+      </button>
+    </section>
+  );
+}
+
+// ── Openmi paid ─────────────────────────────────────────────────────────────
+// Four promises and two durations, priced in the reader's currency. The pass is
+// activated by the owner after the manual transfer; nothing here pretends to be
+// a card checkout.
+
+function PlansPanel({ onChoose }: { onChoose: (plan: PaidPlan) => void }) {
+  const { paid, paidUntil, dailyAllowance } = useDew();
+  // Priced after mount so the server render and the first client render agree;
+  // the locale is the browser's, which the server does not know.
+  const [locale, setLocale] = useState<string | undefined>(undefined);
+  useEffect(() => setLocale(browserLocale()), []);
+
+  return (
+    <section className="mt-4 rounded-[22px] border border-[#2f6b48]/30 bg-[#2f6b48]/[0.07] p-4 sm:p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#a9d8bb]/70">Openmi paid</p>
+        <p className="text-[10.5px] text-white/40">
+          {paid && paidUntil
+            ? `Active until ${new Date(paidUntil).toLocaleDateString()}`
+            : `Free plan · ${formatDew(dailyAllowance)} Dew a day`}
+        </p>
+      </div>
+      <ul className="mt-2 grid grid-cols-1 gap-1 text-[12.5px] text-white/65 sm:grid-cols-2">
+        {PAID_BENEFITS.map((benefit) => (
+          <li key={benefit} className="flex items-center gap-1.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0 text-[#a9d8bb]" aria-hidden="true">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            {benefit}
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {PAID_PLANS.map((plan) => (
+          <button
+            key={plan.id}
+            type="button"
+            onClick={() => onChoose(plan)}
+            className="group flex flex-col items-start gap-1 rounded-[18px] border border-white/[0.09] bg-white/[0.03] px-4 py-3.5 text-left transition-colors hover:border-[#a9d8bb]/40 hover:bg-[#a9d8bb]/[0.06]"
+          >
+            <span className="text-[19px] font-semibold leading-none text-white">
+              {/* Before the locale is known the planning price is printed, so
+                  the server render and the first client render agree. */}
+              {locale ? formatPlanPrice(plan.usd, locale) : `$${plan.usd}`}
+            </span>
+            <span className="text-[12px] font-medium text-white/70">{plan.label}</span>
+            <span className="text-[10.5px] leading-snug text-white/35">{plan.note}</span>
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-[10.5px] leading-relaxed text-white/35">
+        Prices are shown in your country&apos;s currency; the DuitNow transfer is in ringgit. A pass
+        activates after the payment lands, and its 15 Dew a day starts then.
+      </p>
+    </section>
+  );
+}
+
 export default function OpenmiPlusPage() {
   const [dewTopUp, setDewTopUp] = useState<DewPack | null>(null);
+  const [passPlan, setPassPlan] = useState<PaidPlan | null>(null);
   const [account, setAccount] = useState<AccountView | null>(null);
   useEffect(() => watchAccount((view) => setAccount(view)), []);
 
@@ -280,6 +421,8 @@ export default function OpenmiPlusPage() {
           {canShowWallet && (
             <>
               <DewPanel />
+              <SessionPanel />
+              <PlansPanel onChoose={setPassPlan} />
               <ReferralPanel />
             </>
           )}
@@ -336,6 +479,7 @@ export default function OpenmiPlusPage() {
       </main>
 
       {dewTopUp && <DewQrDialog key={dewTopUp.id} pack={dewTopUp} onClose={() => setDewTopUp(null)} />}
+      {passPlan && <PassQrDialog key={passPlan.id} plan={passPlan} onClose={() => setPassPlan(null)} />}
     </MaintenanceGate>
   );
 }

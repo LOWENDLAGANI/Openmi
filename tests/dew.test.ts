@@ -15,7 +15,11 @@ import { join } from "node:path";
 import {
   DAILY_FREE_DEW,
   DEW_PACKS,
+  DEW_PER_HOUR_SESSION,
   DEW_PER_REQUEST,
+  HOUR_SESSION_MS,
+  PAID_DAILY_FREE_DEW,
+  dailyAllowance,
   DEW_PER_UNIT,
   DEW_RESET_TIME_ZONE,
   DUST_THRESHOLD,
@@ -31,9 +35,17 @@ import {
   nextSpent,
   requestPrice,
   roundDew,
+  sessionPrice,
   sumCredits,
   toMillidew,
 } from "../lib/dew";
+import {
+  PAID_BENEFITS,
+  PAID_PLANS,
+  currencyForLocale,
+  formatPlanPrice,
+  localPrice,
+} from "../lib/pricing";
 import { parseRedeemCode } from "../lib/redeemState";
 import type { ModeId } from "../lib/models";
 
@@ -51,6 +63,14 @@ for (const [mode, price] of Object.entries(DEW_PER_REQUEST)) {
 }
 // The code model is the dearer one: it is the model tuned for repository work.
 assert.ok(DEW_PER_REQUEST.code > DEW_PER_REQUEST.auto);
+// DeepSeek V4.1 Flash: 2 Dew a message, or 3 for a whole hour in one chat.
+assert.equal(DEW_PER_REQUEST.flash, 2);
+assert.equal(sessionPrice("flash"), 3);
+assert.equal(DEW_PER_HOUR_SESSION.flash, 3);
+assert.equal(HOUR_SESSION_MS, 3_600_000);
+// A mode with no hourly price is billed per request and offered no session.
+assert.equal(sessionPrice("auto"), null);
+assert.equal(sessionPrice("code"), null);
 // An unknown mode falls back to the cheapest known price rather than zero.
 assert.equal(requestPrice("nonsense" as ModeId), DEW_PER_REQUEST.auto);
 
@@ -91,12 +111,19 @@ assert.equal(dewBalanceFrom({ credits: { TRIAL: 25, CODE1: 100 }, spent: 0 }), 1
 
 // ── The daily free allotment ─────────────────────────────────────────────────
 //
-// Five free Dew per day, spent before paid credit, reset at midnight in the
-// account's own zone — Kuala Lumpur until the browser registers one. The bucket
-// is not carried over: a day with 4 Dew left hands out 5 the next day, never 9.
+// Ten free Dew per day, fifteen with a paid pass, spent before paid credit and
+// reset at midnight in the account's own zone — Kuala Lumpur until the browser
+// registers one. The bucket is not carried over: a day with 4 Dew left hands
+// out 10 the next day, never 14.
 
-assert.equal(DAILY_FREE_DEW, 5);
+assert.equal(DAILY_FREE_DEW, 10);
+assert.equal(PAID_DAILY_FREE_DEW, 15);
+assert.equal(dailyAllowance(true), PAID_DAILY_FREE_DEW);
+assert.equal(dailyAllowance(false), DAILY_FREE_DEW);
 assert.equal(DEW_RESET_TIME_ZONE, "Asia/Kuala_Lumpur");
+// A used bucket is judged against the same allowance it was filled with.
+assert.equal(dailyDewRemaining({ dailyDay: "2026-10-24", dailySpent: 4 }, "2026-10-24", 15), 11);
+assert.equal(dailyDewRemaining({ dailyDay: "2026-10-24", dailySpent: 4 }, "2026-10-25", 15), 15);
 
 // Midnight is the account's, not the host's, and the date line really moves.
 const instant = Date.parse("2026-10-23T16:00:00Z");
@@ -116,31 +143,31 @@ assert.equal(isSupportedTimeZone(""), false);
 assert.equal(isSupportedTimeZone(null), false);
 
 const today = "2026-10-24";
-assert.equal(dailyDewRemaining(null, today), 5, "a wallet that has never spent has the full bucket");
-assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 0 }, today), 5);
-assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 2.5 }, today), 2.5);
-assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 5 }, today), 0);
-assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 9 }, today), 0, "a bucket cannot owe Dew");
-assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: Number.NaN }, today), 5);
+assert.equal(dailyDewRemaining(null, today), 10, "a wallet that has never spent has the full bucket");
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 0 }, today), 10);
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 2.5 }, today), 7.5);
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 10 }, today), 0);
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: 15 }, today), 0, "a bucket cannot owe Dew");
+assert.equal(dailyDewRemaining({ dailyDay: today, dailySpent: Number.NaN }, today), 10);
 assert.equal(
   dailyDewRemaining({ dailyDay: "2026-10-23", dailySpent: 4 }, today),
-  5,
+  10,
   "yesterday's leftover must not carry over"
 );
 assert.equal(
   dailyDewRemaining({ dailyDay: "2026-10-25", dailySpent: 5 }, today),
-  0,
+  5,
   "a day that has not arrived — or a clock moved backwards — must not refill"
 );
-assert.equal(dailyDewRemaining({ dailyDay: "2026-10-25", dailySpent: 2 }, today), 3);
+assert.equal(dailyDewRemaining({ dailyDay: "2026-10-25", dailySpent: 2 }, today), 8);
 
 // Free Dew rides on top of what was bought and is spent first.
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 0 }, today), 30);
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 24 }, today), 6);
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 30 }, today), 5, "paid Dew floors at zero, the bucket does not");
-assert.equal(dewAvailableFrom({ credits: {}, spent: 0, dailyDay: today, dailySpent: 5 }, today), 0);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 0 }, today), 35);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 24 }, today), 11);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 30 }, today), 10, "paid Dew floors at zero, the bucket does not");
+assert.equal(dewAvailableFrom({ credits: {}, spent: 0, dailyDay: today, dailySpent: 5 }, today), 5);
 // Paid Dew does not expire with the bucket.
-assert.equal(dewAvailableFrom({ credits: { CODE1: 100 }, spent: 0, dailyDay: "2026-10-20", dailySpent: 5 }, today), 105);
+assert.equal(dewAvailableFrom({ credits: { CODE1: 100 }, spent: 0, dailyDay: "2026-10-20", dailySpent: 5 }, today), 110);
 
 // ── nextSpent ─────────────────────────────────────────────────────────────────
 
@@ -316,9 +343,24 @@ assert.ok(
 );
 assert.ok(dailySchema.includes("daily_day"), "the wallet must remember which day its bucket belongs to");
 assert.ok(dailySchema.includes("daily_spent"), "the wallet must remember how much free Dew was used");
+// The bucket size moved to 10 free / 15 paid in the pricing migration, where it
+// is read from the live pass instead of being a constant. The two numbers here
+// are the ones in lib/dew.ts, and neither may drift from them.
+const pricingSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000000_pricing_sessions.sql"),
+  "utf8"
+);
 assert.ok(
-  /free_per_day numeric := 5/.test(dailySchema) && /free_per_day numeric := 5/.test(timezoneSchema),
-  "the daily amount must match DAILY_FREE_DEW in lib/dew.ts"
+  /free_per_day numeric := case when public\.has_paid_pass\(\) then 15 else 10 end/.test(
+    pricingSchema
+  ),
+  "the daily amount must be 10 free / 15 paid, matching DAILY_FREE_DEW and PAID_DAILY_FREE_DEW"
+);
+assert.ok(
+  /create or replace function public\.deduct_dew_split\(p_amount numeric\)[\s\S]*security definer/.test(
+    pricingSchema
+  ),
+  "the pass-sized bucket must live in the one locked charge function"
 );
 assert.ok(
   /free_charge := least\(charged, free_left\)/.test(timezoneSchema),
@@ -410,3 +452,103 @@ assert.ok(
   chatSource.includes("free: deduct.freeCharged"),
   "the chat route must write the free half it was actually charged"
 );
+
+// ── Hour sessions ───────────────────────────────────────────────────────────
+// The hour is a server-owned row. One account holds at most one at a time, the
+// charge and the row are written together, and a live session only makes a
+// message free when it names the same chat.
+
+assert.ok(
+  /create table if not exists public\.hour_sessions[\s\S]*owner uuid primary key/.test(pricingSchema),
+  "one row per owner is what makes a second active session impossible"
+);
+assert.ok(
+  /create or replace function public\.start_hour_session\(p_chat_id text\)[\s\S]*security definer/.test(
+    pricingSchema
+  ),
+  "starting an hour must run server-side, not in the browser"
+);
+assert.ok(
+  /charged numeric := 3/.test(pricingSchema),
+  "the hour price must be a server constant, not an RPC argument a caller chooses"
+);
+assert.ok(
+  !/p_price/.test(pricingSchema),
+  "no caller-supplied price may reach the session charge"
+);
+assert.ok(
+  /create table if not exists public\.paid_passes[\s\S]*for select to authenticated/.test(pricingSchema) &&
+    /revoke all on public\.paid_passes from anon, authenticated/.test(pricingSchema) &&
+    /grant select on public\.paid_passes to authenticated/.test(pricingSchema),
+  "a pass must be readable by its owner and writable only by the admin function"
+);
+assert.ok(
+  !/add column if not exists plan_expires_at/.test(pricingSchema),
+  "a paid flag on the owner-writable profiles row would be a self-service upgrade"
+);
+assert.ok(
+  /pg_advisory_xact_lock\(hashtextextended\('openmi-hour:'/.test(pricingSchema),
+  "two simultaneous starts must serialise, or both could pass the active check"
+);
+assert.ok(
+  /perform public\.deduct_dew_split\(charged\)/.test(pricingSchema),
+  "the hour must be charged in the same transaction that creates it"
+);
+assert.ok(
+  /reason', 'active'/.test(pricingSchema) && /reason', 'insufficient'/.test(pricingSchema),
+  "a second hour and an unaffordable hour are refusals the interface can explain"
+);
+assert.ok(
+  /create or replace function public\.end_hour_session\(\)[\s\S]*owner = auth\.uid\(\)/.test(pricingSchema),
+  "ending an hour must only touch the caller's own row"
+);
+assert.ok(
+  /create or replace function public\.admin_grant_plan\(p_uid uuid, p_days integer\)[\s\S]*public\.is_admin\(\)/.test(
+    pricingSchema
+  ),
+  "a paid pass must be granted by the database's own admin check"
+);
+assert.ok(
+  /revoke all on public\.hour_sessions from anon, authenticated/.test(pricingSchema) &&
+    /grant select on public\.hour_sessions to authenticated/.test(pricingSchema),
+  "a session is readable by its owner and writable only through the functions"
+);
+assert.ok(
+  /revoke all on function public\.start_hour_session\(text\) from public/.test(pricingSchema),
+  "starting an hour must not be callable by an anonymous session"
+);
+assert.ok(
+  chatSource.includes("readHourSessionForChat"),
+  "the chat route must match the session to the chat before it skips the charge"
+);
+assert.ok(
+  /!coveredBySession && identity/.test(chatSource),
+  "a covered message must not be charged a second time"
+);
+
+// ── Paid plans and local prices ─────────────────────────────────────────────
+// $4 for 15 days and $8 for 30 days, shown in the reader's currency. The pass
+// raises the same daily bucket rather than inventing a second balance.
+
+assert.deepEqual(
+  PAID_PLANS.map((plan) => [plan.days, plan.usd]),
+  [
+    [15, 4],
+    [30, 8],
+  ]
+);
+assert.ok(PAID_PLANS.every((plan) => plan.ringgit > 0 && plan.label.length > 0));
+assert.ok(PAID_BENEFITS.includes("Bumped up to 15 Dew"));
+assert.ok(PAID_BENEFITS.includes("Priority support"));
+assert.ok(PAID_BENEFITS.includes("More usage"));
+assert.ok(PAID_BENEFITS.includes("Everything in Free"));
+assert.equal(currencyForLocale("en-MY"), "MYR");
+assert.equal(currencyForLocale("de-DE"), "EUR");
+assert.equal(currencyForLocale("en-GB"), "GBP");
+assert.equal(currencyForLocale("en-ZZ"), "USD");
+assert.equal(formatPlanPrice(8, "en-US"), "$8");
+const malaysian = localPrice(8, "en-MY");
+assert.equal(malaysian.currency, "MYR");
+assert.equal(malaysian.approximate, true);
+assert.ok(malaysian.amount >= 30 && malaysian.amount <= 40, "eight dollars is about RM 35");
+assert.ok(malaysian.formatted.includes("RM"));

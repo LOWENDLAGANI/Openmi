@@ -31,6 +31,12 @@ interface DewResponse {
     /** The IANA zone this account's day turns over in. */
     timeZone: string;
   };
+  /** The paid pass, as the wallet and the composer price things. */
+  plan: {
+    paid: boolean;
+    /** Epoch ms the pass ends, or null when there is none. */
+    until: number | null;
+  };
 }
 
 async function respond(authorization: string | null, uid: string): Promise<Response> {
@@ -48,6 +54,7 @@ async function respond(authorization: string | null, uid: string): Promise<Respo
         remaining: state.dailyRemaining,
         timeZone: state.timeZone,
       },
+      plan: { paid: state.paid, until: state.paidUntil },
     } satisfies DewResponse,
     { headers: { "Cache-Control": "no-store" } }
   );
