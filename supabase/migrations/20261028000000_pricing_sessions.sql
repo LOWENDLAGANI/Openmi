@@ -389,11 +389,9 @@ grant execute on function public.admin_grant_plan(uuid, integer) to authenticate
 -- name Postgres generated and replaced with a named constraint.
 
 alter table public.admin_audit
-  drop constraint if exists admin_audit_action_check;
-
-alter table public.admin_audit
   add constraint admin_audit_action_allowed
-  check (action in ('createCode', 'deleteCode', 'toggleCode', 'grantDew', 'grantPlan'));
+  check (action in ('createCode', 'deleteCode', 'toggleCode', 'grantDew', 'grantPlan'))
+  if not exists;
 
 -- ── The audit learns about the new objects ─────────────────────────────────
 --
