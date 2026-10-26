@@ -9,6 +9,7 @@ import {
   verifyCaller,
 } from "@/lib/serverControl";
 import { readProject, refreshProjectHead } from "@/lib/projects";
+import { readUserKeys } from "@/lib/providerKeys";
 import { resolveGithubLink } from "@/lib/github/store";
 import { GithubError } from "@/lib/github/client";
 import { runAgentStep } from "@/lib/agent/run";
@@ -119,6 +120,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   // check exists for.
   project = await refreshProjectHead(authorization, identity.uid, project, link.token);
 
+  // The model keys this account brought, opened here and never sent back to the
+  // browser. The agent prefers them over the deployment's, exactly as chat
+  // does.
+  const accountKeys = await readUserKeys(authorization, identity.uid);
+
   // ── The Dew ledger ────────────────────────────────────────────────────────
   // Checked before the model runs, exactly like /api/chat. A turn that is
   // continuing on a signed token has already been paid for; the balance is only
@@ -159,6 +165,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           uid: identity.uid,
           project,
           token: link.token,
+          accountKeys,
           history,
           transcript: cleanTranscript(body.transcript),
           turnToken: typeof body.turnToken === "string" ? body.turnToken : undefined,

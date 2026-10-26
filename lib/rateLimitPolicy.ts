@@ -31,6 +31,7 @@ export type RateLimitScope =
   | "share-revoke"
   | "setup"
   | "admin"
+  | "keys"
   | "models";
 
 export interface RateLimitPolicy {
@@ -69,6 +70,10 @@ export const RATE_LIMITS: Record<RateLimitScope, RateLimitPolicy> = {
   "share-create": { perMinute: 20, label: "share links" },
   "share-list": { perMinute: 60, label: "share reads" },
   "share-revoke": { perMinute: 60, label: "share changes" },
+
+  // A key change is a vendor round trip and a sealed write; reading the list is
+  // what the settings screen does when it opens. One bucket is enough for both.
+  keys: { perMinute: 20, label: "key changes" },
 
   // Public and cheap, but public: a flood of either is still a flood.
   setup: { perMinute: 30, label: "setup checks" },

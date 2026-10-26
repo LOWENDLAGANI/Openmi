@@ -4,6 +4,7 @@ import type { Appearance, HomeLayout, ReasoningEffort, ResponseLength } from "@/
 import type { SearchMode } from "@/lib/types";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
+import ApiKeysSection from "@/components/ApiKeysSection";
 import DataControls from "@/components/DataControls";
 interface SettingsPanelProps {
   open: boolean;
@@ -315,6 +316,8 @@ export default function SettingsPanel({
             </section>
 
           </div>
+
+          <ApiKeysSection />
 
           <DataControls />
 

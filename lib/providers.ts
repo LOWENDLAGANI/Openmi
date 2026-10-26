@@ -33,10 +33,23 @@ export const FAMILY_MODE: Record<ProviderFamily, string> = {
   groq: "Groq",
 };
 
-export function getProviders(requested: ModeId): ProviderConfig[] {
-  const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
-  const geminiKey = process.env.GEMINI_API_KEY?.trim();
-  const groqKey = process.env.GROQ_API_KEY?.trim();
+/**
+ * The providers one request may use, with the caller's own keys preferred.
+ *
+ * `accountKeys` is the key the account brought for a provider, already opened by
+ * lib/providerKeys.ts on the server. It wins over the deployment's, which stays
+ * as the fallback: a person who removes their key, or whose key is revoked,
+ * should fall back to the deployment rather than lose the mode entirely. Neither
+ * key is ever named in a response — only the vendor is, and only in the copy
+ * that tells the reader where to fix something.
+ */
+export function getProviders(
+  requested: ModeId,
+  accountKeys: Partial<Record<ProviderFamily, string>> = {}
+): ProviderConfig[] {
+  const openrouterKey = accountKeys.openrouter?.trim() || process.env.OPENROUTER_API_KEY?.trim();
+  const geminiKey = accountKeys.gemini?.trim() || process.env.GEMINI_API_KEY?.trim();
+  const groqKey = accountKeys.groq?.trim() || process.env.GROQ_API_KEY?.trim();
 
   const openrouter: ProviderConfig | null = openrouterKey
     ? {

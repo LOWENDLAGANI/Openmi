@@ -67,6 +67,9 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
       "github_connections",
       "github_default",
       "github_links",
+      // A model key is a credential this account brought; erasing the account's
+      // data removes it with the rest, sealed or not.
+      "provider_keys",
       "projects",
       "changesets",
       "approvals",

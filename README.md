@@ -162,12 +162,30 @@ The important ones for **this build**:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The anon public key. Public by design: it identifies the project, and RLS protects the rows. Both the browser and the server routes use it, always with the caller's own JWT. |
 | `OPENMI_ADMIN_EMAIL` | The one address allowed into the console. Access is a database grant — see `supabase/README.md`. |
 | `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews and the sitemap. |
-| `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens. Unset means GitHub cannot be connected. |
+| `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens and accounts' own model keys. Unset means GitHub cannot be connected and API keys cannot be stored. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App, a second door beside the pasted token. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
 
 No service-role key belongs anywhere in this project. Nothing needs it: the
 server routes carry the caller's token, exactly as the browser does.
+
+### Bringing your own model keys
+
+**Settings → API keys** lets an account store its own OpenRouter, Google Gemini
+or Groq key instead of relying on the deployment's. Saving is checked with the
+vendor first — one list call, never a model call — so a key that does not work
+is not stored as if it did. The key is then sealed with AES-256-GCM under
+`GITHUB_TOKEN_KEY` and read back only on the server, with the account's own
+token; the browser is shown `••••` and the last four characters, never the key.
+Requests from that account (Auto and Code chat, and the repository agent) prefer
+it over the deployment's key, which stays as the fallback when the personal key
+is removed or revoked.
+
+The table comes from `supabase/migrations/20261026000000_provider_keys.sql`.
+Without that migration, saving answers 503 and names the migration. The feature
+is optional: with no personal key, everything runs on the deployment's keys as
+before.
+
 
 ## Signing in
 

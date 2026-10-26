@@ -510,7 +510,7 @@ export default function HomePage() {
       const key = mode === "code" ? "GROQ_API_KEY" : "OPENROUTER_API_KEY";
       const needs = mode === "code" ? "a Groq API key" : "an OpenRouter API key";
       setModelNotice(
-        `${name} isn't available on this deployment yet. It needs ${needs} (${key}) configured by the site owner. Once added, it becomes selectable automatically.`
+        `${name} needs ${needs} (${key}). Add your own in Settings → API keys, or ask the site owner to configure it — the mode becomes selectable as soon as a key is available.`
       );
       return;
     }

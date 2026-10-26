@@ -24,6 +24,7 @@ import { OPENMI_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import type { AgentStep } from "@/lib/types";
 import { AGENT_TOOL_SCHEMAS, describeToolCall, runTool, type ToolContext, type ToolResult } from "./tools";
 import { stageEdits, type StagedChange } from "./edits";
+import type { ProviderFamily } from "@/lib/providers";
 import { callAgentModel, type AgentMessage } from "./model";
 import { TOOL_CALL_PLACEHOLDER, type RepoChatMessage } from "./transcript";
 import {
@@ -53,6 +54,8 @@ export interface StepRequest {
   project: ProjectRef;
   /** The caller's GitHub token, already opened from their sealed record. */
   token: string;
+  /** Provider keys this account brought, already opened on the server. */
+  accountKeys?: Partial<Record<ProviderFamily, string>>;
   history: RepoChatMessage[];
   transcript?: AgentMessage[];
   turnToken?: string;
@@ -200,9 +203,13 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
 
   const emit = request.onEvent ?? (() => undefined);
   emit({ type: "thinking" });
-  const reply = await callAgentModel(messages, AGENT_TOOL_SCHEMAS, request.signal, {
-    onDelta: (text) => emit({ type: "delta", text }),
-  });
+  const reply = await callAgentModel(
+    messages,
+    AGENT_TOOL_SCHEMAS,
+    request.signal,
+    { onDelta: (text) => emit({ type: "delta", text }) },
+    request.accountKeys ?? {}
+  );
   const usage: TurnUsage = reply.usage;
 
   const context = contextFor(filtered.files, token, project.repoFullName);

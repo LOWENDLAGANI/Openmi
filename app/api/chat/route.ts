@@ -18,6 +18,7 @@ import {
 } from "@/lib/serverControl";
 import { rateLimitMessage } from "@/lib/rateLimitPolicy";
 import { resolveDew } from "@/lib/serverRedeem";
+import { readUserKeys } from "@/lib/providerKeys";
 import { canAfford, estimateTokenUsage, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 
@@ -396,7 +397,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       ? body.reasoningEffort
       : null;
 
-  const providers = getProviders(requested);
+  // The account's own keys, when it brought any. Read with this caller's token,
+  // opened on the server, and preferred over the deployment's below.
+  const accountKeys = identity ? await readUserKeys(authorization, identity.uid) : {};
+  const providers = getProviders(requested, accountKeys);
 
   if (providers.length === 0) {
     // No vendor and no environment variable name here. Both are things only the
@@ -405,8 +409,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     // name.
     return textStream(
       requested === "code"
-        ? "**Groq isn't available yet.** The person who runs this deployment needs to add its model key before Code mode can answer. Your conversations are already saved safely on this device."
-        : "**Openmi isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
+        ? "**Code mode has no model to run.** Add your own Groq key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
+        : "**Openmi isn't connected to a model yet.** Add your own key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
     );
   }
 
@@ -759,11 +763,17 @@ export async function POST(req: NextRequest): Promise<Response> {
 }
 
 /** Reports which modes are usable without exposing any key. */
-export async function GET(): Promise<Response> {
+export async function GET(req: NextRequest): Promise<Response> {
   const available: ModeId[] = [];
-  const openrouter = Boolean(process.env.OPENROUTER_API_KEY?.trim());
-  const gemini = Boolean(process.env.GEMINI_API_KEY?.trim());
-  const groq = Boolean(process.env.GROQ_API_KEY?.trim());
+  // A mode the account can reach with its own key is reachable, even when this
+  // deployment has none: reporting only the deployment's keys would disable the
+  // mode in the picker for the very person who made it work.
+  const authorization = req.headers.get("authorization");
+  const identity = await verifyCaller(authorization);
+  const accountKeys = identity ? await readUserKeys(authorization, identity.uid) : {};
+  const openrouter = Boolean(accountKeys.openrouter?.trim() || process.env.OPENROUTER_API_KEY?.trim());
+  const gemini = Boolean(accountKeys.gemini?.trim() || process.env.GEMINI_API_KEY?.trim());
+  const groq = Boolean(accountKeys.groq?.trim() || process.env.GROQ_API_KEY?.trim());
 
   // Auto can answer through any of its configured families, the router first.
   if (openrouter || gemini || groq) available.push("auto");

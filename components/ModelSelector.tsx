@@ -1,6 +1,7 @@
 "use client";
 
 import { OPENMI_MODES, type ModeId } from "@/lib/models";
+import { authHeader } from "@/lib/supabase";
 import { useEffect, useRef, useState } from "react";interface ModeSelectorProps {
   selected: ModeId;
   onChange: (mode: ModeId) => void;
@@ -12,22 +13,34 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
   const activeMode = OPENMI_MODES.find((mode) => mode.id === selected) ?? OPENMI_MODES[0];
 
   useEffect(() => {
-    fetch("/api/chat")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: { available?: ModeId[]; searchAvailable?: boolean; contextBudget?: number } | null) => {
-        if (data?.available) {
-          window.dispatchEvent(new CustomEvent("openmi:availability", {
-            detail: {
-              available: data.available,
-              searchAvailable: Boolean(data.searchAvailable),
-              // The token budget the server enforces, so the ring and the
-              // server's refusal cannot disagree.
-              contextBudget: data.contextBudget,
-            },
-          }));
-        }
-      })
-      .catch(() => undefined);
+    const refresh = () => {
+      // The answer depends on who is asking: a mode can be usable through the
+      // account's own key even when this deployment has none.
+      void authHeader()
+        .then((headers) => fetch("/api/chat", { headers }))
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data: { available?: ModeId[]; searchAvailable?: boolean; contextBudget?: number } | null) => {
+          if (data?.available) {
+            window.dispatchEvent(new CustomEvent("openmi:availability", {
+              detail: {
+                available: data.available,
+                searchAvailable: Boolean(data.searchAvailable),
+                // The token budget the server enforces, so the ring and the
+                // server's refusal cannot disagree.
+                contextBudget: data.contextBudget,
+              },
+            }));
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    refresh();
+    // Adding or removing a key in Settings changes which modes can answer, and
+    // the picker is already mounted: without this it would keep offering the
+    // old answer until a reload.
+    window.addEventListener("openmi:keys-changed", refresh);
+    return () => window.removeEventListener("openmi:keys-changed", refresh);
   }, []);
 
   const selectMode = (mode: ModeId) => {

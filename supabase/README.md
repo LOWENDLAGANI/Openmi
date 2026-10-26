@@ -23,6 +23,7 @@ carry the rules it used to hold.
 | `migrations/20261024000600_referrals.sql` | `referral_codes`, `referrals`, the write-once `ensure_referral_code()`, the capped `claim_referral(text)`, and the table-driven `schema_expected` list behind the health audit. |
 | `migrations/20261024000700_shares.sql` | `shared_chats` (owner-only, thirty-day expiry, revocable) and the anonymous `shared_public` view, which has no owner column and hides revoked or expired rows. |
 | `migrations/20261024000800_light_default_appearance.sql` | Light is the default appearance for a preference row that has not chosen one. Existing rows are left untouched. |
+| `migrations/20261026000000_provider_keys.sql` | `provider_keys`: an account's own OpenRouter, Gemini or Groq key, sealed before it is stored and readable only by its owner. Registered in `schema_expected`. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

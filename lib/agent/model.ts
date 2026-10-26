@@ -25,7 +25,7 @@
 // Both were the cause of a blanket HTTP 400 on the step after the first tool
 // call: every model in the chain refused the same reconstructed message.
 
-import { getProviders, type ProviderConfig } from "@/lib/providers";
+import { getProviders, type ProviderConfig, type ProviderFamily } from "@/lib/providers";
 import { cleanThoughtSignature } from "./transcript";
 import type { ParsedToolCall } from "./tools";
 
@@ -55,7 +55,7 @@ export interface AgentModelReply {
 
 /** Shown when the deployment has no key at all. */
 export const AGENT_MODEL_MISSING =
-  "**The repository agent has no model configured.** The person who runs this deployment needs to add a model key before the agent can read a repository.";
+  "**The repository agent has no model to run.** Add your own Groq key in Settings → API keys, or ask the person who runs this deployment to configure one.";
 
 /** Everything the caller wants to show while the step is still running. */
 export interface AgentStreamSink {
@@ -63,10 +63,12 @@ export interface AgentStreamSink {
   onDelta?(text: string): void;
 }
 
-function providerChain(): ProviderConfig[] {
+function providerChain(
+  accountKeys: Partial<Record<ProviderFamily, string>> = {}
+): ProviderConfig[] {
   const seen = new Set<string>();
   const chain: ProviderConfig[] = [];
-  for (const provider of [...getProviders("code"), ...getProviders("auto")]) {
+  for (const provider of [...getProviders("code", accountKeys), ...getProviders("auto", accountKeys)]) {
     const key = `${provider.family}:${provider.model}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -382,9 +384,11 @@ export async function callAgentModel(
   messages: AgentMessage[],
   tools: unknown[],
   signal?: AbortSignal,
-  sink?: AgentStreamSink
+  sink?: AgentStreamSink,
+  /** The caller's own provider keys, preferred over the deployment's. */
+  accountKeys: Partial<Record<ProviderFamily, string>> = {}
 ): Promise<AgentModelReply> {
-  const chain = providerChain();
+  const chain = providerChain(accountKeys);
   if (chain.length === 0) throw new Error(AGENT_MODEL_MISSING);
 
   const failures: string[] = [];
