@@ -18,7 +18,7 @@
 // committed and not visible to GitHub in any form.
 
 import { loadBlob, loadTree } from "@/lib/github/cache";
-import { filterTree, type TreeFile } from "@/lib/github/tree";
+import { MAX_AGENT_FILES, filterTree, type TreeFile } from "@/lib/github/tree";
 import { pickSearchCandidates, searchFiles, type SearchableFile } from "@/lib/github/search";
 import { OPENMI_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import type { AgentStep } from "@/lib/types";
@@ -178,13 +178,19 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
   }
 
   const tree = await loadTree(token, project.repoFullName, project.baseSha);
-  const filtered = filterTree(tree.entries, tree.truncated);
+  // The agent starts from a bounded repo map, not from the whole repository.
+  // A large filtered tree is one of the main ways a first step becomes too
+  // expensive before it has read anything.
+  const filtered = filterTree(tree.entries, tree.truncated, MAX_AGENT_FILES);
 
-  const transcript: AgentMessage[] = Array.isArray(request.transcript) ? request.transcript.slice(-40) : [];
+  // Modest conversation window for the first call. The agent continues through
+  // the signed turn, so a large initial transcript is not needed to preserve
+  // context across steps.
+  const transcript: AgentMessage[] = Array.isArray(request.transcript) ? request.transcript.slice(-30) : [];
   const history: AgentMessage[] = request.history
-    .slice(-12)
+    .slice(-10)
     .filter((message) => message.content.trim().length > 0)
-    .map((message) => ({ role: message.role, content: message.content.slice(0, 12_000) }));
+    .map((message) => ({ role: message.role, content: message.content.slice(0, 10_000) }));
 
   const messages: AgentMessage[] = [
     { role: "system", content: repoPrompt(project) },

@@ -58,8 +58,20 @@ const IGNORED_FILES = new Set([
 /** The largest blob the agent will open. Past this it is generated or data. */
 export const MAX_FILE_BYTES = 200_000;
 
-/** How many paths the tree tool returns in one call. */
+/** How many paths the file-list tool may return in one call. */
 export const MAX_TREE_PATHS = 600;
+
+/**
+ * How many source files the agent is given up front.
+ *
+ * The agent does not start with the whole repository in context. It starts from
+ * a bounded file list and reads only the files it chooses. This keeps the first
+ * model call from being large on big repositories and is the main guard against
+ * sending too much repo in one go.
+ *
+ * Browser/file viewers still use `MAX_TREE_PATHS`, which can be larger.
+ */
+export const MAX_AGENT_FILES = 80;
 
 /** A file the agent may read. */
 export interface TreeFile {
@@ -130,6 +142,9 @@ export interface FilteredTree {
  * The cap counts *kept* files, so a repository full of build output still
  * returns a useful list. When it does truncate, `truncated` says so rather than
  * letting the model believe it has seen the whole repository.
+ *
+ * The agent path uses a tighter cap than the file-list pane, because the agent
+ * should not start inside a large working set.
  */
 export function filterTree(
   entries: GithubTreeEntry[],
