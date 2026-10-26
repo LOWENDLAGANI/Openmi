@@ -1,3 +1,5 @@
+First Edit Test With Openmi
+
 # Openmi — repo agent
 
 An agent that reads a GitHub repository and proposes changes. **It commits only
