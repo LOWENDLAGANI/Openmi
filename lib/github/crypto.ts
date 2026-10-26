@@ -96,6 +96,26 @@ export function sign<T>(payload: T, key: Buffer): string {
 }
 
 /**
+ * HMAC-SHA256 over a payload, hex.
+ *
+ * `sign` carries the payload inside its own output. That is what a turn token
+ * needs — the client holds the state — and it is wrong for a signature over a
+ * row the database already stores: the output would repeat every byte it
+ * covers and grow as the content grows. This is the same HMAC without the body.
+ */
+export function digest(payload: unknown, key: Buffer): string {
+  return createHmac("sha256", key).update(JSON.stringify(payload)).digest("hex");
+}
+
+/** True when `signature` is this key's digest of exactly this payload. */
+export function digestMatches(payload: unknown, signature: string, key: Buffer): boolean {
+  if (typeof signature !== "string" || !/^[0-9a-f]{64}$/.test(signature)) return false;
+  const expected = Buffer.from(digest(payload, key), "hex");
+  const given = Buffer.from(signature, "hex");
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+/**
  * Verifies and parses a signed payload. Null on a bad shape, a bad signature,
  * or anything that is not valid JSON — never a partial object.
  */

@@ -1124,7 +1124,7 @@ test("a proposed change set is signed and starts as proposed", () => {
   assert.equal(changeSet.hash, changeSetHash(changeSet.files));
   assert.equal(changeSet.branch, branchFor("owner/repo", changeSet.id));
   assert.equal(changeSet.exp, changeSet.createdAt + 6 * 60 * 60_000);
-  assert.ok(changeSet.sig.includes("."), "the signature is a signed payload");
+  assert.match(changeSet.sig, /^[0-9a-f]{64}$/, "the signature is a fixed-length digest of the payload");
   assert.equal(messageFor([{ path: "src/lib/dew.ts" }]), "Openmi: update src/lib/dew.ts");
   assert.match(messageFor([{ path: "a" }, { path: "b" }]), /update 2 files/);
 });
@@ -1133,6 +1133,35 @@ test("a stored change set round-trips through the database's JSON", () => {
   const changeSet = builtChangeSet();
   const reread = normalizeChangeSet(JSON.parse(JSON.stringify(changeSet)));
   assert.deepEqual(reread, changeSet);
+});
+
+test("the signature stays short enough that a real file still verifies", () => {
+  // The signature used to carry the whole payload, so a change to a file of
+  // roughly a kilobyte produced more than the reader's 4,000-character cap and
+  // every review card answered "not attached to this account" for a row that
+  // existed. Nothing about a real change may depend on how many bytes it holds.
+  const after = "export const DEW = 0.25;\n".repeat(200);
+  const changeSet = buildChangeSet({
+    project: repo,
+    proposals: [
+      {
+        path: "src/lib/dew.ts",
+        kind: "modified",
+        added: 200,
+        removed: 1,
+        diff: `--- a/src/lib/dew.ts\n+++ b/src/lib/dew.ts\n@@ -1 +1,200 @@\n-export const DEW = 0.5;\n${after
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => `+${line}`)
+          .join("\n")}`,
+        after,
+        bytes: Buffer.byteLength(after, "utf8"),
+      },
+    ],
+  });
+  assert.ok(changeSet, "a several-kilobyte change is still a change set");
+  assert.equal(changeSet.sig.length, 64);
+  assert.ok(normalizeChangeSet(JSON.parse(JSON.stringify(changeSet))), "the stored row must verify");
 });
 
 test("one changed byte in the row invalidates the hash and the change", () => {

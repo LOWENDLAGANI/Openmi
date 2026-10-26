@@ -25,7 +25,7 @@
 
 import { createHash } from "node:crypto";
 import { clientForToken } from "./supabase";
-import { sign, turnKey, verify } from "./github/crypto";
+import { digest, digestMatches, sign, turnKey, verify } from "./github/crypto";
 import type { ChangeSetFileView, ChangeSetView, CommitResult } from "./types";
 import type { StagedChange } from "./agent/edits";
 
@@ -258,7 +258,10 @@ export function buildChangeSet(input: BuildInput): ChangeSet | null {
     createdAt: now,
     exp: now + CHANGESET_TTL_MS,
   });
-  return { ...signed, status: "proposed", sig: sign(signed, turnKey()) };
+  // A digest, not a signed envelope: the payload is the row's own columns, and
+  // a signature that repeated the file contents would grow with every change
+  // (and, at the reader's size cap, stop verifying — see `normalizeChangeSet`).
+  return { ...signed, status: "proposed", sig: digest(signed, turnKey()) };
 }
 
 // ── Verifying ───────────────────────────────────────────────────────────────
@@ -310,7 +313,7 @@ export function normalizeChangeSet(raw: unknown): ChangeSet | null {
     return null;
   }
   if (!Array.isArray(value.files) || value.files.length === 0 || value.files.length > MAX_CHANGESET_FILES) return null;
-  if (!isString(value.sig, 4000)) return null;
+  if (!isString(value.sig, 64) || !/^[0-9a-f]{64}$/.test(value.sig)) return null;
 
   const files = value.files.map(normalizeFile);
   if (files.some((file) => file === null)) return null;
@@ -323,10 +326,12 @@ export function normalizeChangeSet(raw: unknown): ChangeSet | null {
   // row's contents being approved as if the server had proposed it.
   if (value.hash !== changeSetHash(typed)) return null;
 
-  // The signature covers the whole immutable payload, so verifying it is only
-  // half the job: the payload it returns has to be *this* row. Checking just
-  // the signature would let a copied signature ride on edited fields — a
-  // branch renamed, a base commit swapped, an expiry pushed out.
+  // The digest covers the whole immutable payload, so a copied signature
+  // cannot ride on edited fields — a branch renamed, a base commit swapped, an
+  // expiry pushed out. It is a fixed 64 characters whatever the files weigh,
+  // which is the property the earlier signed-envelope form got wrong: the
+  // envelope was as long as the diff, and the reader refused anything over
+  // 4,000 characters, so every real file failed to verify.
   const payload = signedFields({
     v: 1,
     id: value.id,
@@ -341,8 +346,7 @@ export function normalizeChangeSet(raw: unknown): ChangeSet | null {
     createdAt: value.createdAt,
     exp: value.exp,
   });
-  const verified = verify<unknown>(value.sig as string, turnKey());
-  if (!verified || JSON.stringify(verified) !== JSON.stringify(payload)) return null;
+  if (!digestMatches(payload, value.sig, turnKey())) return null;
 
   // Expiry is deliberately *not* checked here. A committed change set is worth
   // reading long after it stopped being committable — that is how a reopened
