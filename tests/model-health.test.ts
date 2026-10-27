@@ -63,32 +63,28 @@ await test("every configured model gets its own row", async () => {
   });
 });
 
-await test("the Groq model is listed by its product name", async () => {
+await test("the Groq model is listed by its real model name", async () => {
   await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: "test-key", OPENMI_HF_SPACE: "off" }, () => {
     const targets = listModelTargets();
     assert.equal(targets.length, 1, "the Groq row is missing from the panel");
     const names = targets.map((target) => target.name);
     assert.equal(new Set(names).size, names.length, `two rows share a name: ${names.join(", ")}`);
-    assert.equal(names[0], "Groq", "the Groq row does not carry its product name");
+    assert.equal(names[0], "GPT-OSS 120B", "the Groq row does not carry its real model name");
   });
 });
 
-await test("the list carries the Groq product name and not the wire model", async () => {
+await test("the list carries the Groq model name and not the wire model", async () => {
   await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: "test-key" }, () => {
     const serialised = JSON.stringify(listModelTargets());
-    for (const word of ["gemini", "openrouter", "https", "api_key"] as const) {
+    for (const word of ["gemini", "openrouter", "https", "api_key", "gpt-oss-120b"] as const) {
       assert.ok(
         !serialised.toLowerCase().includes(word),
         `the model list sent to the browser contains "${word}"`
       );
     }
     assert.ok(
-      serialised.toLowerCase().includes("groq"),
-      "the Groq product name is the one sanctioned place that word appears"
-    );
-    assert.ok(
-      !serialised.toLowerCase().includes("gpt-oss"),
-      "the wire model id stays out of the list even though the product name mentions the vendor"
+      serialised.toLowerCase().includes("gpt-oss 120b"),
+      "the Groq model name is the one sanctioned place the vendor word appears now"
     );
   });
 });

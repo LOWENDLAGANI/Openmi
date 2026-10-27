@@ -42,6 +42,8 @@ export const DEEPSEEK_ENGINE = "deepseek-flash";
  */
 export const GROQ_ENGINE = "openai/gpt-oss-120b";
 
+export const GROQ_DISPLAY_NAME = "GPT-OSS 120B";
+
 /** The Gemini models Auto falls back through, and the ordered fallbacks behind it. */
 export const GEMINI_ENGINE = GEMINI_MODELS[0];
 export const GEMINI_FALLBACKS = GEMINI_MODELS.slice(1);
@@ -63,7 +65,7 @@ export const MODE_ENV_VARS: Record<string, string> = {
 export function toOpenmiName(model?: string): string {
   if (!model) return "Openmi";
   if (model === AUTO_ENGINE) return "Openmi Auto";
-  if (model === GROQ_ENGINE) return "Groq";
+  if (model === GROQ_ENGINE) return GROQ_DISPLAY_NAME;
   if (model === DEEPSEEK_ENGINE) return "DeepSeek V4.1 Flash";
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];

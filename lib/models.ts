@@ -33,10 +33,10 @@ export const OPENMI_MODES: ModeOption[] = [
   },
   {
     id: "code",
-    name: "Groq",
-    display: "Groq",
+    name: "code",
+    display: "GPT-OSS 120B",
     separateSession: true,
-    blurb: "Groq only — tuned for reading and changing a repository",
+    blurb: "GPT-OSS 120B only — tuned for reading and changing a repository",
   },
   {
     // The id names the capability, like "code" does, rather than the vendor:
@@ -65,14 +65,13 @@ export function getMode(id: string): ModeOption {
  * can carry a provider id, and rendering that to a user is the one thing that
  * must never happen.
  *
- * "Groq" is the product's name for the Code model, so it is whitelisted even
- * though it is also the name of the vendor that serves it. The Flash mode's
- * display name is whitelisted for the same reason: it is the product's name for
- * that model, so the picker can say which one the person chose. "Openmi Code"
- * stays listed so a message stored before the rename keeps the label it was
- * written with instead of silently degrading to plain "Openmi".
+ * The Code mode's display name is whitelisted so messages written under that
+ * name survive unchanged, and so the model picker can say which model the person
+ * chose. "Openmi Code" stays listed so a message stored before this rename
+ * keeps the label it was written with instead of silently degrading to plain
+ * "Openmi".
  */
-const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?|Groq|DeepSeek V4\.1 Flash)$/;
+const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?|GPT-OSS 120B|DeepSeek V4\.1 Flash)$/;
 
 export function getModelDisplayName(model?: string): string {
   if (!model) return "Openmi";

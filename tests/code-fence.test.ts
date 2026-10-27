@@ -100,8 +100,8 @@ test("the router keeps its own name", () => {
   assert.equal(toOpenmiName("openrouter/auto"), "Openmi Auto");
 });
 
-test("the single Groq model answers under the Groq name", () => {
-  assert.equal(toOpenmiName("openai/gpt-oss-120b"), "Groq");
+test("the single Groq model answers under its real model name", () => {
+  assert.equal(toOpenmiName("openai/gpt-oss-120b"), "GPT-OSS 120B");
 });
 
 test("a wire id never becomes the wire id", () => {
@@ -120,7 +120,7 @@ test("a wire id never becomes the wire id", () => {
     assert.ok(
       name === "Openmi" ||
         name.startsWith("Openmi ") ||
-        name === "Groq" ||
+        name === "GPT-OSS 120B" ||
         name === "DeepSeek V4.1 Flash",
       `"${input}" became "${name}", which is not a product name`
     );
@@ -134,7 +134,7 @@ test("a stored product name survives display unchanged", () => {
     "Openmi V3",
     "Openmi Auto",
     "Openmi Code",
-    "Groq",
+    "GPT-OSS 120B",
     "DeepSeek V4.1 Flash",
   ]) {
     assert.equal(getModelDisplayName(name), name);
@@ -150,12 +150,12 @@ test("a stored provider id from an old backup is not shown", () => {
 
 const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
 
-// "Groq" is the product's name for the Code model, and "DeepSeek V4.1 Flash"
+// "GPT-OSS 120B" is the Code mode's display name, and "DeepSeek V4.1 Flash"
 // the name of its own mode, so those are the vendor words allowed on screen.
 // They go through this list rather than being dropped from VENDOR_WORDS, so a
 // *different* display name that happens to contain a provider word is still
 // caught — each exemption stays one name wide.
-const SANCTIONED_DISPLAY_NAMES: string[] = ["Groq", "DeepSeek V4.1 Flash"];
+const SANCTIONED_DISPLAY_NAMES: string[] = ["GPT-OSS 120B", "DeepSeek V4.1 Flash"];
 
 /**
  * The source with the sanctioned display names removed.
