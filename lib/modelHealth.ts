@@ -133,7 +133,6 @@ export function modelTargetId(model: string): string {
 /** Every model this deployment can currently reach, in the order it prefers them. */
 export function listModelTargets(): ModelTarget[] {
   const targets: ModelTarget[] = [];
-  let backups = 0;
   // Auto's chain first, then every mode that is pinned to one model, so a key
   // added for one of those modes still gets a row to check.
   for (const provider of [...getProviders("auto"), ...getProviders("flash")]) {
