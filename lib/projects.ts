@@ -126,10 +126,16 @@ export async function readProject(
   uid: string,
   id: string
 ): Promise<ProjectSummary | null> {
-  if (!isProjectId(id)) return null;
+  if (!isProjectId(id)) {
+    console.error(`[projects] invalid project id: ${id}`);
+    return null;
+  }
   const token = bearer(authorization);
   const client = token ? clientForToken(token) : null;
-  if (!client || !uid) return null;
+  if (!client || !uid) {
+    console.error(`[projects] no client or uid for project ${id}`);
+    return null;
+  }
   try {
     const { data, error } = await client
       .from("projects")
@@ -137,9 +143,22 @@ export async function readProject(
       .eq("owner", uid)
       .eq("id", id)
       .maybeSingle();
-    if (error || !data) return null;
-    return projectFromRow(data);
-  } catch {
+    if (error) {
+      console.error(`[projects] database error for project ${id}:`, error);
+      return null;
+    }
+    if (!data) {
+      console.error(`[projects] project ${id} not found for uid ${uid}`);
+      return null;
+    }
+    const project = projectFromRow(data);
+    if (!project) {
+      console.error(`[projects] project ${id} failed to parse for uid ${uid}`);
+      return null;
+    }
+    return project;
+  } catch (err) {
+    console.error(`[projects] exception reading project ${id}:`, err);
     return null;
   }
 }

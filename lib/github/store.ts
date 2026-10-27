@@ -157,11 +157,12 @@ export async function resolveGithubLink(
   authorization: string | null,
   uid: string
 ): Promise<GithubLink | null> {
-  const fromCookie = openGithubConnection(
-    req.cookies.get(GITHUB_CONNECTION_COOKIE)?.value,
-    uid
-  );
-  if (fromCookie) return fromCookie;
+  const cookieValue = req.cookies.get(GITHUB_CONNECTION_COOKIE)?.value;
+  if (cookieValue) {
+    const fromCookie = openGithubConnection(cookieValue, uid);
+    if (fromCookie) return fromCookie;
+    console.error(`[github] OAuth cookie present but could not be opened for uid ${uid}`);
+  }
 
   const stored = await defaultGithubConnection(authorization, uid);
   if (stored) {
@@ -173,7 +174,12 @@ export async function resolveGithubLink(
     };
   }
 
-  return readGithubLink(authorization, uid);
+  const legacy = await readGithubLink(authorization, uid);
+  if (legacy) return legacy;
+  if (cookieValue) {
+    console.error(`[github] failed to resolve GitHub link for uid ${uid} — cookie present but unreadable, no default connection, no legacy link`);
+  }
+  return null;
 }
 
 /**

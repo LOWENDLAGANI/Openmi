@@ -175,13 +175,22 @@ export async function listGithubConnections(
       .select(CONNECTION_COLUMNS)
       .eq("owner", uid)
       .order("linked_at", { ascending: false });
-    if (error || !data) return [];
-    return (data as Record<string, unknown>[])
+    if (error) {
+      console.error(`[github] error listing connections for uid ${uid}:`, error);
+      return [];
+    }
+    if (!data) return [];
+    const opened = (data as Record<string, unknown>[])
       .map((row) => open(String(row.id ?? ""), storedFromRow(row)))
-      .filter((connection): connection is GithubConnection => connection !== null)
+      .filter((connection): connection is GithubConnection => connection !== null);
+    if (opened.length === 0 && data.length > 0) {
+      console.error(`[github] could not open any of ${data.length} connections for uid ${uid} — key may have been rotated`);
+    }
+    return opened
       .sort((a, b) => b.linkedAt - a.linkedAt)
       .map(summaryOf);
-  } catch {
+  } catch (err) {
+    console.error(`[github] exception listing connections for uid ${uid}:`, err);
     return [];
   }
 }
@@ -327,9 +336,15 @@ export async function saveGithubConnection(
   // a second GitHub account does not steal the first one's place.
   const currentDefault = await readDefaultConnectionId(authorization, uid);
   if (!currentDefault) {
-    await setDefaultConnection(authorization, uid, id).catch(() => false);
+    const set = await setDefaultConnection(authorization, uid, id);
+    if (!set) console.error(`[github] failed to set default connection for ${login}`);
   } else if (currentDefault === id) {
-    await setDefaultConnection(authorization, uid, id).catch(() => false);
+    // Rewrite the pointer even when it already points at the right connection.
+    // A stale row after a key rotation would make the pointer correct but the
+    // token unreadable, and the fallback in `defaultGithubConnection` would not
+    // help because the list also cannot open the token.
+    const set = await setDefaultConnection(authorization, uid, id);
+    if (!set) console.error(`[github] failed to refresh default connection for ${login}`);
   }
 
   return connection;
