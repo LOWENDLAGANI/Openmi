@@ -26,7 +26,7 @@
 import { createHash } from "node:crypto";
 import { clientForToken } from "./supabase";
 import { digest, digestMatches, sign, turnKey, verify } from "./github/crypto";
-import type { ChangeSetFileView, ChangeSetView, CommitResult } from "./types";
+import type { ChangeSetFileView, ChangeSetView, CommitDestination, CommitResult } from "./types";
 import type { StagedChange } from "./agent/edits";
 
 /** A proposed change set is worth reviewing for half a day, not for ever. */
@@ -86,7 +86,16 @@ export interface CommitRecord {
   branch: string;
   /** Empty when a pull request could not be opened. Never `null` (see below). */
   prUrl: string;
+  /** Where the commit went, so a reopened card still says so. */
+  destination: CommitDestination;
   at: number;
+}
+
+const COMMIT_DESTINATIONS: readonly CommitDestination[] = ["main", "pr", "branch"];
+
+/** True when a value names one of the destinations the product offers. */
+export function isCommitDestination(value: unknown): value is CommitDestination {
+  return typeof value === "string" && (COMMIT_DESTINATIONS as readonly string[]).includes(value);
 }
 
 // ── Hashing and naming ──────────────────────────────────────────────────────
@@ -425,6 +434,8 @@ export function normalizeCommit(raw: unknown): CommitRecord | null {
     branch: value.branch,
     // The database does not store nulls, so a missing PR is an empty string.
     prUrl: typeof value.prUrl === "string" ? value.prUrl.slice(0, 300) : "",
+    // A record written before the destination existed went to a pull request.
+    destination: isCommitDestination(value.destination) ? value.destination : "pr",
     at: value.at,
   };
 }
@@ -603,6 +614,7 @@ function commitFromRow(row: unknown): unknown {
     sha: value.sha,
     branch: value.branch,
     prUrl: value.pr_url,
+    destination: value.destination,
     at: ms(value.created_at),
   };
 }
@@ -769,6 +781,7 @@ export async function saveCommit(
         sha: record.sha,
         branch: record.branch,
         pr_url: record.prUrl,
+        destination: record.destination,
         created_at: iso(record.at),
       },
       { onConflict: "owner,changeset_id" }
@@ -791,7 +804,7 @@ export async function readCommit(
   try {
     const { data, error } = await client
       .from("commits")
-      .select("changeset_id, sha, branch, pr_url, created_at")
+      .select("changeset_id, sha, branch, pr_url, destination, created_at")
       .eq("owner", uid)
       .eq("changeset_id", id)
       .maybeSingle();
@@ -806,7 +819,9 @@ export async function readCommit(
 export function viewOf(changeSet: ChangeSet): ChangeSetView {
   return {
     id: changeSet.id,
+    projectId: changeSet.projectId,
     repoFullName: changeSet.repoFullName,
+    defaultBranch: changeSet.defaultBranch,
     baseSha: changeSet.baseSha,
     branch: changeSet.branch,
     message: changeSet.message,
@@ -830,5 +845,6 @@ export function commitResult(record: CommitRecord, alreadyCommitted: boolean): C
     prUrl: record.prUrl || null,
     at: record.at,
     alreadyCommitted,
+    destination: record.destination,
   };
 }

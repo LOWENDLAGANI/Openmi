@@ -1263,6 +1263,7 @@ test("a repeat submit answers with the commit that already exists", () => {
     sha: "a".repeat(40),
     branch: changeSet.branch,
     prUrl: "https://github.com/owner/repo/pull/1",
+    destination: "pr" as const,
     at: changeSet.createdAt + 10_000,
   };
   const gate = commitGate({ changeSet, approval: null, existingCommit: record });
@@ -1461,6 +1462,127 @@ later("a commit to a non-agent branch is refused before GitHub is called", async
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+later("a change can go straight to the default branch when that is chosen", async () => {
+  const calls: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [];
+  const realFetch = globalThis.fetch;
+  const sha = (letter: string) => letter.repeat(40);
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input)).pathname.replace("/repos/owner/repo", "");
+    calls.push({
+      method: init?.method ?? "GET",
+      path,
+      body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null,
+    });
+    const respond = (value: unknown) =>
+      new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+    if (path.startsWith("/git/commits/")) return respond({ tree: { sha: sha("1") } });
+    if (path === "/git/blobs") return respond({ sha: sha("2") });
+    if (path === "/git/trees") return respond({ sha: sha("3") });
+    if (path === "/git/commits") return respond({ sha: sha("4") });
+    if (path === "/git/refs/heads/main") return respond({ ref: "refs/heads/main" });
+    return new Response("unexpected", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const outcome = await commitChanges({
+      token: "gho_test",
+      repoFullName: "owner/repo",
+      baseSha: "f".repeat(40),
+      branch: "agent/repo-012345",
+      message: "Openmi: update src/lib/dew.ts",
+      files: [{ path: "src/lib/dew.ts", content: DEW_AFTER }],
+      defaultBranch: "main",
+      destination: "main",
+    });
+
+    assert.deepEqual(
+      calls.map((call) => `${call.method} ${call.path}`),
+      [
+        "GET /git/commits/ffffffffffffffffffffffffffffffffffffffff",
+        "POST /git/blobs",
+        "POST /git/trees",
+        "POST /git/commits",
+        "PATCH /git/refs/heads/main",
+      ],
+      "a direct push updates the default branch ref and opens no pull request"
+    );
+
+    const update = calls.find((call) => call.path === "/git/refs/heads/main")!.body!;
+    assert.equal(update.sha, sha("4"));
+    assert.equal(update.force, false, "a direct push must never rewrite history");
+    assert.equal(outcome.sha, sha("4"));
+    assert.equal(outcome.branch, "main");
+    assert.equal(outcome.destination, "main");
+    assert.equal(outcome.prUrl, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+later("a branch-only commit publishes the branch and opens nothing", async () => {
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  const sha = (letter: string) => letter.repeat(40);
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input)).pathname.replace("/repos/owner/repo", "");
+    calls.push(`${init?.method ?? "GET"} ${path}`);
+    const respond = (value: unknown) =>
+      new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+    if (path.startsWith("/git/commits/")) return respond({ tree: { sha: sha("1") } });
+    if (path === "/git/blobs") return respond({ sha: sha("2") });
+    if (path === "/git/trees") return respond({ sha: sha("3") });
+    if (path === "/git/commits") return respond({ sha: sha("4") });
+    if (path === "/git/refs") return respond({ ref: "refs/heads/agent/repo-012345" });
+    return new Response("a pull request must not be opened", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const outcome = await commitChanges({
+      token: "gho_test",
+      repoFullName: "owner/repo",
+      baseSha: "f".repeat(40),
+      branch: "agent/repo-012345",
+      message: "Openmi: update one file",
+      files: [{ path: "a.ts", content: "x\n" }],
+      defaultBranch: "main",
+      destination: "branch",
+    });
+
+    assert.ok(calls.includes("POST /git/refs"), "the agent branch is still published");
+    assert.ok(!calls.some((call) => call.endsWith(" /pulls")), "no pull request is opened");
+    assert.equal(outcome.branch, "agent/repo-012345");
+    assert.equal(outcome.destination, "branch");
+    assert.equal(outcome.prUrl, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("the review card asks where a commit goes, remembers it, and can forget it", () => {
+  const review = read("components/ChangeReview.tsx");
+  assert.match(review, /Push to \$\{defaultBranch\}/, "pushing to the default branch is not offered");
+  assert.match(review, /Open a pull request/, "opening a pull request is not offered");
+  assert.match(review, /New branch only/, "pushing a branch without a PR is not offered");
+  assert.match(review, /Never ask again for this project/, "the choice cannot be remembered");
+  assert.match(review, /Ask again every time/, "a remembered choice cannot be undone");
+  assert.match(review, /body: JSON\.stringify\(\{ destination \}\)/, "the choice is not sent with the commit");
+  assert.match(review, /commitDestination/, "the preference is never saved to the project");
+});
+
+test("the saved destination can also be undone beside the project", () => {
+  const panel = read("components/RepoPanel.tsx");
+  assert.match(panel, /commitDestination === "ask"/, "the panel never reads the saved answer");
+  assert.match(panel, /Ask again every time/, "the panel has no way back to asking");
+  assert.match(panel, /commitDestination: "ask"/, "the reset does not reach the project endpoint");
+});
+
+test("the destination preference and the commit record are in the schema", () => {
+  const sql = read("supabase/migrations/20261030000000_commit_destination.sql");
+  assert.match(sql, /commit_destination text not null default 'ask'/);
+  assert.match(sql, /destination text not null default 'pr'/);
+  assert.match(sql, /schema_expected/, "the setup audit cannot name a missing column");
 });
 
 later("a path that escapes the repository is refused before anything is written", async () => {

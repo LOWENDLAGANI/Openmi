@@ -11,6 +11,7 @@
 import { createHash } from "node:crypto";
 import { clientForToken } from "./supabase";
 import { getBranchHead, normalizeRepoFullName } from "./github/client";
+import type { CommitPreference } from "./types";
 
 export interface ProjectSummary {
   id: string;
@@ -19,8 +20,17 @@ export interface ProjectSummary {
   /** The commit this project is read at. */
   baseSha: string;
   canPush: boolean;
+  /** Where this project's commits go — or "ask" every time. */
+  commitDestination: CommitPreference;
   addedAt: number;
   updatedAt: number;
+}
+
+const COMMIT_PREFERENCES: readonly CommitPreference[] = ["ask", "main", "pr", "branch"];
+
+/** True when a stored value is one of the destinations the product offers. */
+export function isCommitPreference(value: unknown): value is CommitPreference {
+  return typeof value === "string" && (COMMIT_PREFERENCES as readonly string[]).includes(value);
 }
 
 /** A stable id for one repository. Scoped by the user path it is stored under. */
@@ -45,6 +55,9 @@ export function normalizeProject(raw: unknown): ProjectSummary | null {
     defaultBranch: typeof value.defaultBranch === "string" && value.defaultBranch ? value.defaultBranch : "main",
     baseSha: typeof value.baseSha === "string" ? value.baseSha : "",
     canPush: value.canPush === true,
+    // An unknown value falls back to asking rather than guessing a destination:
+    // the wrong guess would push to a branch the person did not choose.
+    commitDestination: isCommitPreference(value.commitDestination) ? value.commitDestination : "ask",
     addedAt: typeof value.addedAt === "number" ? value.addedAt : 0,
     updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : 0,
   };
@@ -73,6 +86,7 @@ function projectFromRow(row: unknown): ProjectSummary | null {
     defaultBranch: value.default_branch,
     baseSha: value.base_sha,
     canPush: value.can_push,
+    commitDestination: value.commit_destination,
     addedAt: ms(value.added_at),
     updatedAt: ms(value.updated_at),
   });
@@ -89,7 +103,7 @@ export async function listProjects(
   try {
     const { data, error } = await client
       .from("projects")
-      .select("id, repo_full_name, default_branch, base_sha, can_push, added_at, updated_at")
+      .select("id, repo_full_name, default_branch, base_sha, can_push, commit_destination, added_at, updated_at")
       .eq("owner", uid)
       .order("updated_at", { ascending: false });
     if (error || !data) return [];
@@ -119,7 +133,7 @@ export async function readProject(
   try {
     const { data, error } = await client
       .from("projects")
-      .select("id, repo_full_name, default_branch, base_sha, can_push, added_at, updated_at")
+      .select("id, repo_full_name, default_branch, base_sha, can_push, commit_destination, added_at, updated_at")
       .eq("owner", uid)
       .eq("id", id)
       .maybeSingle();
@@ -186,12 +200,50 @@ export async function saveProject(
         default_branch: project.defaultBranch,
         base_sha: project.baseSha,
         can_push: project.canPush,
+        // `commit_destination` is deliberately not written here. A head refresh
+        // saves a project it read a moment ago, and a general upsert would write
+        // that stale answer over one the person saved in between. A new row gets
+        // the column's default ('ask'); an existing row keeps whatever it has,
+        // and only `setProjectCommitDestination` may change it.
         added_at: new Date(project.addedAt > 0 ? project.addedAt : Date.now()).toISOString(),
         updated_at: new Date(project.updatedAt > 0 ? project.updatedAt : Date.now()).toISOString(),
       },
       { onConflict: "owner,id" }
     );
     return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remembers where this project's commits go — or forgets the answer.
+ *
+ * Separate from `saveProject` because the preference is the person's, not a
+ * property refreshed from GitHub: a head refresh must never overwrite it, and
+ * changing it must never need a repository read.
+ */
+export async function setProjectCommitDestination(
+  authorization: string | null,
+  uid: string,
+  id: string,
+  destination: CommitPreference
+): Promise<boolean> {
+  if (!isProjectId(id) || !isCommitPreference(destination)) return false;
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) return false;
+  try {
+    // `.select()` so a row the policies filtered reads as a failure rather than
+    // as a write that never happened.
+    const { data, error } = await client
+      .from("projects")
+      .update({ commit_destination: destination, updated_at: new Date().toISOString() })
+      .eq("owner", uid)
+      .eq("id", id)
+      .select("id");
+    if (error) return false;
+    return Array.isArray(data) && data.length === 1;
   } catch {
     return false;
   }

@@ -84,7 +84,11 @@ export interface ChangeSetFileView {
 
 export interface ChangeSetView {
   id: string;
+  /** The project the change belongs to, so the card can read its preference. */
+  projectId: string;
   repoFullName: string;
+  /** The branch the change was computed against, and the name shown to people. */
+  defaultBranch: string;
   baseSha: string;
   branch: string;
   message: string;
@@ -92,6 +96,18 @@ export interface ChangeSetView {
   createdAt: number;
   files: ChangeSetFileView[];
 }
+
+/**
+ * Where an approved change is written.
+ *
+ * `main` commits onto the project's default branch, `pr` commits to an
+ * `agent/` branch and opens a pull request, and `branch` pushes that branch
+ * without opening one.
+ */
+export type CommitDestination = "main" | "pr" | "branch";
+
+/** A project's answer to "where do commits go?" — or ask each time. */
+export type CommitPreference = "ask" | CommitDestination;
 
 /** The answer to a successful commit: branch, sha, and where to review it. */
 export interface CommitResult {
@@ -101,6 +117,8 @@ export interface CommitResult {
   at: number;
   /** True for a repeat submit that found the first commit already made. */
   alreadyCommitted: boolean;
+  /** Where this commit landed, so the card can describe it after a reload. */
+  destination: CommitDestination;
 }
 
 export interface ChatMessage {

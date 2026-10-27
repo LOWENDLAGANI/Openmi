@@ -83,9 +83,13 @@ when you say so**, on a branch of its own.
   set and rendered under the answer as diff cards with per-file collapse and
   add/remove counts. **Approve & commit** writes a signed approval, then the one
   endpoint in the product that writes to GitHub: blobs → tree based on the base
-  commit → commit → `agent/<repo>-<id>` branch → pull request. A moved default
-  branch is refused with a re-diff, a double submit returns the first commit,
-  and another account's change set cannot be read or committed.
+  commit → commit. The card asks where it goes — straight to the default branch,
+  a pull request from an `agent/<repo>-<id>` branch, or that branch on its own —
+  and **Never ask again** remembers the choice for the project. The saved answer
+  is always visible with an **Ask again every time** reset, both on the review
+  card and beside the attached project. A moved default branch is refused with a
+  re-diff, a direct push is a non-forced fast-forward, a double submit returns
+  the first commit, and another account's change set cannot be read or committed.
 - **A shared answer.** A finished answer can be published as a read-only link:
   a copy of the question and the answer, no account or chat attached, expiring
   after thirty days and revocable from Settings → Your data. The public view has
@@ -96,8 +100,6 @@ when you say so**, on a branch of its own.
 - Any code execution, test run or preview. The agent cannot run what it writes,
   and the prompt tells it to say so rather than imply otherwise. That is Phase 3,
   deferred on purpose.
-- Committing to the default branch. The branch policy is a setting in the spec
-  and, for now, an unconditional refusal in code.
 
 ## Getting started
 

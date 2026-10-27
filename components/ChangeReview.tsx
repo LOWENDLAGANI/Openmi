@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { authHeader } from "@/lib/supabase";
-import type { ChangeSetFileView, ChangeSetView, CommitResult } from "@/lib/types";
+import type {
+  ChangeSetFileView,
+  ChangeSetView,
+  CommitDestination,
+  CommitPreference,
+  CommitResult,
+} from "@/lib/types";
 
 // ── The change under review ─────────────────────────────────────────────────
 //
@@ -45,6 +51,81 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 function shortSha(sha: string): string {
   return sha.slice(0, 7);
+}
+
+/** The three ways a reviewed change can be published, in the order offered. */
+const COMMIT_DESTINATIONS: CommitDestination[] = ["main", "pr", "branch"];
+
+/** What each destination does, said in terms of this repository's branches. */
+function destinationCopy(
+  destination: CommitDestination,
+  defaultBranch: string
+): { label: string; hint: string } {
+  switch (destination) {
+    case "main":
+      return {
+        label: `Push to ${defaultBranch}`,
+        hint: "Commit straight to the default branch. No review on GitHub.",
+      };
+    case "pr":
+      return {
+        label: "Open a pull request",
+        hint: `Commit to an agent branch and open a PR against ${defaultBranch}.`,
+      };
+    case "branch":
+      return {
+        label: "New branch only",
+        hint: "Push an agent branch and stop there. You open the PR yourself.",
+      };
+  }
+}
+
+/** How a remembered answer reads in a sentence. */
+function preferenceCopy(preference: CommitPreference, defaultBranch: string): string {
+  switch (preference) {
+    case "main":
+      return `push to ${defaultBranch}`;
+    case "pr":
+      return "open a pull request";
+    case "branch":
+      return "push a new branch only";
+    case "ask":
+      return "ask where each commit goes";
+  }
+}
+
+/**
+ * The way out of "never ask again".
+ *
+ * It is rendered wherever the saved answer is shown — before a commit and after
+ * one — because a preference nobody can find again is a trap, and the moment a
+ * person wants it gone is exactly when they are reading the card it affects.
+ */
+function PreferenceReset({
+  preference,
+  defaultBranch,
+  busy,
+  onReset,
+}: {
+  preference: CommitPreference;
+  defaultBranch: string;
+  busy: boolean;
+  onReset: () => void;
+}) {
+  if (preference === "ask") return null;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] leading-relaxed text-white/35">
+      Saved for this project: commits here always {preferenceCopy(preference, defaultBranch)}.
+      <button
+        type="button"
+        onClick={onReset}
+        disabled={busy}
+        className="rounded-md border border-white/[0.14] px-1.5 py-0.5 text-[9.5px] font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+      >
+        {busy ? "Saving…" : "Ask again every time"}
+      </button>
+    </p>
+  );
 }
 
 /** One line of a unified diff, coloured by what it does. */
@@ -115,16 +196,30 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"load" | "approve" | "commit" | null>("load");
   const [dismissed, setDismissed] = useState(false);
+  // Where this particular commit goes, and whether that answer should become
+  // the project's default. `preference` is what the server holds; `destination`
+  // is what the buttons show right now — they differ until "never ask again" is
+  // saved, and changing one must never rewrite the other behind the person.
+  const [destination, setDestination] = useState<CommitDestination>("pr");
+  const [preference, setPreference] = useState<CommitPreference>("ask");
+  const [remember, setRemember] = useState(false);
+  const [savingPreference, setSavingPreference] = useState(false);
 
   const load = useCallback(async () => {
     setBusy("load");
     setError(null);
     try {
-      const data = await api<{ changeSet: ChangeSetView; commit: CommitResult | null }>(
-        `/api/changesets/${changesetId}`
-      );
+      const data = await api<{
+        changeSet: ChangeSetView;
+        commit: CommitResult | null;
+        commitPreference?: CommitPreference;
+      }>(`/api/changesets/${changesetId}`);
       setChangeSet(data.changeSet);
       setCommit(data.commit);
+      const saved = data.commitPreference ?? "ask";
+      setPreference(saved);
+      // Open on the saved destination instead of making the person pick again.
+      if (saved !== "ask") setDestination(saved);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The change could not be read.");
     } finally {
@@ -136,18 +231,52 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
     void load();
   }, [load]);
 
+  /**
+   * Remembers the destination for this project, or forgets it.
+   *
+   * Best effort on purpose: a failed save must not swallow the commit the person
+   * asked for. The failure is reported in the card, and the answer stays as it
+   * was on the server, which is what the next card will show.
+   */
+  const savePreference = async (next: CommitPreference): Promise<boolean> => {
+    if (!changeSet) return false;
+    setSavingPreference(true);
+    try {
+      await api(`/api/projects/${changeSet.projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ commitDestination: next }),
+      });
+      setPreference(next);
+      if (next === "ask") setRemember(false);
+      return true;
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? `${cause.message} The commit can still go ahead; this project will keep asking.`
+          : "Where commits go could not be saved. This project will keep asking."
+      );
+      return false;
+    } finally {
+      setSavingPreference(false);
+    }
+  };
+
   const approveAndCommit = async () => {
     if (busy || commit) return;
     setError(null);
     try {
       setBusy("approve");
+      // Saved before the commit so a failure to store the answer is reported
+      // while there is still a card to report it on. A failed save does not
+      // cancel the commit the person asked for.
+      if (remember && preference !== destination) await savePreference(destination);
       // The approval is written server-side and bound to this change's hash, so
       // a later edit to the files cannot ride on it.
       await api(`/api/changesets/${changesetId}/approve`, { method: "POST" });
       setBusy("commit");
       const data = await api<{ commit: CommitResult; warning?: string | null }>(
         `/api/changesets/${changesetId}/commit`,
-        { method: "POST" }
+        { method: "POST", body: JSON.stringify({ destination }) }
       );
       setCommit(data.commit);
       setChangeSet((current) => (current ? { ...current, status: "committed" } : current));
@@ -245,7 +374,8 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
       {commit ? (
         <div className="border-t border-white/[0.06] px-3 py-2 text-[11px] leading-relaxed text-white/55">
           <p>
-            Committed as <span className="font-mono text-white/80">{shortSha(commit.sha)}</span> on{" "}
+            Committed as <span className="font-mono text-white/80">{shortSha(commit.sha)}</span>{" "}
+            {commit.destination === "main" ? "directly to" : "on"}{" "}
             <span className="font-mono text-white/80">{commit.branch}</span>
             {commit.alreadyCommitted ? " (this change was already committed)" : ""}.
           </p>
@@ -259,35 +389,110 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
               >
                 Open the pull request
               </a>
+            ) : commit.destination === "branch" ? (
+              <a
+                href={`https://github.com/${changeSet?.repoFullName ?? ""}/tree/${encodeURIComponent(commit.branch)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-[#a9d8bb] underline decoration-[#a9d8bb]/30 underline-offset-2 hover:text-white"
+              >
+                Open the branch
+              </a>
             ) : (
-              <span className="text-white/35">No pull request was opened for this branch.</span>
+              <span className="text-white/35">No pull request was opened — the commit is already on {commit.branch}.</span>
             )}
-            <span className="text-white/30">To undo, revert the pull request — never force-push the branch.</span>
+            <span className="text-white/30">
+              {commit.destination === "main"
+                ? `To undo, revert the commit on ${commit.branch} — it is already published.`
+                : commit.destination === "branch"
+                  ? "To undo, delete the branch or revert its commit."
+                  : "To undo, revert the pull request — never force-push the branch."}
+            </span>
           </div>
+          <PreferenceReset
+            preference={preference}
+            defaultBranch={changeSet?.defaultBranch ?? "main"}
+            busy={savingPreference}
+            onReset={() => void savePreference("ask")}
+          />
         </div>
       ) : (
-        <div className="flex items-center gap-2 border-t border-white/[0.06] px-3 py-2">
-          <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-white/30">
-            Nothing is written until you approve. Openmi commits to this branch and opens a pull request — never to the
-            default branch.
-          </p>
-          <button
-            type="button"
-            onClick={() => setDismissed(true)}
-            disabled={working}
-            className="shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
-          >
-            Dismiss
-          </button>
-          <button
-            type="button"
-            onClick={() => void approveAndCommit()}
-            disabled={working || !changeSet || stale || changeSet.status === "committed"}
-            className="shrink-0 rounded-lg px-3 py-1.5 text-[11.5px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-40"
-            style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
-          >
-            {busy === "approve" ? "Approving…" : busy === "commit" ? "Committing…" : "Approve & commit"}
-          </button>
+        <div className="border-t border-white/[0.06] px-3 py-2.5">
+          <p className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-white/30">Where this goes</p>
+          <div className="mt-1.5 grid gap-1 sm:grid-cols-3">
+            {COMMIT_DESTINATIONS.map((option) => {
+              const copy = destinationCopy(option, changeSet?.defaultBranch ?? "main");
+              const active = destination === option;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setDestination(option)}
+                  disabled={working}
+                  aria-pressed={active}
+                  className={`rounded-lg border px-2 py-1.5 text-left transition-colors disabled:opacity-50 ${
+                    active
+                      ? "border-[#a9d8bb]/40 bg-[#a9d8bb]/[0.09]"
+                      : "border-white/[0.08] bg-white/[0.015] hover:border-white/[0.16]"
+                  }`}
+                >
+                  <span
+                    className={`block text-[11px] font-medium ${active ? "text-[#c9e6d4]" : "text-white/70"}`}
+                  >
+                    {copy.label}
+                  </span>
+                  <span className="mt-0.5 block text-[9.5px] leading-relaxed text-white/35">{copy.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* The checkbox exists only while nothing is saved: once an answer is
+              remembered, the row below is the one control that matters, and two
+              controls that disagree about the same setting is how people end up
+              stuck with a destination they thought they had turned off. */}
+          {preference === "ask" && (
+            <label className="mt-2 flex cursor-pointer items-start gap-1.5 text-[10px] leading-relaxed text-white/40">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(event) => setRemember(event.target.checked)}
+                disabled={working || savingPreference}
+                className="mt-0.5 h-3 w-3 shrink-0 accent-[#a9d8bb]"
+              />
+              Never ask again for this project — use this choice every time.
+            </label>
+          )}
+
+          <PreferenceReset
+            preference={preference}
+            defaultBranch={changeSet?.defaultBranch ?? "main"}
+            busy={savingPreference}
+            onReset={() => void savePreference("ask")}
+          />
+
+          <div className="mt-2 flex items-center gap-2">
+            <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-white/30">
+              Nothing is written until you approve. Openmi pushes only where you choose above.
+            </p>
+            <button
+              type="button"
+              onClick={() => setDismissed(true)}
+              disabled={working}
+              className="shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              onClick={() => void approveAndCommit()}
+              disabled={working || !changeSet || stale || changeSet.status === "committed"}
+              className="shrink-0 rounded-lg px-3 py-1.5 text-[11.5px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-40"
+              style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
+            >
+              {busy === "approve" ? "Approving…" : busy === "commit" ? "Committing…" : "Approve & commit"}
+            </button>
+          </div>
         </div>
       )}
     </div>

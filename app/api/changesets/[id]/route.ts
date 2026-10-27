@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, verifyCaller, rateLimitRefusal } from "@/lib/serverControl";
 import { commitResult, isChangeSetId, readChangeSet, readCommit, viewOf } from "@/lib/changesets";
+import { readProject } from "@/lib/projects";
 
 // ── One change set, for the review screen ────────────────────────────────────
 //
@@ -45,10 +46,17 @@ export async function GET(
   // review card can still show where the commit went after a reload.
   const commit = await readCommit(authorization, identity.uid, id);
 
+  // The project's saved answer travels with the change so the card opens on the
+  // destination the person already picked, and can offer to undo that answer.
+  // A missing project is not a failure here: the card still reviews the diff,
+  // and the commit endpoint refuses an unattached repository on its own.
+  const project = await readProject(authorization, identity.uid, changeSet.projectId);
+
   return Response.json(
     {
       changeSet: viewOf(changeSet),
       commit: commit ? commitResult(commit, true) : null,
+      commitPreference: project?.commitDestination ?? "ask",
     },
     { headers: { "Cache-Control": "no-store" } }
   );

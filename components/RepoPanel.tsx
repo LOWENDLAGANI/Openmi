@@ -495,6 +495,32 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     }
   };
 
+  /**
+   * Forgets where this project's commits go, so the review card asks again.
+   *
+   * This lives beside the project as well as on the review card: a person who
+   * saved "always push to main" needs a way back that does not depend on
+   * having a pending change to read it on.
+   */
+  const resetCommitPreference = async (item: ProjectSummary) => {
+    if (busy) return;
+    setBusy("preference");
+    setError(null);
+    try {
+      const data = await api<{ project: ProjectSummary }>(`/api/projects/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ commitDestination: "ask" }),
+      });
+      setProjects((current) => current.map((entry) => (entry.id === data.project.id ? data.project : entry)));
+      if (project?.id === data.project.id) onSelectProject(data.project);
+      setNotice("Openmi will ask where each commit goes.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The commit setting could not be changed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const openFile = async (path: string) => {
     if (!project) return;
     setOpenPath(path);
@@ -928,6 +954,28 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                     >
                       Change
                     </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] px-3 py-1.5">
+                    <span className="text-[10px] leading-relaxed text-white/35">
+                      {project.commitDestination === "ask"
+                        ? "Commits ask where to go each time."
+                        : project.commitDestination === "main"
+                          ? `Commits always push to ${project.defaultBranch}.`
+                          : project.commitDestination === "pr"
+                            ? "Commits always open a pull request."
+                            : "Commits always push a new branch only."}
+                    </span>
+                    {project.commitDestination !== "ask" && (
+                      <button
+                        type="button"
+                        onClick={() => void resetCommitPreference(project)}
+                        disabled={busy === "preference"}
+                        className="shrink-0 rounded-md border border-white/[0.14] px-2 py-0.5 text-[10px] font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+                      >
+                        {busy === "preference" ? "Saving…" : "Ask again every time"}
+                      </button>
+                    )}
                   </div>
 
                   {openPath ? (

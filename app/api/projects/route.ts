@@ -98,6 +98,9 @@ export async function POST(req: NextRequest): Promise<Response> {
       defaultBranch: repo.default_branch || "main",
       baseSha,
       canPush: Boolean(repo.permissions?.push),
+      // Re-attaching keeps the answer the person already gave; only a new
+      // project starts by asking.
+      commitDestination: previous?.commitDestination ?? "ask",
       addedAt: previous?.addedAt ?? now,
       updatedAt: now,
     };
