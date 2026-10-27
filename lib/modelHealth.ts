@@ -138,11 +138,13 @@ export function listModelTargets(): ModelTarget[] {
   // added for one of those modes still gets a row to check.
   for (const provider of [...getProviders("auto"), ...getProviders("flash")]) {
     if (provider.family === "groq") {
-      // The last-resort models all present to users as plain "Openmi", so a
-      // list of identical names would be unreadable and untestable one by one.
-      // They are numbered in the order the chat route falls back through them.
-      backups += 1;
-      targets.push({ id: modelTargetId(provider.model), name: `Openmi Backup ${backups}`, role: "backup" });
+      // Groq now serves a single model for Code mode, so it has one row to
+      // check rather than a numbered last-resort chain.
+      targets.push({
+        id: modelTargetId(provider.model),
+        name: getModelDisplayName(toOpenmiName(provider.model)),
+        role: "backup",
+      });
       continue;
     }
     targets.push({
@@ -167,11 +169,16 @@ function findProvider(id: string): ProviderConfig | null {
 }
 
 /** The name shown next to a row, for a model the panel knows how to name. */
-function nameFor(provider: ProviderConfig, backups: Map<string, number>): ModelTarget {
+function nameFor(provider: ProviderConfig, _backups: Map<string, number>): ModelTarget {
   if (provider.family === "groq") {
-    const index = (backups.get(provider.family) ?? 0) + 1;
-    backups.set(provider.family, index);
-    return { id: modelTargetId(provider.model), name: `Openmi Backup ${index}`, role: "backup" };
+    // The backups map used to number Groq's last-resort chain. That chain is
+    // gone now that Code mode is pinned to one Groq model, so the row is
+    // named by its product name instead.
+    return {
+      id: modelTargetId(provider.model),
+      name: getModelDisplayName(toOpenmiName(provider.model)),
+      role: "backup",
+    };
   }
   return {
     id: modelTargetId(provider.model),

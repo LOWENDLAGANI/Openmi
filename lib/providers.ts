@@ -10,7 +10,7 @@ import {
   DEEPSEEK_ENGINE,
   GEMINI_ENGINE,
   GEMINI_FALLBACKS,
-  GROQ_MODELS,
+  GROQ_ENGINE,
   toOpenmiName,
 } from "./modelEngines";
 
@@ -104,19 +104,21 @@ export function getProviders(
   // is down, rate-limited, or out of capacity the chat still answers instead of
   // erroring out.
   //
-  // Every entry is a comparable-tier model rather than a progressively weaker
-  // one, and only GPT-OSS honours reasoning_effort.
+  // Code mode is pinned to a single Groq model, so there is no Groq-side
+  // fallback chain and no per-model reasoning flag to track here.
   const groq: ProviderConfig[] = groqKey
-    ? GROQ_MODELS.map(({ model, supportsReasoning }) => ({
-        id: requested,
-        family: "groq" as const,
-        label: "Groq",
-        url: "https://api.groq.com/openai/v1/chat/completions",
-        key: groqKey,
-        model,
-        supportsReasoning,
-        extraBody: { stream_options: { include_usage: true } },
-      }))
+    ? [
+        {
+          id: requested,
+          family: "groq" as const,
+          label: "Groq",
+          url: "https://api.groq.com/openai/v1/chat/completions",
+          key: groqKey,
+          model: GROQ_ENGINE,
+          supportsReasoning: true,
+          extraBody: { stream_options: { include_usage: true } },
+        },
+      ]
     : [];
 
   // DeepSeek mode is one pinned model, in the same spirit as Code: a person who

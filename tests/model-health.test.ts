@@ -63,25 +63,33 @@ await test("every configured model gets its own row", async () => {
   });
 });
 
-await test("the last-resort models are listed separately and are distinguishable", async () => {
+await test("the Groq model is listed by its product name", async () => {
   await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: "test-key", OPENMI_HF_SPACE: "off" }, () => {
     const targets = listModelTargets();
-    assert.equal(targets.length, 3, "the last-resort models are missing from the panel");
+    assert.equal(targets.length, 1, "the Groq row is missing from the panel");
     const names = targets.map((target) => target.name);
     assert.equal(new Set(names).size, names.length, `two rows share a name: ${names.join(", ")}`);
-    for (const target of targets) assert.match(target.name, /^Openmi Backup \d+$/);
+    assert.equal(names[0], "Groq", "the Groq row does not carry its product name");
   });
 });
 
-await test("nothing in the list carries a provider name or a wire model", async () => {
+await test("the list carries the Groq product name and not the wire model", async () => {
   await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: "test-key" }, () => {
     const serialised = JSON.stringify(listModelTargets());
-    for (const word of ["gemini", "openrouter", "groq", "gpt", "llama", "https", "api_key"]) {
+    for (const word of ["gemini", "openrouter", "https", "api_key"] as const) {
       assert.ok(
         !serialised.toLowerCase().includes(word),
         `the model list sent to the browser contains "${word}"`
       );
     }
+    assert.ok(
+      serialised.toLowerCase().includes("groq"),
+      "the Groq product name is the one sanctioned place that word appears"
+    );
+    assert.ok(
+      !serialised.toLowerCase().includes("gpt-oss"),
+      "the wire model id stays out of the list even though the product name mentions the vendor"
+    );
   });
 });
 
@@ -95,17 +103,15 @@ await test("the id is stable and says nothing about the model", () => {
 
 console.log("\nthe check itself");
 
-await test("a check asks the model it was pointed at, not the fallback chain", () => {
+await test("a check asks the model it was pointed at, not a fallback chain", () => {
   const health = read("lib/modelHealth.ts");
   assert.match(
     health,
     /getProviders\(mode\)\.find\(\(provider\) => modelTargetId\(provider\.model\) === id\)/,
     "the probe cannot tell which provider a row refers to"
   );
-  // The fallback chain is what made a broken model invisible in the first place:
-  // chat silently moves to another model, so the broken one never appears. The
-  // probe must therefore talk to the one provider it resolved, never "the next
-  // one that answers".
+  // A broken model should still show up, not be silently skipped. The probe
+  // talks to the one provider it resolved, not the next one that answers.
   assert.match(
     health,
     /await fetch\(provider\.url/,

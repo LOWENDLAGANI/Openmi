@@ -100,10 +100,8 @@ test("the router keeps its own name", () => {
   assert.equal(toOpenmiName("openrouter/auto"), "Openmi Auto");
 });
 
-test("every Groq model answers under the Groq name", () => {
-  for (const model of ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b"]) {
-    assert.equal(toOpenmiName(model), "Groq");
-  }
+test("the single Groq model answers under the Groq name", () => {
+  assert.equal(toOpenmiName("openai/gpt-oss-120b"), "Groq");
 });
 
 test("a wire id never becomes the wire id", () => {
@@ -114,7 +112,7 @@ test("a wire id never becomes the wire id", () => {
     "gemini-exp-1206",
     "gpt-4",
     "claude-3-5-sonnet",
-    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-20b",
     "some-unknown-model",
   ];
   for (const input of inputs) {
