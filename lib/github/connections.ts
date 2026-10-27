@@ -319,11 +319,18 @@ export async function saveGithubConnection(
   }
   if (!written) return null;
 
-  // The default is a convenience, never a requirement: a failed write here
-  // leaves the connection usable, because `defaultGithubConnection` falls back
-  // to the newest entry when the pointer is missing.
+  // Refresh the default pointer when it is missing or stale. A missing default
+  // is the first connection ever, so it becomes the default. A default that
+  // points at the connection we just saved is rewritten so a stale row does not
+  // keep pointing at a connection that cannot be opened after a key rotation.
+  // A default that points at a *different* connection is left alone, so adding
+  // a second GitHub account does not steal the first one's place.
   const currentDefault = await readDefaultConnectionId(authorization, uid);
-  if (!currentDefault) await setDefaultConnection(authorization, uid, id);
+  if (!currentDefault) {
+    await setDefaultConnection(authorization, uid, id).catch(() => false);
+  } else if (currentDefault === id) {
+    await setDefaultConnection(authorization, uid, id).catch(() => false);
+  }
 
   return connection;
 }
