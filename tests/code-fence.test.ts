@@ -100,10 +100,10 @@ test("the router keeps its own name", () => {
   assert.equal(toOpenmiName("openrouter/auto"), "Openmi Auto");
 });
 
-test("every Groq model answers under the Groq name", () => {
-  for (const model of ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b"]) {
-    assert.equal(toOpenmiName(model), "Groq");
-  }
+test("the Code model answers under its own name", () => {
+  // Code mode is pinned to one model, so the name on the message is the model
+  // the person chose rather than the vendor that serves it.
+  assert.equal(toOpenmiName("openai/gpt-oss-120b"), "GPT-OSS 120B");
 });
 
 test("a wire id never becomes the wire id", () => {
@@ -122,7 +122,7 @@ test("a wire id never becomes the wire id", () => {
     assert.ok(
       name === "Openmi" ||
         name.startsWith("Openmi ") ||
-        name === "Groq" ||
+        name === "GPT-OSS 120B" ||
         name === "DeepSeek V4.1 Flash",
       `"${input}" became "${name}", which is not a product name`
     );
@@ -136,6 +136,9 @@ test("a stored product name survives display unchanged", () => {
     "Openmi V3",
     "Openmi Auto",
     "Openmi Code",
+    "GPT-OSS 120B",
+    // The Code model's name before it was renamed: a message stored then must
+    // keep the label it was written with.
     "Groq",
     "DeepSeek V4.1 Flash",
   ]) {
@@ -152,12 +155,14 @@ test("a stored provider id from an old backup is not shown", () => {
 
 const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
 
-// "Groq" is the product's name for the Code model, and "DeepSeek V4.1 Flash"
-// the name of its own mode, so those are the vendor words allowed on screen.
-// They go through this list rather than being dropped from VENDOR_WORDS, so a
-// *different* display name that happens to contain a provider word is still
-// caught — each exemption stays one name wide.
-const SANCTIONED_DISPLAY_NAMES: string[] = ["Groq", "DeepSeek V4.1 Flash"];
+// "GPT-OSS 120B" is the name of the model Code mode is pinned to, and
+// "DeepSeek V4.1 Flash" names its own mode, so those are the model names allowed
+// on screen. "Groq" stays exempt only because lib/models.ts still whitelists it
+// as the label of a message stored before the rename. They go through this list
+// rather than being dropped from VENDOR_WORDS, so a *different* display name
+// that happens to contain a provider word is still caught — each exemption
+// stays one name wide.
+const SANCTIONED_DISPLAY_NAMES: string[] = ["GPT-OSS 120B", "Groq", "DeepSeek V4.1 Flash"];
 
 /**
  * The source with the sanctioned display names removed.

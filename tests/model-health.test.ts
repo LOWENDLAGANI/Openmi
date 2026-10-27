@@ -63,25 +63,30 @@ await test("every configured model gets its own row", async () => {
   });
 });
 
-await test("the last-resort models are listed separately and are distinguishable", async () => {
+await test("the pinned Code model is listed once, under its own name", async () => {
   await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: "test-key", OPENMI_HF_SPACE: "off" }, () => {
     const targets = listModelTargets();
-    assert.equal(targets.length, 3, "the last-resort models are missing from the panel");
-    const names = targets.map((target) => target.name);
-    assert.equal(new Set(names).size, names.length, `two rows share a name: ${names.join(", ")}`);
-    for (const target of targets) assert.match(target.name, /^Openmi Backup \d+$/);
+    // One model, one row: Code is pinned to a single model now, so there is no
+    // second Groq model behind it to list as a fallback.
+    assert.equal(targets.length, 1, "the pinned Code model is missing from the panel, or listed twice");
+    assert.equal(targets[0]!.name, "GPT-OSS 120B");
+    assert.equal(targets[0]!.role, "code");
   });
 });
 
 await test("nothing in the list carries a provider name or a wire model", async () => {
   await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: "test-key" }, () => {
-    const serialised = JSON.stringify(listModelTargets());
-    for (const word of ["gemini", "openrouter", "groq", "gpt", "llama", "https", "api_key"]) {
+    const targets = listModelTargets();
+    const serialised = JSON.stringify(targets);
+    for (const word of ["gemini", "openrouter", "groq", "openai/", "llama", "https", "api_key"]) {
       assert.ok(
         !serialised.toLowerCase().includes(word),
         `the model list sent to the browser contains "${word}"`
       );
     }
+    // The model's own name is the one detail the panel is allowed to show: it
+    // is what the person picked, and a row would be useless without it.
+    assert.ok(serialised.includes("GPT-OSS 120B"), "the Code model is not named for the administrator");
   });
 });
 

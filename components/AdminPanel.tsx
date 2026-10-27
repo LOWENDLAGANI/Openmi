@@ -65,7 +65,7 @@ type View =
 
 const PROVIDER_LABEL: Record<string, string> = {
   auto: "Openmi Auto",
-  code: "Groq",
+  code: "GPT-OSS 120B",
   flash: "DeepSeek V4.1 Flash",
 };
 

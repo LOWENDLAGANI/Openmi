@@ -20,7 +20,7 @@ import { getModelDisplayName } from "./models";
 import { toOpenmiName } from "./modelEngines";
 import { getProviders, type ProviderConfig } from "./providers";
 
-export type ModelRole = "auto" | "version" | "backup";
+export type ModelRole = "auto" | "version" | "code";
 
 export interface ModelTarget {
   /** Opaque, stable handle the panel sends back to run a check. */
@@ -133,23 +133,11 @@ export function modelTargetId(model: string): string {
 /** Every model this deployment can currently reach, in the order it prefers them. */
 export function listModelTargets(): ModelTarget[] {
   const targets: ModelTarget[] = [];
-  let backups = 0;
   // Auto's chain first, then every mode that is pinned to one model, so a key
-  // added for one of those modes still gets a row to check.
+  // added for one of those modes still gets a row to check. Code's model is in
+  // Auto's chain too, and a model that can answer two modes is still one model.
   for (const provider of [...getProviders("auto"), ...getProviders("flash")]) {
-    if (provider.family === "groq") {
-      // The last-resort models all present to users as plain "Openmi", so a
-      // list of identical names would be unreadable and untestable one by one.
-      // They are numbered in the order the chat route falls back through them.
-      backups += 1;
-      targets.push({ id: modelTargetId(provider.model), name: `Openmi Backup ${backups}`, role: "backup" });
-      continue;
-    }
-    targets.push({
-      id: modelTargetId(provider.model),
-      name: getModelDisplayName(toOpenmiName(provider.model)),
-      role: provider.family === "openrouter" ? "auto" : "version",
-    });
+    targets.push(nameFor(provider));
   }
   return targets;
 }
@@ -167,16 +155,12 @@ function findProvider(id: string): ProviderConfig | null {
 }
 
 /** The name shown next to a row, for a model the panel knows how to name. */
-function nameFor(provider: ProviderConfig, backups: Map<string, number>): ModelTarget {
-  if (provider.family === "groq") {
-    const index = (backups.get(provider.family) ?? 0) + 1;
-    backups.set(provider.family, index);
-    return { id: modelTargetId(provider.model), name: `Openmi Backup ${index}`, role: "backup" };
-  }
+function nameFor(provider: ProviderConfig): ModelTarget {
   return {
     id: modelTargetId(provider.model),
     name: getModelDisplayName(toOpenmiName(provider.model)),
-    role: provider.family === "openrouter" ? "auto" : "version",
+    role:
+      provider.family === "openrouter" ? "auto" : provider.family === "groq" ? "code" : "version",
   };
 }
 
@@ -200,7 +184,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
     };
   }
 
-  const target = nameFor(provider, new Map());
+  const target = nameFor(provider);
   const startedAt = Date.now();
   // A model that never answers must still be reported, so the request is
   // bounded independently of whether the browser is still waiting.

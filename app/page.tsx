@@ -673,7 +673,7 @@ export default function HomePage() {
   }, [available, selectedMode]);
 
   // Switching modes is not a mid-conversation toggle. Code mode is pinned to
-  // Groq for code-generation accuracy, and continuing a chat
+  // GPT-OSS 120B for code-generation accuracy, and continuing a chat
   // written by one model under another would blend two different answers into
   // one thread. So picking a mode that declares `separateSession` starts a fresh
   // session instead of reinterpreting the current one.

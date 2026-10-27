@@ -13,13 +13,13 @@ when you say so**, on a branch of its own.
 
 ## What works today
 
-- Chat with **Auto**, **Groq** and **DeepSeek V4.1 Flash** modes, streamed over
+- Chat with **Auto**, **GPT-OSS 120B** and **DeepSeek V4.1 Flash** modes, streamed over
   SSE with provider fallback and continuation when a model hits its output
   limit.
 - Local-first history in IndexedDB (Dexie), synced to the signed-in account.
 - **An account is required.** Sign in or register with Google, GitHub, Microsoft
   or an email address and password, all held by Supabase Auth.
-- **Dew**: one flat price per model — `0.25` for Auto, `0.5` for Groq, and
+- **Dew**: one flat price per model — `0.25` for Auto, `0.5` for GPT-OSS 120B, and
   DeepSeek V4.1 Flash at `2` per message or `3` for a one-hour session in one
   chat. Every account also gets **10 free Dew a day**, refilled at midnight in
   the account's own timezone (the browser's at registration, Malaysia until one
@@ -168,7 +168,7 @@ The important ones for **this build**:
 |---|---|
 | `OPENROUTER_API_KEY` | Auto mode routing. |
 | `GEMINI_API_KEY` | Auto fallback (V3 → V2 → V1). |
-| `GROQ_API_KEY` | Groq — the Code mode model, and Auto's last-resort fallback. |
+| `GROQ_API_KEY` | The Groq key behind GPT-OSS 120B — the Code mode model, and Auto's last-resort fallback. |
 | `DEEPSEEK_API_KEY` | DeepSeek — the DeepSeek V4.1 Flash mode, and nothing else. |
 | `NEXT_PUBLIC_ADSENSE_CLIENT_ID` | Public AdSense publisher id (`ca-pub-…`). Absent means no banner and no gap. |
 | `NEXT_PUBLIC_ADSENSE_SLOT_ID` | Public ad-unit slot id. Both ids are required for the unit to render. |

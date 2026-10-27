@@ -844,60 +844,6 @@ html.light .typing-waiter-glow {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Model badge styles ────────────────────────────────────────────────── */
-.model-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.125rem 0.5rem 0.125rem 0.375rem;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-.model-badge-azure {
-  background: var(--azure-soft);
-  color: var(--azure);
-  border: 1px solid color-mix(in srgb, var(--azure) 22%, transparent);
-}
-.model-badge-code {
-  background: var(--code-soft);
-  color: var(--code);
-  border: 1px solid color-mix(in srgb, var(--code) 22%, transparent);
-}
-.model-badge-auto {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-}
-.model-badge-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.model-badge-azure .model-badge-dot {
-  animation: pulse-azure 2s ease-in-out infinite;
-}
-.model-badge-code .model-badge-dot {
-  animation: pulse-code 2s ease-in-out infinite;
-}
-.model-badge-auto .model-badge-dot {
-  animation: pulse-auto 2s ease-in-out infinite;
-}
-@keyframes pulse-azure {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-@keyframes pulse-code {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-@keyframes pulse-auto {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-
 /* ── Utilities ──────────────────────────────────────────────────────────── */
 .hairline-b { border-bottom: 1px solid var(--line); }
 .hairline-t { border-top: 1px solid var(--line); }

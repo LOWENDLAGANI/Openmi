@@ -18,7 +18,7 @@ import { authHeader } from "@/lib/supabase";
 interface ModelTarget {
   id: string;
   name: string;
-  role: "auto" | "version" | "backup";
+  role: "auto" | "version" | "code";
 }
 
 interface ProbeResult extends ModelTarget {
@@ -36,8 +36,8 @@ interface CheckState {
 
 const ROLE_LABEL: Record<ModelTarget["role"], string> = {
   auto: "Routes Auto",
-  version: "Code fallback",
-  backup: "Last resort",
+  version: "Pinned model",
+  code: "Code mode",
 };
 
 export default function ModelHealthSection() {

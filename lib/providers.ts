@@ -10,7 +10,7 @@ import {
   DEEPSEEK_ENGINE,
   GEMINI_ENGINE,
   GEMINI_FALLBACKS,
-  GROQ_MODELS,
+  GROQ_ENGINE,
   toOpenmiName,
 } from "./modelEngines";
 
@@ -27,8 +27,8 @@ export interface ProviderConfig {
   extraBody?: Record<string, unknown>;
   /**
    * Whether this exact model honours `reasoning_effort`. It is not a property
-   * of the vendor — Groq serves both a reasoning model and a plain one behind
-   * the same API — so it is tracked per configuration.
+   * of the vendor — one provider can serve both reasoning and plain models
+   * behind the same API — so it is tracked per configuration.
    */
   supportsReasoning: boolean;
 }
@@ -104,19 +104,22 @@ export function getProviders(
   // is down, rate-limited, or out of capacity the chat still answers instead of
   // erroring out.
   //
-  // Every entry is a comparable-tier model rather than a progressively weaker
-  // one, and only GPT-OSS honours reasoning_effort.
+  // Code is pinned to one model. There is no second Groq model behind it: a
+  // silent step down to a smaller model would change the quality of a code
+  // answer without telling the person who asked for it.
   const groq: ProviderConfig[] = groqKey
-    ? GROQ_MODELS.map(({ model, supportsReasoning }) => ({
-        id: requested,
-        family: "groq" as const,
-        label: "Groq",
-        url: "https://api.groq.com/openai/v1/chat/completions",
-        key: groqKey,
-        model,
-        supportsReasoning,
-        extraBody: { stream_options: { include_usage: true } },
-      }))
+    ? [
+        {
+          id: requested,
+          family: "groq" as const,
+          label: toOpenmiName(GROQ_ENGINE),
+          url: "https://api.groq.com/openai/v1/chat/completions",
+          key: groqKey,
+          model: GROQ_ENGINE,
+          supportsReasoning: true,
+          extraBody: { stream_options: { include_usage: true } },
+        },
+      ]
     : [];
 
   // DeepSeek mode is one pinned model, in the same spirit as Code: a person who
