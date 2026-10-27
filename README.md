@@ -80,6 +80,15 @@ when you say so**, on a branch of its own.
   commit → commit → `agent/<repo>-<id>` branch → pull request. A moved default
   branch is refused with a re-diff, a double submit returns the first commit,
   and another account's change set cannot be read or committed.
+- **Direct push, only when it is asked for.** If your own message asks for the
+  change to go straight to your branch — "build me a login and push it to main
+  when you're done" — the change is pushed to the repository's default branch
+  with no pull request, and the card says so. The request is read from the
+  sentence you typed, in your browser, and travels as one boolean: a model
+  cannot set it and a file in the repository cannot either. Anything else takes
+  the review route, and the card always offers a one-press **Push to
+  `<branch>`** beside **Approve & commit**. The server resolves "main" to the
+  repository's real default branch and refuses to push anywhere else.
 - **A shared answer.** A finished answer can be published as a read-only link:
   a copy of the question and the answer, no account or chat attached, expiring
   after thirty days and revocable from Settings → Your data. The public view has
@@ -90,8 +99,6 @@ when you say so**, on a branch of its own.
 - Any code execution, test run or preview. The agent cannot run what it writes,
   and the prompt tells it to say so rather than imply otherwise. That is Phase 3,
   deferred on purpose.
-- Committing to the default branch. The branch policy is a setting in the spec
-  and, for now, an unconditional refusal in code.
 
 ## Getting started
 
@@ -327,6 +334,8 @@ lib/agent/           tools.ts (the four tools), edits.ts (staging and unified
                      budget), run.ts (one step)
 lib/changesets.ts    change-set ids, hashes, branch naming, signed change sets
                      and approvals, the commit gate, the stored records
+lib/push.ts          the direct push: a default branch, no pull request
+lib/pushIntent.ts    reads the person's own message for a direct-push request
 components/ChangeReview.tsx  the diff cards and Approve & commit
 components/AuthScreen.tsx  the required sign-in/register screen
 components/EmailAuthForm.tsx  email register, sign in, resend, reset
@@ -342,11 +351,18 @@ supabase/README.md   one-time dashboard setup, and how to grant an admin
 
 ## Non-negotiable rules
 
-1. **Nothing is committed without an approval record.** The model has no write
-   tool — `lib/github/client.ts` contains only GETs, and every write lives in
-   `lib/github/commit.ts`. The only route that writes to GitHub requires an
-   HMAC approval bound to the user, repository, base SHA and change-set hash,
-   refuses a branch that has moved, and only ever creates an `agent/` branch.
+1. **Nothing is committed that a person did not authorise.** The model has no
+   write tool — `lib/github/client.ts` contains only GETs, and every write lives
+   in `lib/github/commit.ts`. A commit needs an HMAC approval bound to the user,
+   repository, base SHA and change-set hash, and the branch policy is
+   `agent/<slug>` with a pull request. The one exception is a **direct push**,
+   which needs the person's own request: the intent is read from their message
+   in their browser and sent as a single boolean, the change set is built in
+   direct mode by the server (the flag is inside its signature, so a change
+   proposed for review cannot be relabelled as one), and the write module
+   refuses a branch outside `agent/` unless the caller asked for it *and* the
+   branch is exactly the repository's default branch. Both paths refuse a branch
+   that has moved, and the model can reach neither.
 2. **Property names never reach the browser.** `lib/providers.ts` and
    `lib/modelEngines.ts` are server-only; `lib/models.ts` is what the client sees.
 3. **A balance is never read from the request.** Dew is read with the caller's

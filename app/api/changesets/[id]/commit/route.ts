@@ -139,6 +139,10 @@ export async function POST(
       // Empty, never null: the database stores no nulls, and "no pull request"
       // is a missing string rather than a missing field.
       prUrl: outcome.prUrl ?? "",
+      // This route is the review path and only ever creates an `agent/` branch.
+      // A change built for a direct push is refused by `commitGate` here and
+      // pushed by /api/changesets/[id]/push instead.
+      direct: false,
       at: Date.now(),
     };
 

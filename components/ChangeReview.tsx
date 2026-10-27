@@ -113,7 +113,7 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
   const [changeSet, setChangeSet] = useState<ChangeSetView | null>(null);
   const [commit, setCommit] = useState<CommitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"load" | "approve" | "commit" | null>("load");
+  const [busy, setBusy] = useState<"load" | "approve" | "commit" | "push" | null>("load");
   const [dismissed, setDismissed] = useState(false);
 
   const load = useCallback(async () => {
@@ -165,6 +165,38 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
     }
   };
 
+  /**
+   * The direct push: this change, written straight to the default branch with no
+   * pull request.
+   *
+   * The server rebuilds the change from the files already on this card, so what
+   * is pushed is what was read — same content hash, same base commit. It
+   * re-checks the branch head and this connection's push permission first, and
+   * it is the only path that may commit to a default branch at all.
+   */
+  const pushDirect = async () => {
+    if (busy || commit) return;
+    setError(null);
+    try {
+      setBusy("push");
+      const data = await api<{ commit: CommitResult; warning?: string | null }>(
+        `/api/changesets/${changesetId}/push`,
+        { method: "POST" }
+      );
+      setCommit(data.commit);
+      setChangeSet((current) => (current ? { ...current, status: "committed" } : current));
+      if (data.warning) setError(data.warning);
+    } catch (cause) {
+      const failure = cause as ApiError;
+      setError(failure instanceof Error ? failure.message : "The change could not be pushed.");
+      if (failure?.detail === "stale") {
+        setChangeSet((current) => (current ? { ...current, status: "stale" } : current));
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // Dismissing hides the diff, not the change: the proposal is still on the
   // message and still committable, so dropping the card entirely left the
   // reader with nothing to press until they reloaded the page. The way back is
@@ -187,7 +219,7 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
   const added = changeSet?.files.reduce((total, file) => total + file.added, 0) ?? 0;
   const removed = changeSet?.files.reduce((total, file) => total + file.removed, 0) ?? 0;
   const stale = changeSet?.status === "stale";
-  const working = busy === "approve" || busy === "commit";
+  const working = busy === "approve" || busy === "commit" || busy === "push";
 
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
@@ -245,8 +277,17 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
       {commit ? (
         <div className="border-t border-white/[0.06] px-3 py-2 text-[11px] leading-relaxed text-white/55">
           <p>
-            Committed as <span className="font-mono text-white/80">{shortSha(commit.sha)}</span> on{" "}
-            <span className="font-mono text-white/80">{commit.branch}</span>
+            {commit.direct ? (
+              <>
+                Pushed straight to <span className="font-mono text-white/80">{commit.branch}</span> as{" "}
+                <span className="font-mono text-white/80">{shortSha(commit.sha)}</span>
+              </>
+            ) : (
+              <>
+                Committed as <span className="font-mono text-white/80">{shortSha(commit.sha)}</span> on{" "}
+                <span className="font-mono text-white/80">{commit.branch}</span>
+              </>
+            )}
             {commit.alreadyCommitted ? " (this change was already committed)" : ""}.
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-3">
@@ -259,17 +300,25 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
               >
                 Open the pull request
               </a>
+            ) : commit.direct ? (
+              <span className="text-white/35">No pull request: it went straight to {commit.branch}.</span>
             ) : (
               <span className="text-white/35">No pull request was opened for this branch.</span>
             )}
-            <span className="text-white/30">To undo, revert the pull request — never force-push the branch.</span>
+            <span className="text-white/30">
+              To undo, {commit.direct ? "revert this commit" : "revert the pull request"} — never force-push the branch.
+            </span>
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-2 border-t border-white/[0.06] px-3 py-2">
-          <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-white/30">
-            Nothing is written until you approve. Openmi commits to this branch and opens a pull request — never to the
-            default branch.
+        <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] px-3 py-2">
+          <p className="min-w-0 flex-1 basis-full text-[10px] leading-relaxed text-white/30">
+            Nothing is written until you press one of these.{" "}
+            <span className="text-white/45">Approve &amp; commit</span> opens a pull request from this branch.{" "}
+            <span className="text-white/45">
+              Push to {changeSet?.defaultBranch ?? "the default branch"}
+            </span>{" "}
+            writes straight to the default branch instead, with no pull request to review and nothing in between.
           </p>
           <button
             type="button"
@@ -278,6 +327,15 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
             className="shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
           >
             Dismiss
+          </button>
+          <button
+            type="button"
+            onClick={() => void pushDirect()}
+            disabled={working || !changeSet || stale || changeSet.status === "committed"}
+            title="Commit this change straight to the default branch, with no pull request"
+            className="shrink-0 rounded-lg border border-white/[0.12] px-3 py-1.5 text-[11.5px] font-medium text-white/70 transition-colors hover:border-white/25 hover:text-white disabled:opacity-40"
+          >
+            {busy === "push" ? "Pushing…" : `Push to ${changeSet?.defaultBranch ?? "main"}`}
           </button>
           <button
             type="button"

@@ -87,6 +87,14 @@ export interface ChangeSetView {
   repoFullName: string;
   baseSha: string;
   branch: string;
+  /**
+   * True when this change is set to go straight to the default branch rather
+   * than to an `agent/` branch with a pull request. Decided by the server at
+   * the person's own request, and read here only to label the card.
+   */
+  direct: boolean;
+  /** The repository's default branch, which is the only direct destination. */
+  defaultBranch: string;
   message: string;
   status: "proposed" | "approved" | "committed" | "stale";
   createdAt: number;
@@ -98,6 +106,8 @@ export interface CommitResult {
   sha: string;
   branch: string;
   prUrl: string | null;
+  /** True when the commit went straight to the default branch, with no PR. */
+  direct: boolean;
   at: number;
   /** True for a repeat submit that found the first commit already made. */
   alreadyCommitted: boolean;

@@ -1263,6 +1263,10 @@ test("a repeat submit answers with the commit that already exists", () => {
     sha: "a".repeat(40),
     branch: changeSet.branch,
     prUrl: "https://github.com/owner/repo/pull/1",
+    // A review commit, not a direct push. The flag is part of the record now
+    // because the two paths are different destinations, not just different
+    // endpoints.
+    direct: false,
     at: changeSet.createdAt + 10_000,
   };
   const gate = commitGate({ changeSet, approval: null, existingCommit: record });
