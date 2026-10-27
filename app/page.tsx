@@ -1500,7 +1500,11 @@ export default function HomePage() {
       // still a choice. The composed message waits here until one is picked.
       // Temporary chats have nothing to attach an hour to, so they are billed
       // per request like everything else.
-      if (!temporary && selectedMode === "flash" && messages.length === 0) {
+      if (
+        !temporary &&
+        (selectedMode === "code" || selectedMode === "flash") &&
+        messages.length === 0
+      ) {
         setPricingConflict(null);
         setPricingNotice(null);
         setPricingPrompt({ text, images, documents: documents ?? [] });
@@ -1935,9 +1939,9 @@ export default function HomePage() {
 
       {pricingPrompt && (
         <PricingDialog
-          modeLabel={getMode("flash").display}
-          sessionDew={sessionPrice("flash") ?? 0}
-          requestDew={DEW_PER_REQUEST.flash}
+          modeLabel={getMode(selectedMode).display}
+          sessionDew={sessionPrice(selectedMode) ?? 0}
+          requestDew={DEW_PER_REQUEST[selectedMode] ?? DEW_PER_REQUEST.auto}
           balance={dew.balance}
           dailyRemaining={dew.dailyRemaining}
           paid={dew.paid}

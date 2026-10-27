@@ -68,9 +68,12 @@ assert.equal(DEW_PER_REQUEST.flash, 2);
 assert.equal(sessionPrice("flash"), 3);
 assert.equal(DEW_PER_HOUR_SESSION.flash, 3);
 assert.equal(HOUR_SESSION_MS, 3_600_000);
+// GPT-OSS 120B: 2 Dew a message, or 2 for a whole hour in one chat.
+assert.equal(DEW_PER_REQUEST.code, 2);
+assert.equal(sessionPrice("code"), 2);
+assert.equal(DEW_PER_HOUR_SESSION.code, 2);
 // A mode with no hourly price is billed per request and offered no session.
 assert.equal(sessionPrice("auto"), null);
-assert.equal(sessionPrice("code"), null);
 // An unknown mode falls back to the cheapest known price rather than zero.
 assert.equal(requestPrice("nonsense" as ModeId), DEW_PER_REQUEST.auto);
 
@@ -190,6 +193,8 @@ assert.equal(canAfford(requestPrice("auto") - 0.001, requestPrice("auto")), fals
 assert.equal(canAfford(requestPrice("code"), requestPrice("code")), true);
 // Someone holding only the auto price cannot start a code request.
 assert.equal(canAfford(requestPrice("auto"), requestPrice("code")), false);
+// Someone holding only the per-request price cannot start a code hour.
+assert.equal(canAfford(requestPrice("code"), sessionPrice("code") ?? 0), true, "exactly enough is enough for the hour too");
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -469,7 +474,7 @@ assert.ok(
   "starting an hour must run server-side, not in the browser"
 );
 assert.ok(
-  /charged numeric := 3/.test(pricingSchema),
+  /charged numeric := 2/.test(pricingSchema),
   "the hour price must be a server constant, not an RPC argument a caller chooses"
 );
 assert.ok(

@@ -16,7 +16,7 @@ import { clientForToken } from "./supabase";
 
 export interface ActiveHourSession {
   chatId: string;
-  /** The wire-facing model label stored with the session; always "flash". */
+  /** The wire-facing model label stored with the session. */
   model: string;
   price: number;
   startedAt: number;

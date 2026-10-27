@@ -193,7 +193,7 @@ grant select on public.hour_sessions to authenticated;
  * The price is a constant here, not an argument. It has to be: the function is
  * callable by any signed-in account, so a price in the request would let a
  * caller buy an hour for a thousandth of a Dew. It is the same figure as
- * `DEW_PER_HOUR_SESSION.flash` in lib/dew.ts, and the tests pin the pair.
+ * `DEW_PER_HOUR_SESSION.code` in lib/dew.ts, and the tests pin the pair.
  */
 create or replace function public.start_hour_session(p_chat_id text)
 returns jsonb
@@ -204,7 +204,7 @@ as $$
 declare
   uid uuid := auth.uid();
   chat text := btrim(coalesce(p_chat_id, ''));
-  charged numeric := 3;
+  charged numeric := 2;
   free_per_day numeric := case when public.has_paid_pass() then 15 else 10 end;
   account_timezone text;
   today date;
@@ -289,7 +289,7 @@ begin
   ends := starts + interval '1 hour';
 
   insert into public.hour_sessions (owner, chat_id, model, price, started_at, expires_at, ended_at)
-  values (uid, chat, 'flash', charged, starts, ends, null)
+  values (uid, chat, 'code', charged, starts, ends, null)
   on conflict (owner) do update
     set chat_id = excluded.chat_id,
         model = excluded.model,

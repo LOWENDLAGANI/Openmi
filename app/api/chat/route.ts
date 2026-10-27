@@ -393,7 +393,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // that wrote the row.
   const coveredBySession = Boolean(
     identity &&
-      requested === "flash" &&
+      (requested === "code" || requested === "flash") &&
       chatId &&
       (await readHourSessionForChat(authorization, identity.uid, chatId))
   );
