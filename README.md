@@ -89,6 +89,14 @@ when you say so**, on a branch of its own.
   the review route, and the card always offers a one-press **Push to
   `<branch>`** beside **Approve & commit**. The server resolves "main" to the
   repository's real default branch and refuses to push anywhere else.
+- **Checks before a change is handed over.** Every staged change is scanned
+  first, and the report is shown with it: invalid JSON, an empty source file, a
+  path that is build output or a lockfile, a new file that already exists, and a
+  relative import that resolves to nothing. A direct push **is refused** while
+  one of those stands; on the review path the same report is shown and the
+  person still decides. A check that could not be certain — an unresolved import
+  in a truncated tree — is reported as a note and never blocks. These checks are
+  static: they read the bytes.
 - **A shared answer.** A finished answer can be published as a read-only link:
   a copy of the question and the answer, no account or chat attached, expiring
   after thirty days and revocable from Settings → Your data. The public view has
@@ -97,8 +105,10 @@ when you say so**, on a branch of its own.
 ## What is not here yet
 
 - Any code execution, test run or preview. The agent cannot run what it writes,
-  and the prompt tells it to say so rather than imply otherwise. That is Phase 3,
-  deferred on purpose.
+  and the prompt tells it to say so rather than imply otherwise. The pre-push
+  checks above are static for exactly that reason: they read the bytes, they do
+  not execute them. A real install-and-build verification needs somewhere to run
+  it, which is Phase 3, deferred on purpose.
 
 ## Getting started
 

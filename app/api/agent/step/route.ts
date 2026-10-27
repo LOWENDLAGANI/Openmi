@@ -15,7 +15,8 @@ import { GithubError } from "@/lib/github/client";
 import { runAgentStep } from "@/lib/agent/run";
 import { cleanHistory, cleanTranscript } from "@/lib/agent/transcript";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
-import { directPush } from "@/lib/push";
+import { directPush, verifyChangeSet } from "@/lib/push";
+import { summarizeFindings } from "@/lib/verify";
 import { canAfford, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 import { resolveDew } from "@/lib/serverRedeem";
@@ -232,6 +233,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         let changesetId: string | null = null;
         let changesetWarning: string | null = null;
         let autoPush: AutoPushReport | null = null;
+        let verification: { ok: boolean; errors: string[]; warnings: string[] } | null = null;
         if (result.proposals.length > 0) {
           const changeSet = buildChangeSet({
             project,
@@ -239,6 +241,21 @@ export async function POST(req: NextRequest): Promise<Response> {
             target: wantsDirectPush ? "default" : "review",
           });
           if (changeSet) {
+            // ── What is checked before it is handed over ────────────────────
+            // Static, over the bytes about to be committed: see lib/verify.ts.
+            // Reported here so the card says what was found while the change is
+            // still somebody's decision, rather than at the moment they press a
+            // button. On the direct path this is also the gate — `directPush`
+            // runs the same checks itself and refuses on a hard finding.
+            const report = await verifyChangeSet({ token: link.token, changeSet }).catch(() => null);
+            if (report) {
+              verification = {
+                ok: report.ok,
+                errors: summarizeFindings(report.errors),
+                warnings: summarizeFindings(report.warnings),
+              };
+            }
+
             const stored = await saveChangeSet(authorization, identity.uid, changeSet).catch(() => false);
             if (stored) {
               changesetId = changeSet.id;
@@ -288,6 +305,8 @@ export async function POST(req: NextRequest): Promise<Response> {
           // the commit, or why it did not land. The card reads this either way —
           // a push that failed is a change still waiting to be reviewed.
           directPush: autoPush,
+          // The static pre-push checks, if there was a change to check.
+          verification,
         });
       } catch (error) {
         if (req.signal.aborted) return;

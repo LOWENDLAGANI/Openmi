@@ -20,7 +20,9 @@
 // pull request.
 
 import { GithubError, getBranchHead, getRepo } from "./github/client";
+import { loadTree } from "./github/cache";
 import { commitChanges } from "./github/commit";
+import { describeReport, summarizeFindings, verifyStagedFiles, type VerificationReport } from "./verify";
 import {
   commitResult,
   readCommit,
@@ -44,8 +46,48 @@ export interface DirectPushInput {
 }
 
 export type DirectPushResult =
-  | { ok: true; commit: CommitResult; warning: string | null }
-  | { ok: false; status: number; error: string; detail?: string; baseSha?: string };
+  | { ok: true; commit: CommitResult; warning: string | null; warnings: string[] }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      detail?: string;
+      baseSha?: string;
+      /** Present when the refusal was a failed check, one line per finding. */
+      findings?: string[];
+    };
+
+/**
+ * Runs the static checks over a change set, reading the tree it needs.
+ *
+ * Exported because the step route reports the same thing on the change card
+ * before anyone presses anything, and the two must agree: a difference between
+ * "what the card said" and "what the push refused" would be a bug the reader
+ * would have no way to interpret.
+ *
+ * A tree that cannot be read is not a failure: the import check downgrades to a
+ * warning and the rest — JSON, empty files, paths, binary content — still runs,
+ * because none of those need the tree. A GitHub hiccup must not be able to
+ * refuse a change that is fine.
+ */
+export async function verifyChangeSet(input: { token: string; changeSet: ChangeSet }): Promise<VerificationReport> {
+  const { token, changeSet } = input;
+  let treePaths: string[] | null = null;
+  let treeComplete = false;
+  try {
+    const tree = await loadTree(token, changeSet.repoFullName, changeSet.baseSha);
+    treePaths = tree.entries.filter((entry) => entry.type === "blob").map((entry) => entry.path);
+    treeComplete = !tree.truncated;
+  } catch {
+    treePaths = null;
+    treeComplete = false;
+  }
+  return verifyStagedFiles({
+    files: changeSet.files.map((file) => ({ path: file.path, kind: file.kind, after: file.after })),
+    treePaths,
+    treeComplete,
+  });
+}
 
 /**
  * Commits a direct change set to the repository's default branch.
@@ -70,7 +112,7 @@ export async function directPush(input: DirectPushInput): Promise<DirectPushResu
   }
   if (changeSet.status === "committed") {
     const existing = await readCommit(authorization, uid, changeSet.id);
-    if (existing) return { ok: true, commit: commitResult(existing, true), warning: null };
+    if (existing) return { ok: true, commit: commitResult(existing, true), warning: null, warnings: [] };
     return {
       ok: false,
       status: 409,
@@ -80,6 +122,24 @@ export async function directPush(input: DirectPushInput): Promise<DirectPushResu
   }
 
   try {
+    // ── What is checked before anything is authorised ────────────────────────
+    // The static checks run first, before an approval is signed and before
+    // GitHub is asked for anything, because this is the path with no review in
+    // it: a person asked for the change to land, and the only thing standing
+    // between a broken file and their default branch is here. The review path
+    // reports the same findings and leaves the decision to the person, which is
+    // the difference between the two: one is a gate, the other is advice.
+    const report = await verifyChangeSet({ token, changeSet });
+    if (!report.ok) {
+      return {
+        ok: false,
+        status: 422,
+        error: `Openmi did not push this. ${describeReport(report)}`,
+        detail: "verification",
+        findings: summarizeFindings(report.errors),
+      };
+    }
+
     // The same two checks the review path makes, for the same reasons. A branch
     // that moved under the change means the diff is against a version that is
     // no longer the tip; a connection that cannot push cannot push.
@@ -146,7 +206,14 @@ export async function directPush(input: DirectPushInput): Promise<DirectPushResu
     await saveCommit(authorization, uid, record).catch(() => false);
     await setChangeSetStatus(authorization, uid, changeSet, "committed").catch(() => false);
 
-    return { ok: true, commit: commitResult(record, false), warning: outcome.prError };
+    return {
+      ok: true,
+      commit: commitResult(record, false),
+      warning: outcome.prError,
+      // What passed with a note. Shown and never blocking: the checks that
+      // could not be certain say so rather than refusing the change.
+      warnings: summarizeFindings(report.warnings),
+    };
   } catch (error) {
     if (error instanceof GithubError) {
       const status =

@@ -1308,6 +1308,17 @@ export default function HomePage() {
             // The id follows the answer, so the review card survives a reload and
             // still points at the change the server signed.
             if (event.changesetWarning) setModelNotice(event.changesetWarning);
+            // What the pre-push checks found, said before anybody presses a
+            // button. Errors block a direct push; warnings never do.
+            if (event.verification) {
+              if (!event.verification.ok) {
+                setModelNotice(
+                  `This change failed its own checks, so Openmi will not push it: ${event.verification.errors.join(" ")}`
+                );
+              } else if (event.verification.warnings.length > 0) {
+                setModelNotice(`Checks passed with notes — ${event.verification.warnings.join(" ")}`);
+              }
+            }
             // The result of a push the person asked for: the commit, or why it
             // did not land. A push that failed is not lost work — the change is
             // still on the card below, still reviewable.
