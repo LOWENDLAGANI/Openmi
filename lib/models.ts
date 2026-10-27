@@ -1,8 +1,7 @@
 // ── Model catalog ─────────────────────────────────────────────────────────────
 // This module is imported by client components, so it deliberately contains no
 // provider name, no API key name, and no wire model id. Those live in
-// lib/modelEngines.ts, which is server-only. The model's own name may appear
-// here — it is what the person picked, not a provider detail.
+// lib/modelEngines.ts, which is server-only.
 //
 // The catalog is the product's public face of the models: what a user picks,
 // what a stored message is labelled, and what the price list in lib/dew.ts is
@@ -34,10 +33,10 @@ export const OPENMI_MODES: ModeOption[] = [
   },
   {
     id: "code",
-    name: "GPT-OSS 120B",
-    display: "GPT-OSS 120B",
+    name: "Groq",
+    display: "Groq",
     separateSession: true,
-    blurb: "GPT-OSS 120B only — tuned for reading and changing a repository",
+    blurb: "Groq only — tuned for reading and changing a repository",
   },
   {
     // The id names the capability, like "code" does, rather than the vendor:
@@ -66,13 +65,14 @@ export function getMode(id: string): ModeOption {
  * can carry a provider id, and rendering that to a user is the one thing that
  * must never happen.
  *
- * "GPT-OSS 120B" is the product's name for the Code model — the one Groq
- * model that mode is pinned to — so it is whitelisted, as is the Flash mode's
- * display name, so the picker can say which model the person chose. "Groq" and
- * "Openmi Code" stay listed so a message stored under an older name keeps the
- * label it was written with instead of silently degrading to plain "Openmi".
+ * "Groq" is the product's name for the Code model, so it is whitelisted even
+ * though it is also the name of the vendor that serves it. The Flash mode's
+ * display name is whitelisted for the same reason: it is the product's name for
+ * that model, so the picker can say which one the person chose. "Openmi Code"
+ * stays listed so a message stored before the rename keeps the label it was
+ * written with instead of silently degrading to plain "Openmi".
  */
-const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?|GPT-OSS 120B|Groq|DeepSeek V4\.1 Flash)$/;
+const PRODUCT_NAME = /^(?:Openmi(?: Auto| Code| V\d+)?|Groq|DeepSeek V4\.1 Flash)$/;
 
 export function getModelDisplayName(model?: string): string {
   if (!model) return "Openmi";

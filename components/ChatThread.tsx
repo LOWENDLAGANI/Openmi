@@ -44,59 +44,6 @@ const STREAMING_MESSAGES = [
 ] as const;
 
 /**
- * The tick beside a message sent in background mode.
- *
- * One tick means the question reached the server. Two means the answer is
- * finished and waiting in the thread. A background turn can outlive the tab, so
- * the state is read from its receipt rather than from a stream — and a failed
- * tick is shown as a failure instead of a tick that quietly never doubles.
- */
-function DeliveryTicks({ delivery }: { delivery: ChatMessage["delivery"] }) {
-  if (!delivery) return null;
-
-  if (delivery === "failed") {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-[10px] text-red-500"
-        title="The background answer did not finish"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7.5v5M12 16.2v.1" />
-        </svg>
-        Failed
-      </span>
-    );
-  }
-
-  const done = delivery === "done";
-  return (
-    <span
-      className={`inline-flex items-center gap-1 text-[10px] ${done ? "text-emerald-600" : "text-text-low"}`}
-      title={
-        done
-          ? "Sent · answer finished"
-          : delivery === "processing"
-            ? "Sent · Openmi is working on it"
-            : "Sent"
-      }
-    >
-      <span className="flex items-center" aria-hidden="true">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 12.5 9 17.5 20 6.5" />
-        </svg>
-        {done && (
-          <svg className="-ml-1.5" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 12.5 9 17.5 20 6.5" />
-          </svg>
-        )}
-      </span>
-      {delivery === "processing" && <span className="animate-pulse">Working…</span>}
-    </span>
-  );
-}
-
-/**
  * An image in the thread, framed the way a gallery frames one.
  *
  * The card is a fixed square so a row of them stays a row, and the controls
@@ -437,7 +384,6 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
             </div>
           )}
-          {!editing && <DeliveryTicks delivery={msg.delivery} />}
           {editing ? (
             <div className="w-full rounded-2xl border border-line bg-card p-2">
               <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} className="w-full resize-none bg-transparent p-1 text-[14px] text-text-hi outline-none" autoFocus />
@@ -479,13 +425,15 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
   return (
     <div className="group flex animate-rise flex-col gap-1">
       {/* The answer is a card: white on the gray canvas, a hairline border and
-          the softest shadow that still lifts it off the page. Nothing labels
-          the model above it: the answer is the object, not a provider badge. */}
+          the softest shadow that still lifts it off the page. The model badge
+          sits at the top of the card rather than floating above it, so the
+          whole turn is one object. */}
       <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
         {/* Header only when there is an answer to head. A turn that produced
             no text has already returned above as a bare alert. */}
-        {msg.content && (msg.usage || variantCount(msg) > 1) && (
+        {msg.content && (
           <div className="mb-2.5 flex items-center gap-2">
+            <ModelBadge model={msg.model} />
             {msg.usage && (
               <span
                 className="text-[10px] text-text-low"
@@ -942,6 +890,18 @@ export default function ChatThread({  messages,
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">
+              <div className="mb-2 flex items-center gap-2">
+                {(() => {
+                  const m = messages.find((x) => x.id === streamingId);
+                  return m ? (
+                    <>
+                      <ModelBadge model={m.model} />
+                    </>
+                  ) : (
+                    <span className="text-[12px] font-medium text-text-mid">Openmi</span>
+                  );
+                })()}
+              </div>
               <TypingDots message={loadingMessage} />
             </div>
           )}
@@ -954,6 +914,28 @@ export default function ChatThread({  messages,
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Model identity badge (added for UI overhaul) ──────────────────────────
+// Visual indicator showing which Openmi model responded with color-coded styling
+import { OPENMI_MODES } from "@/lib/models";
+
+function ModelBadge({ model }: { model?: string }) {
+  // A stored message carries the display name rather than the mode id, so both
+  // are matched. Looking up the id alone made every pinned mode fall back to
+  // Auto's badge and label.
+  const mode =
+    OPENMI_MODES.find((m) => m.id === model || m.display === model) ?? OPENMI_MODES[0];
+  const isCode = mode.id === "code";
+  const badgeClass = isCode ? "model-badge model-badge-code" : "model-badge model-badge-auto";
+  const label = mode.display;
+  
+  return (
+    <span className={badgeClass}>
+      <span className="model-badge-dot" />
+      {label}
+    </span>
   );
 }
 

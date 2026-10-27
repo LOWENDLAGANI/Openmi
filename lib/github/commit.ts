@@ -8,24 +8,16 @@
 //
 //   blob  →  tree (based on the base commit's tree)  →  commit  →  ref
 //
-// Nothing is observable on the repository until the ref is written, and that
-// write is the atomic publish. A failure before it leaves four orphaned objects
-// that GitHub garbage-collects and no branch, no commit on any branch, and
-// nothing for a reviewer to find. The pull request is opened after the ref and
-// its failure is reported rather than rolled back: the commit is real, and
-// pretending otherwise would be a lie the repository contradicts.
+// Nothing is observable on the repository until the ref is created, and the ref
+// is the atomic publish. A failure before it leaves four orphaned objects that
+// GitHub garbage-collects and no branch, no commit on any branch, and nothing
+// for a reviewer to find. The pull request is opened after the ref and its
+// failure is reported rather than rolled back: the commit is real, and pretending
+// otherwise would be a lie the repository contradicts.
 //
-// Three destinations are supported, and the caller has to name one:
-//
-//   pr      — an `agent/` branch, then a pull request against the default branch
-//   branch  — the same branch, published on its own with no pull request
-//   main    — the default branch itself, updated as a fast-forward
-//
-// The branch policy is checked here as well as derived upstream. Openmi reaches
-// the default branch only when the person chose that destination; a bug that
-// passes `main` as a branch name is still refused.
+// The branch is checked here as well as derived upstream. `main` is one bug away
+// from being a branch name, and this is the last place that can refuse it.
 
-import type { CommitDestination } from "../types";
 import { GithubError } from "./client";
 
 const API_BASE = "https://api.github.com";
@@ -41,31 +33,26 @@ export interface CommitInput {
   repoFullName: string;
   /** The commit the change was computed against. Also the parent. */
   baseSha: string;
-  /** The `agent/` branch to create for the pr and branch destinations. */
   branch: string;
   message: string;
   files: CommitFile[];
-  /** The branch a pull request targets, and the branch a main push updates. */
   defaultBranch: string;
-  /** Where the commit goes. Defaults to a pull request. */
-  destination?: CommitDestination;
+  /** False when the caller only wants the branch and commit. */
+  openPullRequest?: boolean;
   signal?: AbortSignal;
 }
 
 export interface CommitOutcome {
   sha: string;
-  /** The branch the commit landed on: the agent branch, or the default branch. */
   branch: string;
   /** The pull request URL, or null when it could not be opened. */
   prUrl: string | null;
   /** Why a pull request is missing, when it is. Never a silent absence. */
   prError: string | null;
-  /** Where the commit actually went. */
-  destination: CommitDestination;
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST";
   body?: unknown;
   signal?: AbortSignal;
 }
@@ -125,16 +112,8 @@ async function request<T>(
   if (response.status === 404) {
     throw new GithubError(404, "That repository or branch is not available to this connection. Nothing was committed.");
   }
-  if (response.status === 422 && path.includes("/git/refs")) {
-    // A new ref collides with an existing branch; an updated ref was not a
-    // fast-forward, which means the branch moved between the head check and
-    // this write. Both mean nothing was published.
-    throw new GithubError(
-      409,
-      path.includes("/git/refs/heads/")
-        ? "The branch moved while this was being committed. Nothing was written; ask the agent to propose the change again."
-        : "A branch with that name already exists. Nothing was committed."
-    );
+  if (response.status === 422 && path.endsWith("/git/refs")) {
+    throw new GithubError(409, "A branch with that name already exists. Nothing was committed.");
   }
   throw new GithubError(
     response.status,
@@ -156,37 +135,19 @@ async function treeOfCommit(token: string, fullName: string, sha: string, signal
   return tree;
 }
 
-/** A ref name GitHub accepts, and one that cannot escape the refs path. */
-function isSafeBranchName(name: string): boolean {
-  return (
-    name.length > 0 &&
-    name.length <= 120 &&
-    !name.includes("..") &&
-    !name.startsWith("-") &&
-    /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(name)
-  );
-}
-
 /**
- * Commits a change set where the reviewer chose it to go.
+ * Commits a change set to its `agent/` branch and opens a pull request.
  *
  * Throws `GithubError` for anything GitHub refused; the route turns that into a
- * status and a sentence. A thrown error always means nothing was published —
- * with the one exception of a pull-request failure, which is reported in the
- * result because the commit itself already landed.
+ * status and a sentence. A thrown error always means no ref was created — with
+ * the one exception of a pull-request failure, which is reported in the result
+ * because the commit itself already landed.
  */
 export async function commitChanges(input: CommitInput): Promise<CommitOutcome> {
-  const { token, repoFullName, baseSha, branch, message, files, defaultBranch, signal } = input;
-  const destination = input.destination ?? "pr";
+  const { token, repoFullName, baseSha, branch, message, files, signal } = input;
 
   // The policy, enforced where it matters rather than where it is convenient.
-  // A pull request and a branch-only push may only create an `agent/` branch;
-  // a direct push may only update the repository's own default branch.
-  if (destination === "main") {
-    if (!isSafeBranchName(defaultBranch) || defaultBranch.startsWith("agent/")) {
-      throw new GithubError(403, "Openmi only pushes directly to the repository's own default branch.");
-    }
-  } else if (!/^agent\/[A-Za-z0-9._-]+$/.test(branch)) {
+  if (!/^agent\/[A-Za-z0-9._-]+$/.test(branch)) {
     throw new GithubError(403, "Openmi only commits to agent/ branches.");
   }
   if (files.length === 0) {
@@ -247,25 +208,15 @@ export async function commitChanges(input: CommitInput): Promise<CommitOutcome> 
 
   // The publish. Everything before this is invisible; everything after it is
   // history, which is why nothing after it is allowed to throw away the sha.
-  // A main push updates the existing default branch ref and must stay a
-  // fast-forward, so it is sent without force; GitHub refuses anything else.
-  if (destination === "main") {
-    await request<unknown>(token, `/repos/${repoFullName}/git/refs/heads/${defaultBranch}`, {
-      method: "PATCH",
-      body: { sha: commit.sha, force: false },
-      signal,
-    });
-  } else {
-    await request<unknown>(token, `/repos/${repoFullName}/git/refs`, {
-      method: "POST",
-      body: { ref: `refs/heads/${branch}`, sha: commit.sha },
-      signal,
-    });
-  }
+  await request<unknown>(token, `/repos/${repoFullName}/git/refs`, {
+    method: "POST",
+    body: { ref: `refs/heads/${branch}`, sha: commit.sha },
+    signal,
+  });
 
   let prUrl: string | null = null;
   let prError: string | null = null;
-  if (destination === "pr") {
+  if (input.openPullRequest !== false) {
     try {
       const { data: pull } = await request<{ html_url?: string }>(token, `/repos/${repoFullName}/pulls`, {
         method: "POST",
@@ -292,11 +243,5 @@ export async function commitChanges(input: CommitInput): Promise<CommitOutcome> 
     }
   }
 
-  return {
-    sha: commit.sha,
-    branch: destination === "main" ? defaultBranch : branch,
-    prUrl,
-    prError,
-    destination,
-  };
+  return { sha: commit.sha, branch, prUrl, prError };
 }

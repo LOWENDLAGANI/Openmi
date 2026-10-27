@@ -52,9 +52,8 @@ with a real account:
 3. Confirm `propose_edits` is called and the proposal is saved
    (`changesets` row, `change_sets` policies applied).
 4. Confirm the diff cards render and the message stores `changesetId`.
-5. Press **Approve & commit** once. Confirm the commit landed where the card
-   said it would: the default branch, an `agent/...` branch with a pull
-   request, or that branch with no pull request.
+5. Press **Approve & commit** once. Confirm a PR exists on an `agent/...`
+   branch.
 6. Press it again. Confirm the first commit is returned instead of a second.
 
 If step 3 fails, check the `changesets`, `approvals` and `commits` policies in

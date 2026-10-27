@@ -85,24 +85,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     // Reading the repository both proves access and supplies the default
     // branch. The head of that branch is the commit the project is pinned at.
-    let repo;
-    try {
-      repo = await getRepo(link.token, fullName);
-    } catch (err) {
-      if (err instanceof GithubError && err.status === 404) {
-        return Response.json(
-          { error: `Repository ${fullName} not found. It may have been deleted or transferred.` },
-          { status: 404 }
-        );
-      }
-      if (err instanceof GithubError && err.status === 401) {
-        return Response.json(
-          { error: `GitHub token lost access to ${fullName}. Reconnect GitHub with a token that has repository access.` },
-          { status: 401 }
-        );
-      }
-      throw err;
-    }
+    const repo = await getRepo(link.token, fullName);
     const baseSha = await getBranchHead(link.token, fullName, repo.default_branch || "main");
     const now = Date.now();
     const id = projectIdFor(repo.full_name);
@@ -115,9 +98,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       defaultBranch: repo.default_branch || "main",
       baseSha,
       canPush: Boolean(repo.permissions?.push),
-      // Re-attaching keeps the answer the person already gave; only a new
-      // project starts by asking.
-      commitDestination: previous?.commitDestination ?? "ask",
       addedAt: previous?.addedAt ?? now,
       updatedAt: now,
     };

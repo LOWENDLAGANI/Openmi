@@ -45,7 +45,7 @@ const STEPS: TutorialStep[] = [
     highlight: "selector",
     eyebrow: "Choose your mode",
     title: "Pick the right Openmi",
-    body: "Openmi Auto for everyday tasks, GPT-OSS 120B for programming, or Openmi Azure — Openmi's own model created by Minetallest. Your choice is remembered.",
+    body: "Openmi Auto for everyday tasks, Groq for programming, or Openmi Azure — Openmi's own model created by Minetallest. Your choice is remembered.",
   },
   {
     target: "gallery-button",

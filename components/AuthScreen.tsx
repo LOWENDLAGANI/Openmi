@@ -24,11 +24,6 @@ interface AuthScreenProps {
   initialError?: string | null;
   /** Why sign-in cannot be offered, when it cannot. */
   unavailable?: "unconfigured" | "unreachable" | null;
-  /**
-   * Returns to the page that led here. Without it the screen is a dead end for
-   * someone who only wanted to read what the product is.
-   */
-  onBack?: () => void;
 }
 
 const PROVIDERS: Array<{
@@ -71,7 +66,7 @@ const PROVIDERS: Array<{
   },
 ];
 
-export default function AuthScreen({ initialError = null, unavailable = null, onBack }: AuthScreenProps) {
+export default function AuthScreen({ initialError = null, unavailable = null }: AuthScreenProps) {
   const [busy, setBusy] = useState<OAuthProvider | null>(null);
   const [error, setError] = useState<string | null>(initialError);
 
@@ -98,16 +93,6 @@ export default function AuthScreen({ initialError = null, unavailable = null, on
   return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-[#060a08] px-5 py-10 text-white">
       <div className="w-full max-w-[420px]">
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] px-3 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
-          >
-            <span aria-hidden="true">←</span>
-            Back
-          </button>
-        )}
         <div className="flex flex-col items-center text-center">
           <OpenmiMark className="h-11 w-11" />
           <h1 className="mt-4 text-[24px] font-semibold tracking-[-0.03em]">

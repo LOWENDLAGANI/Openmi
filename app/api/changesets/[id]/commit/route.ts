@@ -8,7 +8,6 @@ import {
   commitGate,
   commitResult,
   isChangeSetId,
-  isCommitDestination,
   readApproval,
   readChangeSet,
   readCommit,
@@ -16,14 +15,11 @@ import {
   setChangeSetStatus,
   type CommitRecord,
 } from "@/lib/changesets";
-import type { CommitDestination } from "@/lib/types";
 
 // ── The only write to GitHub ────────────────────────────────────────────────
 //
-// Every other route in this app is a read. This one creates a commit and
-// publishes it where the reviewer chose — an `agent/` branch with a pull
-// request, that branch on its own, or the default branch itself — and it does so
-// only when all of the following hold:
+// Every other route in this app is a read. This one creates a branch, a commit
+// and a pull request, and it does so only when all of the following hold:
 //
 //   1. The caller is verified, and the change set is in their own node.
 //   2. The change set still carries the server's signature, and its files still
@@ -65,25 +61,6 @@ export async function POST(
     return rateLimitRefusal(limit, `Too many commit attempts. Try again in ${limit.retryAfterSeconds}s.`);
   }
 
-  // The reviewer's choice for this commit. A body without one is not an error:
-  // the project's saved answer decides, and a project that has not answered
-  // keeps the product's default of a pull request.
-  let requestedDestination: CommitDestination | null = null;
-  try {
-    const body = (await req.json()) as { destination?: unknown };
-    if (body.destination !== undefined) {
-      if (!isCommitDestination(body.destination)) {
-        return Response.json(
-          { error: "Choose where the change goes: main, a pull request, or a branch." },
-          { status: 400 }
-        );
-      }
-      requestedDestination = body.destination;
-    }
-  } catch {
-    // No JSON body. The saved preference below still applies.
-  }
-
   const { id } = await context.params;
   if (!isChangeSetId(id)) {
     return Response.json({ error: "That change is not attached to this account." }, { status: 404 });
@@ -112,9 +89,6 @@ export async function POST(
   if (!project || project.repoFullName !== changeSet.repoFullName) {
     return Response.json({ error: "That repository is no longer attached to this account." }, { status: 404 });
   }
-
-  const destination: CommitDestination =
-    requestedDestination ?? (project.commitDestination === "ask" ? "pr" : project.commitDestination);
 
   const link = await resolveGithubLink(req, authorization, identity.uid);
   if (!link) {
@@ -146,16 +120,6 @@ export async function POST(
         { status: 403 }
       );
     }
-    // A change reviewed against one default branch must not be pushed onto a
-    // different one because the repository was renamed in between.
-    if (destination === "main" && repo.default_branch && repo.default_branch !== changeSet.defaultBranch) {
-      return Response.json(
-        {
-          error: `The repository's default branch is now ${repo.default_branch}, but this change was proposed against ${changeSet.defaultBranch}. Ask the agent to propose it again.`,
-        },
-        { status: 409 }
-      );
-    }
 
     const outcome = await commitChanges({
       token: link.token,
@@ -165,7 +129,6 @@ export async function POST(
       message: changeSet.message,
       files: changeSet.files.map((file) => ({ path: file.path, content: file.after })),
       defaultBranch: changeSet.defaultBranch,
-      destination,
       signal: req.signal,
     });
 
@@ -176,7 +139,6 @@ export async function POST(
       // Empty, never null: the database stores no nulls, and "no pull request"
       // is a missing string rather than a missing field.
       prUrl: outcome.prUrl ?? "",
-      destination: outcome.destination,
       at: Date.now(),
     };
 

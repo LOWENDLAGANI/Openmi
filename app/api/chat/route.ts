@@ -26,7 +26,7 @@ import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew"
 // ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
 //   OPENROUTER_API_KEY → Auto router
 //   GEMINI_API_KEY     → Auto fallback (V3 → V2 → V1)
-//   GROQ_API_KEY       → Groq, serving GPT-OSS 120B for Code and Auto
+//   GROQ_API_KEY       → Groq, the Code model, and Auto's last resort
 //   DEEPSEEK_API_KEY   → DeepSeek V4.1 Flash, and only that mode
 //
 // Auto is resilient: if the requested provider is unavailable, the other

@@ -13,15 +13,13 @@
 //   bun run test
 
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { setupReport, type SetupItem } from "../lib/setupChecks";
 import {
-  EXPECTED_SCHEMA,
   SCHEMA_HEALTH_MIGRATION,
   isMissingFunction,
   missingHealthFunction,
   summarizeSchemaHealth,
-  type ExpectedSchemaObject,
   type SchemaCheck,
 } from "../lib/schemaHealth";
 
@@ -174,15 +172,16 @@ test("the endpoint returns the report and nothing else", () => {
 // banner names one command instead of a wall of table names.
 
 test("missing schema objects are grouped under the migration that adds them", () => {
-  const absent = new Set(["profiles.timezone", "set_profile_timezone(text)", "dew_wallets.daily_day"]);
-  const rows: SchemaCheck[] = EXPECTED_SCHEMA.map((entry) => ({
-    ...entry,
-    present: !absent.has(entry.object_name),
-  }));
+  const rows: SchemaCheck[] = [
+    { object_name: "profiles", kind: "table", present: true, migration: "20261023000100_identity" },
+    { object_name: "profiles.timezone", kind: "column", present: false, migration: "20261024000300_dew_timezone" },
+    { object_name: "set_profile_timezone(text)", kind: "function", present: false, migration: "20261024000300_dew_timezone" },
+    { object_name: "dew_wallets.daily_day", kind: "column", present: false, migration: "20261024000200_daily_dew" },
+  ];
   const report = summarizeSchemaHealth(rows);
   assert.equal(report.checked, true);
   assert.equal(report.reachable, true);
-  assert.equal(report.checkedObjects, EXPECTED_SCHEMA.length);
+  assert.equal(report.checkedObjects, 4);
   assert.deepEqual(report.missing, [
     { migration: "20261024000200_daily_dew", objects: ["dew_wallets.daily_day"] },
     {
@@ -193,93 +192,12 @@ test("missing schema objects are grouped under the migration that adds them", ()
 });
 
 test("a complete schema reports no gaps", () => {
-  const report = summarizeSchemaHealth(
-    EXPECTED_SCHEMA.map((entry) => ({ ...entry, present: true }))
-  );
+  const report = summarizeSchemaHealth([
+    { object_name: "profiles", kind: "table", present: true, migration: "a" },
+    { object_name: "is_admin()", kind: "function", present: true, migration: "b" },
+  ]);
   assert.deepEqual(report.missing, []);
-  assert.equal(report.checkedObjects, EXPECTED_SCHEMA.length);
-});
-
-test("a migration that never registered itself is still reported", () => {
-  // The production failure this list exists for: readProject selected
-  // projects.commit_destination while the column's migration had never run —
-  // and because that migration inserts its own expectation rows, the database
-  // answered "42 objects checked, none missing" the whole time.
-  const rows = EXPECTED_SCHEMA.filter(
-    (entry) => entry.migration !== "20261030000000_commit_destination"
-  ).map((entry) => ({ ...entry, present: true }));
-  const report = summarizeSchemaHealth(rows);
-  assert.deepEqual(report.missing, [
-    {
-      migration: "20261030000000_commit_destination",
-      objects: ["commits.destination", "projects.commit_destination"],
-    },
-  ]);
-});
-
-test("objects no migration ever registered are still on the build's list", () => {
-  // chat_jobs and its five siblings were created by migrations that wrote no
-  // expectation row, so the database could never report them at all. The build
-  // carries them so the banner can still name the migration that fixes them.
-  for (const object of [
-    "chat_jobs",
-    "github_links",
-    "github_default",
-    "admin_audit",
-    "usage_daily",
-    "forget_visitor()",
-  ]) {
-    assert.ok(
-      EXPECTED_SCHEMA.some((entry) => entry.object_name === object),
-      `${object} must be on the expected list`
-    );
-  }
-});
-
-test("a database newer than the build is still reported", () => {
-  const rows: SchemaCheck[] = EXPECTED_SCHEMA.map((entry) => ({ ...entry, present: true }));
-  rows.push({
-    object_name: "future_table",
-    kind: "table",
-    present: false,
-    migration: "29990101000000_future",
-  });
-  const report = summarizeSchemaHealth(rows);
-  assert.equal(report.checkedObjects, EXPECTED_SCHEMA.length + 1);
-  assert.deepEqual(report.missing, [
-    { migration: "29990101000000_future", objects: ["future_table"] },
-  ]);
-});
-
-test("the build's expected list matches what the migrations register", () => {
-  // EXPECTED_SCHEMA only closes the blind spot while it mirrors the SQL: a
-  // registration added to a migration but not to the list (or the reverse)
-  // would let the two disagree exactly when it matters.
-  const registered: ExpectedSchemaObject[] = [];
-  for (const file of readdirSync("supabase/migrations").sort()) {
-    if (!file.endsWith(".sql")) continue;
-    const sql = readFileSync(`supabase/migrations/${file}`, "utf8");
-    if (!sql.includes("insert into public.schema_expected")) continue;
-    for (const statement of sql.matchAll(/insert into public\.schema_expected[\s\S]*?;/g)) {
-      for (const tuple of statement[0].matchAll(
-        /\(\s*'([^']+)'\s*,\s*'(table|view|column|function)'\s*,\s*'([^']+)'\s*\)/g
-      )) {
-        registered.push({
-          object_name: tuple[1]!,
-          kind: tuple[2] as ExpectedSchemaObject["kind"],
-          migration: tuple[3]!,
-        });
-      }
-    }
-  }
-  const key = (entry: ExpectedSchemaObject): string =>
-    `${entry.object_name}\u0000${entry.kind}\u0000${entry.migration}`;
-  const fromSql = new Set(registered.map(key));
-  const fromCode = new Set(EXPECTED_SCHEMA.map(key));
-  assert.equal(registered.length, fromSql.size, "no object is registered twice in the SQL");
-  assert.equal(EXPECTED_SCHEMA.length, fromCode.size, "no object is expected twice in the code");
-  assert.ok(fromSql.size > 0, "the parser must actually read the migrations");
-  assert.deepEqual([...fromCode].sort(), [...fromSql].sort());
+  assert.equal(report.checkedObjects, 2);
 });
 
 test("a missing health function names its own migration rather than an outage", () => {

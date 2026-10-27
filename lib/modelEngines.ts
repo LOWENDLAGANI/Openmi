@@ -30,16 +30,21 @@ export const AUTO_ENGINE = "openrouter/auto";
  */
 export const DEEPSEEK_ENGINE = "deepseek-flash";
 
-/** The one Groq model the product uses, and the only model Code may answer with. */
-export const GROQ_ENGINE = "openai/gpt-oss-120b";
-
 /**
- * The name the product shows for the Groq model.
+ * The wire models Groq serves for Code mode, in the order it tries them — and
+ * the only models Code is allowed to answer with.
  *
- * The Code mode is no longer called "Groq": it is pinned to this one model, so
- * the picker names the model a person is actually talking to.
+ * Every entry is a comparable tier rather than a progressively weaker one: the
+ * point of a fallback is that the answer is still worth reading, and stepping
+ * down to a small model would change the quality of a code answer without
+ * telling anybody. Only GPT-OSS honours `reasoning_effort`; Groq serves a plain
+ * model behind the same API, so the capability is tracked per model.
  */
-export const GROQ_ENGINE_NAME = "GPT-OSS 120B";
+export const GROQ_MODELS = [
+  { model: "openai/gpt-oss-120b", supportsReasoning: true },
+  { model: "llama-3.3-70b-versatile", supportsReasoning: false },
+  { model: "openai/gpt-oss-20b", supportsReasoning: true },
+] as const;
 
 /** The Gemini models Auto falls back through, and the ordered fallbacks behind it. */
 export const GEMINI_ENGINE = GEMINI_MODELS[0];
@@ -62,7 +67,8 @@ export const MODE_ENV_VARS: Record<string, string> = {
 export function toOpenmiName(model?: string): string {
   if (!model) return "Openmi";
   if (model === AUTO_ENGINE) return "Openmi Auto";
-  if (model === GROQ_ENGINE) return GROQ_ENGINE_NAME;
+  // Every Groq model answers under the one name the product gives that mode.
+  if (GROQ_MODELS.some((entry) => entry.model === model)) return "Groq";
   if (model === DEEPSEEK_ENGINE) return "DeepSeek V4.1 Flash";
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];

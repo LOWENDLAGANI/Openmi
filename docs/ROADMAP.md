@@ -56,13 +56,11 @@ Why the order differs from the list:
 - It **cannot write** to GitHub. There is no write tool, and
   `lib/github/client.ts` contains only GET requests. The model never holds a
   token.
-- **You** can approve the proposal. Only then does the server commit, to the
-  destination you pick: the default branch, a new `agent/<repo>-<id>` branch
-  with a pull request, or that branch on its own. A project can remember the
-  choice, and the card can set it back to asking. The approval is
-  cryptographically bound to you, the repository, the base commit and the exact
-  diff. A moved branch is refused, and a second submit returns the first
-  commit.
+- **You** can approve the proposal. Only then does the server commit — to a
+  new `agent/<repo>-<id>` branch — and open a pull request. The approval is
+  cryptographically bound to you, the repository, the base commit and the
+  exact diff. A moved branch is refused, and a second submit returns the
+  first commit.
 
 So the accurate label is **read + propose**, not read-only.
 

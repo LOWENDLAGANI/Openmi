@@ -175,22 +175,13 @@ export async function listGithubConnections(
       .select(CONNECTION_COLUMNS)
       .eq("owner", uid)
       .order("linked_at", { ascending: false });
-    if (error) {
-      console.error(`[github] error listing connections for uid ${uid}:`, error);
-      return [];
-    }
-    if (!data) return [];
-    const opened = (data as Record<string, unknown>[])
+    if (error || !data) return [];
+    return (data as Record<string, unknown>[])
       .map((row) => open(String(row.id ?? ""), storedFromRow(row)))
-      .filter((connection): connection is GithubConnection => connection !== null);
-    if (opened.length === 0 && data.length > 0) {
-      console.error(`[github] could not open any of ${data.length} connections for uid ${uid} — key may have been rotated`);
-    }
-    return opened
+      .filter((connection): connection is GithubConnection => connection !== null)
       .sort((a, b) => b.linkedAt - a.linkedAt)
       .map(summaryOf);
-  } catch (err) {
-    console.error(`[github] exception listing connections for uid ${uid}:`, err);
+  } catch {
     return [];
   }
 }
@@ -328,24 +319,11 @@ export async function saveGithubConnection(
   }
   if (!written) return null;
 
-  // Refresh the default pointer when it is missing or stale. A missing default
-  // is the first connection ever, so it becomes the default. A default that
-  // points at the connection we just saved is rewritten so a stale row does not
-  // keep pointing at a connection that cannot be opened after a key rotation.
-  // A default that points at a *different* connection is left alone, so adding
-  // a second GitHub account does not steal the first one's place.
+  // The default is a convenience, never a requirement: a failed write here
+  // leaves the connection usable, because `defaultGithubConnection` falls back
+  // to the newest entry when the pointer is missing.
   const currentDefault = await readDefaultConnectionId(authorization, uid);
-  if (!currentDefault) {
-    const set = await setDefaultConnection(authorization, uid, id);
-    if (!set) console.error(`[github] failed to set default connection for ${login}`);
-  } else if (currentDefault === id) {
-    // Rewrite the pointer even when it already points at the right connection.
-    // A stale row after a key rotation would make the pointer correct but the
-    // token unreadable, and the fallback in `defaultGithubConnection` would not
-    // help because the list also cannot open the token.
-    const set = await setDefaultConnection(authorization, uid, id);
-    if (!set) console.error(`[github] failed to refresh default connection for ${login}`);
-  }
+  if (!currentDefault) await setDefaultConnection(authorization, uid, id);
 
   return connection;
 }

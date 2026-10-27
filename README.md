@@ -13,13 +13,13 @@ when you say so**, on a branch of its own.
 
 ## What works today
 
-- Chat with **Auto**, **GPT-OSS 120B** and **DeepSeek V4.1 Flash** modes, streamed over
+- Chat with **Auto**, **Groq** and **DeepSeek V4.1 Flash** modes, streamed over
   SSE with provider fallback and continuation when a model hits its output
   limit.
 - Local-first history in IndexedDB (Dexie), synced to the signed-in account.
 - **An account is required.** Sign in or register with Google, GitHub, Microsoft
   or an email address and password, all held by Supabase Auth.
-- **Dew**: one flat price per model — `0.25` for Auto, `0.5` for GPT-OSS 120B, and
+- **Dew**: one flat price per model — `0.25` for Auto, `0.5` for Groq, and
   DeepSeek V4.1 Flash at `2` per message or `3` for a one-hour session in one
   chat. Every account also gets **10 free Dew a day**, refilled at midnight in
   the account's own timezone (the browser's at registration, Malaysia until one
@@ -42,12 +42,6 @@ when you say so**, on a branch of its own.
   enforces, with a breakdown and a fresh-chat offer past 90%.
 - **Rate limits you can see**: one policy table, one 429 shape carrying
   `Retry-After`, and a composer that counts the wait down instead of failing.
-- **Send and leave.** Background mode hands the message to the server, which
-  finishes the turn after the tab is closed and writes the answer into the
-  account. One tick on the question means it reached the server; two mean the
-  answer is ready. Background turns are text-only and billed per request — an
-  hour session that covers the chat still applies — and a failed run says so in
-  the thread instead of leaving a tick that never doubles.
 - **One small ad above the composer** (optional): AdSense, reserved height,
   hidden without both public ids, switchable off from the console. `/privacy`
   says what it collects.
@@ -83,13 +77,9 @@ when you say so**, on a branch of its own.
   set and rendered under the answer as diff cards with per-file collapse and
   add/remove counts. **Approve & commit** writes a signed approval, then the one
   endpoint in the product that writes to GitHub: blobs → tree based on the base
-  commit → commit. The card asks where it goes — straight to the default branch,
-  a pull request from an `agent/<repo>-<id>` branch, or that branch on its own —
-  and **Never ask again** remembers the choice for the project. The saved answer
-  is always visible with an **Ask again every time** reset, both on the review
-  card and beside the attached project. A moved default branch is refused with a
-  re-diff, a direct push is a non-forced fast-forward, a double submit returns
-  the first commit, and another account's change set cannot be read or committed.
+  commit → commit → `agent/<repo>-<id>` branch → pull request. A moved default
+  branch is refused with a re-diff, a double submit returns the first commit,
+  and another account's change set cannot be read or committed.
 - **A shared answer.** A finished answer can be published as a read-only link:
   a copy of the question and the answer, no account or chat attached, expiring
   after thirty days and revocable from Settings → Your data. The public view has
@@ -100,6 +90,8 @@ when you say so**, on a branch of its own.
 - Any code execution, test run or preview. The agent cannot run what it writes,
   and the prompt tells it to say so rather than imply otherwise. That is Phase 3,
   deferred on purpose.
+- Committing to the default branch. The branch policy is a setting in the spec
+  and, for now, an unconditional refusal in code.
 
 ## Getting started
 
@@ -170,7 +162,7 @@ The important ones for **this build**:
 |---|---|
 | `OPENROUTER_API_KEY` | Auto mode routing. |
 | `GEMINI_API_KEY` | Auto fallback (V3 → V2 → V1). |
-| `GROQ_API_KEY` | The Groq key behind GPT-OSS 120B — the Code mode model, and Auto's last-resort fallback. |
+| `GROQ_API_KEY` | Groq — the Code mode model, and Auto's last-resort fallback. |
 | `DEEPSEEK_API_KEY` | DeepSeek — the DeepSeek V4.1 Flash mode, and nothing else. |
 | `NEXT_PUBLIC_ADSENSE_CLIENT_ID` | Public AdSense publisher id (`ca-pub-…`). Absent means no banner and no gap. |
 | `NEXT_PUBLIC_ADSENSE_SLOT_ID` | Public ad-unit slot id. Both ids are required for the unit to render. |

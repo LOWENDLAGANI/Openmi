@@ -26,9 +26,6 @@ carry the rules it used to hold.
 | `migrations/20261026000000_provider_keys.sql` | `provider_keys`: an account's own OpenRouter, Gemini or Groq key, sealed before it is stored and readable only by its owner. Registered in `schema_expected`. |
 | `migrations/20261027000000_provider_keys_deepseek.sql` | Adds DeepSeek to the `provider_keys.provider` list, so the DeepSeek V4.1 Flash mode can use a key the account brought. |
 | `migrations/20261028000000_pricing_sessions.sql` | `paid_passes` (read-only to its owner, granted only by `admin_grant_plan()`), the 10-free/15-paid daily bucket in `deduct_dew_split()`, and `hour_sessions` with the `start_hour_session()`/`end_hour_session()` pair that charges and enforces one live session per account. |
-| `migrations/20261029000000_chat_jobs.sql` | `chat_jobs`: the owner-only receipt for a background turn, including a copy of the answer so it survives a chat upload that replaces its message row. |
-| `migrations/20261030000000_commit_destination.sql` | `projects.commit_destination` (`ask`, `main`, `pr` or `branch`) and `commits.destination`, so a project can remember where its commits go and a reopened review card can say where one landed. Registered in `schema_expected`. |
-| `migrations/20261031000000_schema_expected_backfill.sql` | Registers the load-bearing objects earlier migrations created but never listed — `usage_daily`, `forget_visitor()`, `github_links`, `github_default`, `admin_audit` and `chat_jobs` — so the presence audit can see them. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

@@ -8,6 +8,8 @@
 -- the next provider to be added can be a one-line change here.
 
 alter table public.provider_keys
+  drop constraint if exists provider_keys_provider_check;
+
+alter table public.provider_keys
   add constraint provider_keys_provider_allowed
-  check (provider in ('openrouter', 'gemini', 'groq', 'deepseek'))
-  if not exists;
+  check (provider in ('openrouter', 'gemini', 'groq', 'deepseek'));
