@@ -15,6 +15,7 @@ import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
 import type { ProjectSummary } from "@/lib/projects";
 import AuthScreen from "@/components/AuthScreen";
+import LandingScreen from "@/components/LandingScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName, saveAvatar } from "@/lib/visitorName";
 import {
@@ -196,6 +197,10 @@ export default function HomePage() {
   // after that is a real answer: the sign-in screen is the interface.
   const [account, setAccount] = useState<AccountView | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  // A visitor who has asked to sign in, or who returned from a provider that
+  // refused them, sees the form. Everyone else meets the landing page first:
+  // the form is one tap away, not the front door.
+  const [showAuth, setShowAuth] = useState(false);
   // The account whose history this browser is holding. Null until the handover
   // has run, which is what keeps the previous account's chats off the screen.
   const [deviceAccount, setDeviceAccount] = useState<string | null>(null);
@@ -438,7 +443,11 @@ export default function HomePage() {
   // once and show it on the sign-in screen; the parser removes the parameters.
   useEffect(() => {
     const failure = consumeOAuthError();
-    if (failure) setAuthError(describeLinkError({ message: failure }));
+    if (!failure) return;
+    setAuthError(describeLinkError({ message: failure }));
+    // The failure happened on the sign-in screen, so the person is sent back to
+    // it with the reason — a landing page would hide what went wrong.
+    setShowAuth(true);
   }, []);
 
   // Signing out clears this device's copy of the name/avatar. The next account on this
@@ -1787,13 +1796,28 @@ export default function HomePage() {
     );
   }
 
-  // Openmi requires an account. There is no guest path and no skip: the sign-in
-  // screen is the whole interface until a provider or email returns a session.
+  // Openmi requires an account. There is no guest path and no skip: the product
+  // needs a session before it renders. The first page a visitor meets is the
+  // landing page, which explains the product and carries the way in; the sign-in
+  // screen appears once they ask for it (or when a provider sent them back here
+  // with a reason), and is the only interface from then on.
   if (!account.signedIn) {
+    if (!showAuth) {
+      return (
+        <>
+          <LandingScreen onStart={() => setShowAuth(true)} />
+          <SplashScreen />
+        </>
+      );
+    }
     return (
       <>
         <AuthScreen
           initialError={authError}
+          onBack={() => {
+            setAuthError(null);
+            setShowAuth(false);
+          }}
           unavailable={
             account.status === "unconfigured"
               ? "unconfigured"

@@ -1073,3 +1073,59 @@ html.light .typing-waiter-glow {
   }
 }
 
+
+/* ── The visitor landing page ───────────────────────────────────────────────
+   A cream, typographic front door for people who are not signed in. Its ink
+   colours are page-local on purpose: the product's appearance setting (green
+   dark/light) must not repaint the marketing page, and the marketing page must
+   not bleed into the app. The word spans start pale and take the full ink when
+   their line reaches the reading zone (see components/LandingScreen.tsx). */
+
+.landing-root {
+  --landing-bg: #f3f0e8;
+  --landing-ink: #15150f;
+  --landing-faint: #cfcabd;
+  background: var(--landing-bg);
+  color: var(--landing-ink);
+  color-scheme: light;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.landing-root ::selection {
+  background: #f04e23;
+  color: #fdfaf2;
+}
+
+.landing-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* The reference is a near-solid, tightly tracked grotesk rather than a display
+   face, so the stack above does the work and only the metrics are set here. */
+.landing-display {
+  font-size: clamp(2.55rem, 8.4vw, 6.1rem);
+  font-weight: 500;
+  line-height: 1.04;
+  letter-spacing: -0.045em;
+}
+
+.landing-line {
+  display: block;
+}
+
+.landing-word {
+  color: var(--landing-faint);
+  transition: color 520ms cubic-bezier(0.22, 0.7, 0.2, 1);
+}
+
+.landing-line.is-inked .landing-word {
+  color: var(--landing-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-word {
+    transition: none;
+  }
+}
