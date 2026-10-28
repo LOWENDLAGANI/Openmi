@@ -1,9 +1,28 @@
 import type { Metadata, Viewport } from "next";
+import { Instrument_Sans, Space_Mono } from "next/font/google";
 import ServiceWorker from "@/components/ServiceWorker";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
 const DESCRIPTION = `${BRAND.name} reads your repository and proposes the change. It commits only when you approve it.`;
+
+// ── The landing page's two faces ─────────────────────────────────────────────
+// Loaded at the root so both doors into the marketing page — the public
+// /landing route and the signed-out state of / — share one set of files. They
+// are exposed as custom properties rather than applied here: the chat shell
+// keeps its system stack, and only `.lp` in globals.css reads these.
+const landingSans = Instrument_Sans({
+  subsets: ["latin"],
+  variable: "--font-lp-sans",
+  display: "swap",
+});
+
+const landingMono = Space_Mono({
+  subsets: ["latin"],
+  weight: ["400"],
+  variable: "--font-lp-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: `${BRAND.name} — ${BRAND.product}`,
@@ -86,7 +105,7 @@ const APPEARANCE_BOOT = `try{var r=document.documentElement;if(localStorage.getI
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="light">
+    <html lang="en" className={`light ${landingSans.variable} ${landingMono.variable}`}>
       <body className="h-[100dvh]">
         <script dangerouslySetInnerHTML={{ __html: APPEARANCE_BOOT }} />
         {children}

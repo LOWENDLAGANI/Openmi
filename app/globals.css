@@ -1135,3 +1135,526 @@ html.light .typing-waiter-glow {
   }
 }
 
+/* ── The landing page ────────────────────────────────────────────────────────
+   One scoped palette, deliberately separate from the product's tokens: the
+   marketing page is warm paper with a single orange accent, and it must look
+   the same whether the reader's chat appearance is dark, paper or ink. Every
+   rule below is namespaced under `.lp` so it cannot leak into the app shell.
+
+   Type is the design here: a tight grotesque for the statements, a spaced mono
+   for labels, hairlines instead of cards, and a lot of empty space. */
+.lp {
+  --lp-cream: #f3f1e9;
+  --lp-ink: #15130f;
+  --lp-dim: #bdb7aa;
+  --lp-orange: #f55036;
+  --lp-line: rgba(21, 19, 15, 0.13);
+  --lp-muted: rgba(21, 19, 15, 0.62);
+  --lp-sans: var(--font-lp-sans), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --lp-mono: var(--font-lp-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-height: 100dvh;
+  background: var(--lp-cream);
+  color: var(--lp-ink);
+  font-family: var(--lp-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+  letter-spacing: -0.011em;
+}
+
+.lp ::selection {
+  background: var(--lp-orange);
+  color: #fff;
+}
+
+.lp-shell {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+@media (min-width: 768px) {
+  .lp-shell {
+    padding-left: 44px;
+    padding-right: 44px;
+  }
+}
+
+.lp-mono {
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+@media (min-width: 900px) {
+  .lp-mono {
+    font-size: 12px;
+  }
+}
+
+.lp a:focus-visible,
+.lp button:focus-visible {
+  outline: 2px solid var(--lp-orange);
+  outline-offset: 3px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.lp-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--lp-cream) 88%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  height: 64px;
+}
+.lp-logo-link {
+  text-decoration: none;
+  color: inherit;
+}
+.lp-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.lp-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--lp-orange);
+  color: var(--lp-cream);
+}
+.lp-mark svg {
+  width: 17px;
+  height: 17px;
+}
+.lp-logo-text {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+.lp-nav {
+  display: none;
+  margin-left: auto;
+  margin-right: 26px;
+  gap: 30px;
+}
+@media (min-width: 860px) {
+  .lp-nav {
+    display: flex;
+  }
+}
+.lp-nav a {
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(21, 19, 15, 0.58);
+  text-decoration: none;
+  transition: color 180ms ease;
+}
+.lp-nav a:hover {
+  color: var(--lp-ink);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--lp-orange);
+  color: var(--lp-ink);
+  padding: 12px 20px;
+  font-family: var(--lp-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background 180ms ease;
+}
+.lp-btn:hover {
+  background: #ff6047;
+  transform: translateY(-1px);
+}
+.lp-btn:active {
+  transform: translateY(0) scale(0.99);
+}
+.lp-btn-arrow {
+  width: 15px;
+  height: 15px;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lp-btn:hover .lp-btn-arrow {
+  transform: translateX(2px);
+}
+.lp-btn-small {
+  padding: 9px 16px;
+  font-size: 12.5px;
+}
+.lp-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--lp-line);
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  color: var(--lp-ink);
+  text-decoration: none;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+.lp-btn-ghost:hover {
+  background: rgba(21, 19, 15, 0.04);
+  border-color: rgba(21, 19, 15, 0.26);
+}
+
+/* ── Ticker ─────────────────────────────────────────────────────────────── */
+.lp-ticker {
+  overflow: hidden;
+  border-top: 1px solid var(--lp-line);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: lp-ticker 44s linear infinite;
+}
+.lp-ticker-run {
+  display: flex;
+  flex-shrink: 0;
+}
+.lp-ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 22px;
+  padding: 11px 22px;
+  font-family: var(--lp-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(21, 19, 15, 0.5);
+  white-space: nowrap;
+}
+.lp-ticker-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--lp-orange);
+}
+@keyframes lp-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ── Hero ───────────────────────────────────────────────────────────────── */
+.lp-hero {
+  padding-top: clamp(48px, 8vw, 96px);
+  padding-bottom: clamp(40px, 6vw, 64px);
+}
+.lp-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--lp-muted);
+  margin: 0;
+}
+.lp-square {
+  width: 9px;
+  height: 9px;
+  background: var(--lp-orange);
+  flex-shrink: 0;
+}
+.lp-display {
+  margin: clamp(22px, 3vw, 34px) 0 0;
+  font-size: clamp(40px, 7.2vw, 86px);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.lp-lede {
+  margin: 26px 0 0;
+  max-width: 46ch;
+  font-size: clamp(15px, 1.5vw, 17.5px);
+  line-height: 1.55;
+  color: var(--lp-muted);
+}
+.lp-actions {
+  margin-top: clamp(28px, 3.4vw, 38px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── The mono brief under the hero ──────────────────────────────────────── */
+.lp-brief {
+  border-top: 1px solid var(--lp-line);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-brief-inner {
+  padding-top: 26px;
+  padding-bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+}
+.lp-brief-line {
+  margin: 0;
+  max-width: 40ch;
+  line-height: 2;
+  letter-spacing: 0.18em;
+}
+@media (min-width: 900px) {
+  .lp-brief-line {
+    max-width: 46ch;
+  }
+}
+.lp-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lp-orange);
+  text-decoration: none;
+}
+.lp-more span {
+  transition: transform 180ms ease;
+}
+.lp-more:hover span {
+  transform: translateX(3px);
+}
+
+/* ── The statement that fills with ink ────────────────────────────────────
+   Each word is a span that starts warm grey and takes the ink colour when the
+   scroll has reached it. The transition is on colour only: a couple of dozen
+   spans changing colour is cheap, and the eased change is what makes the fill
+   read as a sweep rather than a snap. */
+.lp-statement {
+  padding-top: clamp(64px, 10vw, 132px);
+  padding-bottom: clamp(64px, 10vw, 132px);
+}
+.lp-fill {
+  max-width: 22ch;
+}
+@media (min-width: 900px) {
+  .lp-fill {
+    max-width: 26ch;
+  }
+}
+.lp-block {
+  margin: 0;
+}
+.lp-block + .lp-block {
+  margin-top: clamp(34px, 5vw, 60px);
+}
+.lp-line {
+  display: block;
+  font-size: clamp(32px, 5.4vw, 60px);
+  line-height: 1.07;
+  letter-spacing: -0.038em;
+  font-weight: 450;
+}
+.lp-word {
+  color: var(--lp-dim);
+  transition: color 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.lp-word[data-on="1"] {
+  color: var(--lp-ink);
+}
+
+/* ── Sections ───────────────────────────────────────────────────────────── */
+.lp-steps,
+.lp-rules {
+  border-top: 1px solid var(--lp-line);
+  padding-top: clamp(52px, 7.5vw, 96px);
+  padding-bottom: clamp(52px, 7.5vw, 96px);
+}
+.lp-kicker {
+  margin: 0;
+  color: var(--lp-muted);
+}
+.lp-h2 {
+  margin: 16px 0 0;
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.02;
+  letter-spacing: -0.038em;
+  font-weight: 500;
+  max-width: 24ch;
+}
+.lp-section-head {
+  margin-bottom: clamp(32px, 4.5vw, 56px);
+}
+.lp-grid-3 {
+  border-top: 1px solid var(--lp-line);
+}
+@media (min-width: 860px) {
+  .lp-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.lp-step {
+  padding: 26px 0 30px;
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-step:last-child {
+  border-bottom: 0;
+}
+@media (min-width: 860px) {
+  .lp-step {
+    border-bottom: 0;
+    border-right: 1px solid var(--lp-line);
+    padding: 30px 30px 8px;
+  }
+  .lp-step:first-child {
+    padding-left: 0;
+  }
+  .lp-step:last-child {
+    border-right: 0;
+    padding-right: 0;
+  }
+}
+.lp-step-label {
+  margin: 0;
+  color: var(--lp-orange);
+}
+.lp-step h3 {
+  margin: 16px 0 0;
+  font-size: 19px;
+  font-weight: 550;
+  letter-spacing: -0.022em;
+}
+.lp-step-body {
+  margin: 9px 0 0;
+  max-width: 34ch;
+  font-size: 14.5px;
+  line-height: 1.62;
+  color: var(--lp-muted);
+}
+
+/* ── The rule ───────────────────────────────────────────────────────────── */
+.lp-rules-grid {
+  display: grid;
+  gap: clamp(30px, 4.5vw, 60px);
+}
+@media (min-width: 960px) {
+  .lp-rules-grid {
+    grid-template-columns: 1.05fr 0.95fr;
+    align-items: start;
+  }
+}
+.lp-rule-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--lp-line);
+}
+.lp-rule-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--lp-line);
+  font-size: clamp(15px, 1.4vw, 17px);
+  line-height: 1.45;
+  letter-spacing: -0.018em;
+}
+.lp-rule-mark {
+  flex-shrink: 0;
+  color: var(--lp-orange);
+}
+
+/* ── Closing panel ──────────────────────────────────────────────────────── */
+.lp-cta {
+  background: var(--lp-ink);
+  color: var(--lp-cream);
+  padding-top: clamp(60px, 9vw, 116px);
+  padding-bottom: clamp(60px, 9vw, 116px);
+}
+.lp-cta .lp-kicker {
+  color: rgba(243, 241, 233, 0.5);
+}
+.lp-cta-title {
+  margin: 18px 0 0;
+  font-size: clamp(32px, 5.6vw, 66px);
+  line-height: 1;
+  letter-spacing: -0.042em;
+  font-weight: 480;
+}
+.lp-cta .lp-btn {
+  margin-top: clamp(28px, 3.6vw, 38px);
+}
+.lp-cta-note {
+  margin: clamp(26px, 3vw, 36px) 0 0;
+  color: rgba(243, 241, 233, 0.45);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.lp-footer {
+  padding-top: 30px;
+  padding-bottom: 40px;
+}
+.lp-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px 30px;
+}
+.lp-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin-left: auto;
+}
+.lp-footer-links a {
+  font-family: var(--lp-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(21, 19, 15, 0.55);
+  text-decoration: none;
+  transition: color 180ms ease;
+}
+.lp-footer-links a:hover {
+  color: var(--lp-ink);
+}
+.lp-copyright {
+  margin: 0;
+  color: rgba(21, 19, 15, 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-ticker-track {
+    animation: none;
+  }
+  .lp-word {
+    transition: none;
+  }
+}
+

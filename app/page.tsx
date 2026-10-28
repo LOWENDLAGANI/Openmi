@@ -15,6 +15,7 @@ import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
 import type { ProjectSummary } from "@/lib/projects";
 import AuthScreen from "@/components/AuthScreen";
+import OpenmiLanding from "@/components/OpenmiLanding";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName, saveAvatar } from "@/lib/visitorName";
 import {
@@ -192,6 +193,9 @@ export default function HomePage() {
   // after that is a real answer: the sign-in screen is the interface.
   const [account, setAccount] = useState<AccountView | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  // A visitor who has not signed in meets the landing page first; this is only
+  // true once they have asked for the sign-in screen from it.
+  const [signingIn, setSigningIn] = useState(false);
   // The account whose history this browser is holding. Null until the handover
   // has run, which is what keeps the previous account's chats off the screen.
   const [deviceAccount, setDeviceAccount] = useState<string | null>(null);
@@ -335,6 +339,13 @@ export default function HomePage() {
   // interface, so `account` starts null ("still asking") and then means exactly
   // what Supabase answered.
   useEffect(() => watchAccount(setAccount), []);
+
+  // A completed sign-in has answered the sign-in screen, so it stops being the
+  // view: a later sign-out lands on the landing page rather than on the form
+  // that visitor already filled in.
+  useEffect(() => {
+    if (account?.signedIn) setSigningIn(false);
+  }, [account?.signedIn]);
 
   // A provider that refused the round trip puts its reason in the URL. Read it
   // once and show it on the sign-in screen; the parser removes the parameters.
@@ -1573,12 +1584,18 @@ export default function HomePage() {
     );
   }
 
-  // Openmi requires an account. There is no guest path and no skip: the sign-in
-  // screen is the whole interface until a provider or email returns a session.
+  // Openmi requires an account. There is no guest path and no skip, but there
+  // is something to read first: the landing page explains the product and
+  // offers the sign-in screen, instead of opening on a form for a product the
+  // visitor has not met yet.
   if (!account.signedIn) {
+    if (!signingIn) {
+      return <OpenmiLanding onSignIn={() => setSigningIn(true)} />;
+    }
     return (
       <>
         <AuthScreen
+          onBack={() => setSigningIn(false)}
           initialError={authError}
           unavailable={
             account.status === "unconfigured"

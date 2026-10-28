@@ -24,6 +24,8 @@ interface AuthScreenProps {
   initialError?: string | null;
   /** Why sign-in cannot be offered, when it cannot. */
   unavailable?: "unconfigured" | "unreachable" | null;
+  /** Returns to the page that offered sign-in, when there is one behind it. */
+  onBack?: () => void;
 }
 
 const PROVIDERS: Array<{
@@ -66,7 +68,7 @@ const PROVIDERS: Array<{
   },
 ];
 
-export default function AuthScreen({ initialError = null, unavailable = null }: AuthScreenProps) {
+export default function AuthScreen({ initialError = null, unavailable = null, onBack }: AuthScreenProps) {
   const [busy, setBusy] = useState<OAuthProvider | null>(null);
   const [error, setError] = useState<string | null>(initialError);
 
@@ -91,7 +93,19 @@ export default function AuthScreen({ initialError = null, unavailable = null }: 
   const canSignIn = supabaseConfigured && unavailable !== "unconfigured";
 
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-[#060a08] px-5 py-10 text-white">
+    <div className="relative flex min-h-[100dvh] items-center justify-center bg-[#060a08] px-5 py-10 text-white">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full border border-white/[0.09] bg-white/[0.03] px-3 py-1.5 text-[11.5px] text-white/55 transition hover:text-white"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M15 5l-7 7 7 7" />
+          </svg>
+          Back
+        </button>
+      )}
       <div className="w-full max-w-[420px]">
         <div className="flex flex-col items-center text-center">
           <OpenmiMark className="h-11 w-11" />
