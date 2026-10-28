@@ -264,7 +264,10 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
               disabled={busy}
               className="w-full rounded-xl border border-white/[0.09] py-2.5 text-[13px] font-medium text-white/70 transition hover:bg-white/[0.06] disabled:opacity-50"
             >
-              {busy ? "Signing out…" : "Sign out"}
+              <span className="inline-flex items-center justify-center gap-1.5">
+                {busy && <Spinner size={12} className="text-white" />}
+                {busy ? "Signing out…" : "Sign out"}
+              </span>
             </button>
           </div>
         )}
@@ -392,7 +395,10 @@ function SignInMethods() {
                     disabled={busy !== null}
                     className="shrink-0 rounded-lg border border-red-300/25 px-2 py-1 text-[10.5px] text-red-200/80 transition hover:bg-red-500/[0.08] disabled:opacity-40"
                   >
-                    {busy === method.id ? "Removing…" : "Remove"}
+                    <span className="inline-flex items-center gap-1.5">
+                      {busy === method.id && <Spinner size={11} />}
+                      {busy === method.id ? "Removing…" : "Remove"}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -433,7 +439,10 @@ function SignInMethods() {
               disabled={busy !== null}
               className="rounded-lg border border-white/[0.12] px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.06] disabled:opacity-40"
             >
-              {busy === provider ? `Opening ${signInMethodLabel(provider)}…` : signInMethodLabel(provider)}
+              <span className="inline-flex items-center justify-center gap-1.5">
+                {busy === provider && <Spinner size={11} />}
+                {busy === provider ? `Opening ${signInMethodLabel(provider)}…` : signInMethodLabel(provider)}
+              </span>
             </button>
           ))}
         </div>
@@ -513,7 +522,10 @@ function PasswordForm() {
           disabled={busy || password.length < 6}
           className="shrink-0 rounded-lg border border-white/[0.12] px-3 py-2 text-[11.5px] font-medium text-white/75 transition hover:bg-white/[0.06] disabled:opacity-40"
         >
-          {busy ? "Saving…" : "Set"}
+          <span className="inline-flex items-center gap-1.5">
+            {busy && <Spinner size={11} />}
+            {busy ? "Saving…" : "Set"}
+          </span>
         </button>
       </div>
       {error && <p className="text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}

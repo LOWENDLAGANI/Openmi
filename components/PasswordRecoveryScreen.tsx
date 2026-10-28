@@ -1,5 +1,7 @@
 "use client";
 
+import Spinner from "./Spinner";
+
 // ── Set a new password ───────────────────────────────────────────────────────
 //
 // Supabase's recovery mail returns here through the PKCE flow, which signs the
@@ -203,7 +205,10 @@ export default function PasswordRecoveryScreen() {
                   disabled={status === "saving" || !password || !confirmation}
                   className="w-full rounded-xl bg-white py-3 text-[13px] font-semibold text-black transition hover:opacity-90 disabled:opacity-40"
                 >
-                  {status === "saving" ? "Saving…" : "Save new password"}
+                  <span className="inline-flex items-center justify-center gap-2">
+                    {status === "saving" && <Spinner size={13} />}
+                    {status === "saving" ? "Saving…" : "Save new password"}
+                  </span>
                 </button>
 
                 {error && (

@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Spinner from "./Spinner";
 import { exportBackup } from "@/lib/db";
 import { deleteAllMyData } from "@/lib/privacy";
 
@@ -90,7 +91,10 @@ export default function DataControls() {
               : "border-red-400/15 bg-red-500/[0.06] text-red-200/80 hover:bg-red-500/[0.12]"
           }`}
         >
-          {busy ? "Deleting…" : confirmDelete ? "Tap again to erase everything" : "Delete all my data"}
+          <span className="inline-flex items-center justify-center gap-1.5">
+            {busy && <Spinner size={12} />}
+            {busy ? "Deleting…" : confirmDelete ? "Tap again to erase everything" : "Delete all my data"}
+          </span>
         </button>
       </div>
 

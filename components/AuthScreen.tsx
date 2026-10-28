@@ -1,5 +1,7 @@
 "use client";
 
+import Spinner from "./Spinner";
+
 // ── The sign-in screen ───────────────────────────────────────────────────────
 //
 // Openmi has no guest mode: this screen is the whole interface until a session
@@ -140,7 +142,10 @@ export default function AuthScreen({ initialError = null, unavailable = null, ba
                 className="flex w-full items-center justify-center gap-2.5 rounded-[14px] border border-white/[0.09] bg-white/[0.04] py-3 text-[13px] font-medium text-white transition hover:bg-white/[0.08] disabled:opacity-50"
               >
                 {provider.icon}
-                {busy === provider.id ? "Opening…" : provider.label}
+                <span className="inline-flex items-center justify-center gap-1.5">
+                  {busy === provider.id && <Spinner size={13} />}
+                  {busy === provider.id ? "Opening…" : provider.label}
+                </span>
               </button>
             ))}
           </div>
