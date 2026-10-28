@@ -4,6 +4,10 @@
 
 :root {
   color-scheme: dark;
+  /* The landing page's two faces, loaded in app/layout.tsx. Components reach
+     them through Tailwind's `font-sans` / `font-mono`, and prose code through
+     `--font-mono`, so there is one type system rather than a marketing one. */
+  --font-mono: var(--font-lp-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --bg: #0b1310;
   --bg-raised: #111a16;
   --bg-hover: #17221c;
@@ -53,39 +57,43 @@
   --motion-slow: 420ms var(--motion-ease-smooth);
 }
 
-/* ── Light mode: the Openmi product palette ─────────────────────────────────
-   A light neutral canvas (gray-50) with white cards on top of it, charcoal
-   text, and one electric blue for anything that is the user's own — their
-   message, the send button, an active control. Every value here is a token,
-   so the components are written once against the variables and the paper
-   appearance is a table of values rather than a second stylesheet. */
+/* ── Paper: the landing page's palette, carried into the product ────────────
+   A warm paper canvas (#f3f1e9), raised cream cards, ink text, and one orange
+   for anything that is the user's own — their message, the send button, an
+   active control. The grey-and-blue scheme this replaces read as a dashboard;
+   this is the same app wearing the marketing page's clothes.
+
+   Every value here is a token, so the components are written once against the
+   variables and an appearance is a table of values rather than a second
+   stylesheet. Note `--on-accent`: the accent is saturated orange, so the text
+   inside it is nearly black, exactly as the landing page's buttons do it. */
 html.light {
   color-scheme: light;
-  --bg: #f8f9fa;
-  --bg-raised: #ffffff;
-  --bg-hover: #f3f4f6;
-  --bg-elevated: #ffffff;
-  --line: #e5e7eb;
-  --line-strong: #d1d5db;
-  --text-hi: #111827;
-  --text: #1f2937;
-  --text-mid: #6b7280;
-  --text-low: #9ca3af;
-  --accent: #0066ff;
-  --accent-soft: rgba(0, 102, 255, 0.1);
-  --azure: #0066ff;
-  --azure-soft: rgba(0, 102, 255, 0.1);
-  --code: #b45309;
-  --code-soft: rgba(180, 83, 9, 0.1);
-  --on-accent: #ffffff;
-  --card: #ffffff;
-  --card-border: #e5e7eb;
-  --card-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
-  --bubble-user: #0066ff;
-  --bubble-user-text: #ffffff;
-  --dock: #ffffff;
-  --chip: #ffffff;
-  --chip-border: #e5e7eb;
+  --bg: #f3f1e9;
+  --bg-raised: #fbf9f2;
+  --bg-hover: #eae6db;
+  --bg-elevated: #fffdf7;
+  --line: rgba(21, 19, 15, 0.12);
+  --line-strong: rgba(21, 19, 15, 0.22);
+  --text-hi: #15130f;
+  --text: #2b2722;
+  --text-mid: #6b6154;
+  --text-low: #8a8172;
+  --accent: #f55036;
+  --accent-soft: rgba(245, 80, 54, 0.1);
+  --azure: #a8562f;
+  --azure-soft: rgba(168, 86, 47, 0.12);
+  --code: #8a4b2a;
+  --code-soft: rgba(138, 75, 42, 0.1);
+  --on-accent: #15130f;
+  --card: #fbf9f2;
+  --card-border: rgba(21, 19, 15, 0.12);
+  --card-shadow: 0 1px 2px rgba(21, 19, 15, 0.04), 0 10px 28px -22px rgba(21, 19, 15, 0.4);
+  --bubble-user: #f55036;
+  --bubble-user-text: #15130f;
+  --dock: #f3f1e9;
+  --chip: #fbf9f2;
+  --chip-border: rgba(21, 19, 15, 0.14);
   --danger-bg: #fef2f2;
   --danger-border: #fecaca;
   --danger-ink: #b91c1c;
@@ -101,7 +109,7 @@ html.light body { background: var(--bg); }
    light chat interface look busy. */
 html.light .app-surface { background: var(--bg); }
 html.light .surface-glow { background: none; }
-html.light aside { background: #ffffff !important; }
+html.light aside { background: #f7f5ee !important; }
 
 /* ── Focus home: the ink-indigo theme ─────────────────────────────────────
    The Focus home is one design with one palette: a near-black indigo canvas,
@@ -198,7 +206,7 @@ html.ink [class*=" bg-[#1a2620]"], html.ink [class^="bg-[#1a2620]"] { background
    buttons, a filled pill behind the model name, panels tinted for no reason.
    A prefixed variant is now never read as a rest state, and the hover rules at
    the end of this block put the feedback back where it belongs. */
-html.light .text-white { color: #111827 !important; }
+html.light .text-white { color: #15130f !important; }
 
 /* Muted and micro text */
 html.light [class*=" text-white/1"],
@@ -206,17 +214,17 @@ html.light [class^="text-white/1"],
 html.light [class*=" text-white/2"],
 html.light [class^="text-white/2"],
 html.light [class*=" text-white/3"],
-html.light [class^="text-white/3"] { color: #9ca3af !important; }
+html.light [class^="text-white/3"] { color: #8a8172 !important; }
 
 /* Secondary text */
 html.light [class*=" text-white/4"],
 html.light [class^="text-white/4"],
 html.light [class*=" text-white/5"],
-html.light [class^="text-white/5"] { color: #6b7280 !important; }
+html.light [class^="text-white/5"] { color: #6b6154 !important; }
 
 /* Mid-weight text: between secondary and body copy. */
 html.light [class*=" text-white/6"],
-html.light [class^="text-white/6"] { color: #4b5563 !important; }
+html.light [class^="text-white/6"] { color: #4a443a !important; }
 
 /* Primary text */
 html.light [class*=" text-white/7"],
@@ -224,21 +232,21 @@ html.light [class^="text-white/7"],
 html.light [class*=" text-white/8"],
 html.light [class^="text-white/8"],
 html.light [class*=" text-white/9"],
-html.light [class^="text-white/9"] { color: #111827 !important; }
+html.light [class^="text-white/9"] { color: #15130f !important; }
 
 html.light [class*=" bg-white/"],
-html.light [class^="bg-white/"] { background-color: rgba(17, 24, 39, 0.05) !important; }
+html.light [class^="bg-white/"] { background-color: rgba(21, 19, 15, 0.05) !important; }
 html.light [class*=" border-white/"],
-html.light [class^="border-white/"] { border-color: #e5e7eb !important; }
+html.light [class^="border-white/"] { border-color: #e4dfd2 !important; }
 /* Only the small black washes are surfaces — an input well, a code chip. The
    deep ones (60–85%) are modal backdrops and stay dark, because a light-mode
    dialog still needs a dimmed page behind it. */
 html.light [class~="bg-black/20"],
 html.light [class~="bg-black/25"],
 html.light [class~="bg-black/30"],
-html.light [class~="bg-black/40"] { background-color: rgba(17, 24, 39, 0.05) !important; }
+html.light [class~="bg-black/40"] { background-color: rgba(21, 19, 15, 0.05) !important; }
 html.light [class*=" shadow-black"],
-html.light [class^="shadow-black"] { box-shadow: 0 18px 40px -24px rgba(17, 24, 39, 0.28) !important; }
+html.light [class^="shadow-black"] { box-shadow: 0 18px 40px -24px rgba(21, 19, 15, 0.28) !important; }
 
 /* Deep surfaces that were written as literal hex values rather than tokens.
    Naming each one keeps the rule honest: a sheet, a panel, and the page all
@@ -253,7 +261,7 @@ html.light [class*=" bg-[#141f1a]"], html.light [class^="bg-[#141f1a]"],
 html.light [class*=" bg-[#1a2620]"], html.light [class^="bg-[#1a2620]"],
 html.light [class*=" bg-[#111a16]"], html.light [class^="bg-[#111a16]"],
 html.light [class*=" bg-[#0e1613]"], html.light [class^="bg-[#0e1613]"],
-html.light [class*=" bg-[#0b1312]"], html.light [class^="bg-[#0b1312]"] { background-color: #ffffff !important; }
+html.light [class*=" bg-[#0b1312]"], html.light [class^="bg-[#0b1312]"] { background-color: #fbf9f2 !important; }
 
 /* Decorative glows were painted for a dark canvas. On paper they stop being a
    glow and become a coloured smudge behind the logo, so they are switched off
@@ -261,12 +269,14 @@ html.light [class*=" bg-[#0b1312]"], html.light [class^="bg-[#0b1312]"] { backgr
 html.light [class*=" blur-3xl"], html.light [class^="blur-3xl"] { display: none !important; }
 
 /* The sage accent family the dark theme was built on reads as a foreign colour
-   on paper, so every literal use of it is the same electric blue in light. */
+   on paper, so every literal use of it is the same orange in light. */
 html.light [class*=" text-[#a9d8bb]"], html.light [class^="text-[#a9d8bb]"],
 html.light [class*=" text-[#c9e6d4]"], html.light [class^="text-[#c9e6d4]"],
 html.light [class*=" text-[#b6e3c8]"], html.light [class^="text-[#b6e3c8]"],
 html.light [class*=" text-[#d7f0e1]"], html.light [class^="text-[#d7f0e1]"],
-html.light [class*=" text-[#6ec294]"], html.light [class^="text-[#6ec294]"] { color: #0066ff !important; }
+html.light [class*=" text-[#6ec294]"], html.light [class^="text-[#6ec294]"] { color: #f55036 !important; }
+html.light [class*=" text-[#2f6b48]"], html.light [class^="text-[#2f6b48]"],
+html.light [class*=" text-[#c9e7d5]"], html.light [class^="text-[#c9e7d5]"] { color: #f55036 !important; }
 /* A solid accent fill becomes the blue; a wash of the same colour stays a wash.
    The `~=` form matches the whole class token, so a `/15` tint is not caught
    here and turned into a wall of saturated blue. */
@@ -277,14 +287,14 @@ html.light [class~="bg-[#35744f]"],
 html.light [class~="bg-[#3a8359]"],
 html.light [class~="bg-[#327350]"],
 html.light [class~="bg-[#7fd1a1]"],
-html.light [class~="bg-[#a9d8bb]"] { background-color: #0066ff !important; }
+html.light [class~="bg-[#a9d8bb]"] { background-color: #f55036 !important; }
 html.light [class*=" bg-[#2f6b48]/"], html.light [class^="bg-[#2f6b48]/"],
 html.light [class*=" bg-[#2a6142]/"], html.light [class^="bg-[#2a6142]/"],
 html.light [class*=" bg-[#7fd1a1]/"], html.light [class^="bg-[#7fd1a1]/"],
-html.light [class*=" bg-[#a9d8bb]/"], html.light [class^="bg-[#a9d8bb]/"] { background-color: rgba(0, 102, 255, 0.1) !important; }
+html.light [class*=" bg-[#a9d8bb]/"], html.light [class^="bg-[#a9d8bb]/"] { background-color: rgba(245, 80, 54, 0.1) !important; }
 html.light [class*=" border-[#2f6b48]"], html.light [class^="border-[#2f6b48]"],
 html.light [class*=" border-[#3f7d5c]"], html.light [class^="border-[#3f7d5c]"],
-html.light [class*=" border-[#a9d8bb]"], html.light [class^="border-[#a9d8bb]"] { border-color: rgba(0, 102, 255, 0.35) !important; }
+html.light [class*=" border-[#a9d8bb]"], html.light [class^="border-[#a9d8bb]"] { border-color: rgba(245, 80, 54, 0.35) !important; }
 html.light [class*=" text-[#0a100d]"], html.light [class^="text-[#0a100d]"],
 html.light [class*=" text-[#121c18]"], html.light [class^="text-[#121c18]"] { color: #ffffff !important; }
 
@@ -309,37 +319,37 @@ html.light [class*=" text-emerald-3"], html.light [class^="text-emerald-3"] { co
    permanent paint. Without these, turning off the leak above would leave every
    control with no feedback under the cursor at all. */
 html.light [class*=" hover:bg-white/"]:hover,
-html.light [class^="hover:bg-white/"]:hover { background-color: rgba(17, 24, 39, 0.06) !important; }
-html.light [class*=" active:bg-white/"]:active { background-color: rgba(17, 24, 39, 0.09) !important; }
+html.light [class^="hover:bg-white/"]:hover { background-color: rgba(21, 19, 15, 0.06) !important; }
+html.light [class*=" active:bg-white/"]:active { background-color: rgba(21, 19, 15, 0.09) !important; }
 html.light [class*=" hover:text-white"]:hover,
-html.light [class^="hover:text-white"]:hover { color: #111827 !important; }
+html.light [class^="hover:text-white"]:hover { color: #15130f !important; }
 html.light [class*=" hover:border-white"]:hover,
-html.light [class^="hover:border-white"]:hover { border-color: #d1d5db !important; }
+html.light [class^="hover:border-white"]:hover { border-color: #cdc6b6 !important; }
 html.light [class*=" focus:border-white"]:focus,
-html.light [class^="focus:border-white"]:focus { border-color: #d1d5db !important; }
-html.light [class*=" placeholder:text-white"]::placeholder { color: #9ca3af !important; }
+html.light [class^="focus:border-white"]:focus { border-color: #cdc6b6 !important; }
+html.light [class*=" placeholder:text-white"]::placeholder { color: #8a8172 !important; }
 
 /* Coloured status dots keep their meaning: amber and green still say what they
    said on the dark canvas. */
 
 /* Prose and controls that carry their own colours rather than a token. */
-html.light .prose-chat a { color: #0066ff; text-decoration-color: rgba(0, 102, 255, 0.35); }
-html.light .prose-chat a:hover { text-decoration-color: rgba(0, 102, 255, 0.9); }
+html.light .prose-chat a { color: #f55036; text-decoration-color: rgba(245, 80, 54, 0.35); }
+html.light .prose-chat a:hover { text-decoration-color: rgba(245, 80, 54, 0.9); }
 html.light .prose-chat :not(pre) > code {
-  background: #f3f4f6;
-  color: #111827;
+  background: #ece8dd;
+  color: #15130f;
 }
-html.light .copy-btn:hover { background: rgba(17, 24, 39, 0.06); }
-html.light :hover { scrollbar-color: rgba(17, 24, 39, 0.2) transparent; }
-html.light *:hover::-webkit-scrollbar-thumb { background: rgba(17, 24, 39, 0.18); }
+html.light .copy-btn:hover { background: rgba(21, 19, 15, 0.06); }
+html.light :hover { scrollbar-color: rgba(21, 19, 15, 0.2) transparent; }
+html.light *:hover::-webkit-scrollbar-thumb { background: rgba(21, 19, 15, 0.18); }
 
 /* Code keeps its deep well on paper: a syntax-highlighted block that flipped to
    white-on-white stops being readable, and one dark island reads as deliberate
    rather than as a leftover. */
-html.light .code-block { border-color: #e5e7eb; }
+html.light .code-block { border-color: #e4dfd2; }
 html.light .stream-cursor > :last-child::after {
-  background: linear-gradient(180deg, #6aa4ff, #0066ff);
-  box-shadow: 0 0 10px rgba(0, 102, 255, 0.3);
+  background: linear-gradient(180deg, #ffb3a5, #f55036);
+  box-shadow: 0 0 10px rgba(245, 80, 54, 0.3);
 }
 
 /* ── Chat surfaces ──────────────────────────────────────────────────────────
@@ -379,23 +389,27 @@ html.light .stream-cursor > :last-child::after {
 .msg-user-bubble::selection { background: rgba(255, 255, 255, 0.25); }
 
 /* Escape hatches from the light-mode colour inversion, for anything that sits
-   on its own dark surface: the user's blue bubble, a frosted overlay on a
-   photograph, a button whose fill is the accent. */
+   on its own dark surface: the user's bubble, a frosted overlay on a
+   photograph, a button whose fill is the accent. On paper the accent is a
+   saturated orange, so the ink inside it is nearly black — the pairing the
+   landing page uses on its buttons — while the dark appearances keep white. */
 .on-accent,
-html.light .on-accent,
-.msg-user-bubble,
-html.light .msg-user-bubble {
+.msg-user-bubble {
   color: #ffffff !important;
 }
+html.light .on-accent,
+html.light .msg-user-bubble {
+  color: #15130f !important;
+}
 
-/* A control filled with the accent keeps white text, even though `text-white`
-   is charcoal everywhere else on paper. Two attribute selectors beat the
-   single-class inversion rule, so this needs no class in the markup. */
+/* A control filled with the accent keeps ink text, even though `text-white`
+   is the dark-theme colour. Two attribute selectors beat the single-class
+   inversion rule, so this needs no class in the markup. */
 html.light [class~="bg-[#2f6b48]"][class*="text-white"],
 html.light [class~="bg-[#2a6142]"][class*="text-white"],
 html.light [class~="bg-[#a9d8bb]"][class*="text-white"],
 html.light [class*="bg-accent"][class*="text-white"] {
-  color: #ffffff !important;
+  color: #15130f !important;
 }
 .frosted {
   background: rgba(0, 0, 0, 0.4) !important;
@@ -593,7 +607,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-lp-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv11", "ss01";

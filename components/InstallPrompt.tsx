@@ -324,7 +324,7 @@ export default function InstallPrompt() {
                 type="button"
                 onClick={install}
                 className="lift flex-1 rounded-full px-4 py-3 text-[14px] font-semibold text-[#0a100d] transition-opacity hover:opacity-90 active:opacity-70"
-                style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
+                style={{ background: "linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 58%, #000) 100%)" }}
               >
                 Install Openmi
               </button>
@@ -333,7 +333,7 @@ export default function InstallPrompt() {
               type="button"
               onClick={close}
               className={showButton ? "shrink-0 rounded-full border border-white/[0.12] px-5 py-3 text-[14px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white" : "w-full rounded-full px-4 py-3 text-[14px] font-semibold text-[#0a100d] transition-opacity hover:opacity-90 active:opacity-70"}
-              style={showButton ? undefined : { background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
+              style={showButton ? undefined : { background: "linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 58%, #000) 100%)" }}
             >
               {showButton ? "Not now" : ios ? "Got it" : "Done"}
             </button>

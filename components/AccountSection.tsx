@@ -185,7 +185,7 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
                   {avatarUrl ? (
                     <img src={avatarUrl} alt="Profile" className="h-full w-full object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-sm font-bold text-black">
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#ffb59f] via-[#f55036] to-[#a82e18] text-sm font-bold text-black">
                       {nameInitial(displayName || name || "U")}
                     </div>
                   )}

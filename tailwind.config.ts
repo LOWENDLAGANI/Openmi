@@ -28,9 +28,12 @@ const config: Config = {
         "text-mid": "var(--text-mid)",
         "text-low": "var(--text-low)",
       },
+      // The landing page's two faces, loaded in app/layout.tsx. The app shell
+      // and the marketing page then read as one product, and `font-mono` in a
+      // component is the same mono the landing page labels itself with.
       fontFamily: {
         sans: [
-          "Inter",
+          "var(--font-lp-sans)",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
@@ -41,6 +44,7 @@ const config: Config = {
           "sans-serif",
         ],
         mono: [
+          "var(--font-lp-mono)",
           "ui-monospace",
           "SFMono-Regular",
           "Menlo",

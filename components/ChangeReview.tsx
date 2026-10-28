@@ -284,7 +284,7 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
             onClick={() => void approveAndCommit()}
             disabled={working || !changeSet || stale || changeSet.status === "committed"}
             className="shrink-0 rounded-lg px-3 py-1.5 text-[11.5px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-40"
-            style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
+            style={{ background: "linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 58%, #000) 100%)" }}
           >
             {busy === "approve" ? "Approving…" : busy === "commit" ? "Committing…" : "Approve & commit"}
           </button>
