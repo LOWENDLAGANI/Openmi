@@ -362,6 +362,33 @@ assert.ok(
   ),
   "the pass-sized bucket must live in the one locked charge function"
 );
+
+// `deduct_dew_split()` is declared `returns table (spent numeric, …)`, which
+// makes `spent` a plpgsql variable — and then incremented a column with that
+// same name. PostgreSQL refuses to guess, so every charge failed with
+// "column reference spent is ambiguous" and no balance moved.
+// 20261028000100_dew_split_ambiguous_spent.sql replaces the body; these keep
+// the replacement unambiguous and keep the shape lib/serverDew.ts reads.
+const splitFixCode = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000100_dew_split_ambiguous_spent.sql"),
+  "utf8"
+).replace(/--.*$/gm, "");
+assert.ok(
+  /set spent = public\.dew_wallets\.spent \+ paid_amount/.test(splitFixCode),
+  "the charge must name the column it increments, or `spent` clashes with the function's own OUT parameter"
+);
+assert.ok(
+  /total := wallet\.spent \+ paid_amount/.test(splitFixCode),
+  "the new total must come from the wallet row the transaction already holds"
+);
+assert.ok(
+  !/returning\s+spent/.test(splitFixCode),
+  "a bare RETURNING spent is ambiguous for the same reason; the total is computed, not read back"
+);
+assert.ok(
+  /returns table \(spent numeric, free_charged numeric, paid_charged numeric\)/.test(splitFixCode),
+  "the charge must keep returning the split the client reads"
+);
 assert.ok(
   /free_charge := least\(charged, free_left\)/.test(timezoneSchema),
   "free Dew must be spent before paid credit"
