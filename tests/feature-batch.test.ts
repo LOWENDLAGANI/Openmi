@@ -142,13 +142,13 @@ await test("unsorted input is still read in day order", () => {
 console.log("\nthe wiring these features hang off");
 
 await test("the composer still receives the server's countdown", () => {
-  const page = read("app/page.tsx");
+  const page = read("app/chat/page.tsx");
   assert.match(page, /rateLimitUntil=\{rateLimitUntil\}/, "the countdown never reaches the composer");
   assert.match(page, /onStop=\{stopStreaming\}/, "a running answer cannot be stopped");
 });
 
 await test("a fallback updates the badge without announcing a failure", () => {
-  const page = read("app/page.tsx");
+  const page = read("app/chat/page.tsx");
   // The old notice said the model "was changed automatically because the
   // current model is experiencing a problem". A fallback is routine; naming it
   // as a failure made every answer look degraded.
@@ -168,7 +168,7 @@ await test("the sitemap no longer lists the removed notes route", () => {
 });
 
 await test("the repository says what the agent can do, not that it is read-only", () => {
-  const page = read("app/page.tsx");
+  const page = read("app/chat/page.tsx");
   const thread = read("components/ChatThread.tsx");
   assert.ok(!page.includes(">read-only<"), "the misleading read-only label is back");
   assert.match(page, /reads · proposes/, "the repository chip still does not name the agent's capability");
@@ -179,7 +179,7 @@ await test("the repository says what the agent can do, not that it is read-only"
 });
 
 await test("the page drops expired trash on start and listens for a wipe", () => {
-  const page = read("app/page.tsx");
+  const page = read("app/chat/page.tsx");
   assert.match(page, /purgeTrash\(\)/, "expired trash is never dropped on start");
   assert.match(page, /openmi:data-wiped/, "the wipe event leaves the page on dead data");
 });

@@ -144,7 +144,7 @@ export default function PasswordRecoveryScreen() {
               ties the link to that browser.
             </Banner>
             <Link
-              href="/"
+              href="/chat"
               className="block w-full rounded-xl bg-white py-3 text-center text-[13px] font-semibold text-black transition hover:opacity-90"
             >
               Back to sign in
@@ -162,7 +162,7 @@ export default function PasswordRecoveryScreen() {
 
             {status === "done" ? (
               <Link
-                href="/"
+                href="/chat"
                 className="block w-full rounded-xl bg-white py-3 text-center text-[13px] font-semibold text-black transition hover:opacity-90"
               >
                 Continue to Openmi

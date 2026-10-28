@@ -90,6 +90,12 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // The landing page moved to the root route. Answered here rather than with a
+  // page that calls redirect(): a prerendered page's redirect only happens once
+  // the client runs, so old links would render a blank hop instead of a 308.
+  async redirects() {
+    return [{ source: "/landing", destination: "/", permanent: true }];
+  },
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {

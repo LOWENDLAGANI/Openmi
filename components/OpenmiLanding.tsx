@@ -2,7 +2,8 @@
 
 // ── The landing page ─────────────────────────────────────────────────────────
 //
-// What a visitor meets before they have an account. It is deliberately the
+// The front door, rendered on the server at `/`. What a visitor meets before
+// they have an account. It is deliberately the
 // opposite of the product's dark chat shell: a warm paper canvas, one orange
 // accent, oversized type and a lot of air — a page that reads as a statement
 // rather than a form.
@@ -17,13 +18,8 @@
 // depends on the chat theme (which can be dark, paper or ink) and the landing
 // looks the same for everyone.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
-
-interface OpenmiLandingProps {
-  /** Opens the sign-in screen in place. Without it, the CTAs point at the app. */
-  onSignIn?: () => void;
-}
 
 // The statement fills in as you scroll. One string per line so the rhythm of
 // the page survives on a phone; the gaps between blocks are the pauses in the
@@ -102,28 +98,11 @@ function Wordmark() {
 }
 
 /** The one call to action, in the header and at the foot of the page. */
-function PrimaryCta({
-  onSignIn,
-  label = "Open Openmi",
-  className = "",
-}: {
-  onSignIn?: () => void;
-  label?: string;
-  className?: string;
-}) {
-  const inner = (
-    <>
+function PrimaryCta({ label = "Open Openmi", className = "" }: { label?: string; className?: string }) {
+  return (
+    <Link href="/chat" className={`lp-btn ${className}`}>
       {label}
       <Arrow className="lp-btn-arrow" />
-    </>
-  );
-  return onSignIn ? (
-    <button type="button" onClick={onSignIn} className={`lp-btn ${className}`}>
-      {inner}
-    </button>
-  ) : (
-    <Link href="/" className={`lp-btn ${className}`}>
-      {inner}
     </Link>
   );
 }
@@ -238,11 +217,7 @@ function Ticker() {
   );
 }
 
-export default function OpenmiLanding({ onSignIn }: OpenmiLandingProps) {
-  // Links at the foot of the page close the sign-in screen the same way the
-  // header button opens it, so a visitor is never dropped into a dead end.
-  const openSignIn = useCallback(() => onSignIn?.(), [onSignIn]);
-
+export default function OpenmiLanding() {
   return (
     <div className="lp">
       <header className="lp-header">
@@ -255,7 +230,7 @@ export default function OpenmiLanding({ onSignIn }: OpenmiLandingProps) {
             <Link href="/plus">Plans</Link>
             <Link href="/privacy">Privacy</Link>
           </nav>
-          <PrimaryCta onSignIn={openSignIn} label="Sign in" className="lp-btn-small" />
+          <PrimaryCta label="Sign in" className="lp-btn-small" />
         </div>
       </header>
 
@@ -282,7 +257,7 @@ export default function OpenmiLanding({ onSignIn }: OpenmiLandingProps) {
               Nothing reaches your branch until you approve it.
             </p>
             <div className="lp-actions">
-              <PrimaryCta onSignIn={openSignIn} />
+              <PrimaryCta />
               <Link href="/about" className="lp-btn-ghost">
                 See what shipped
               </Link>
@@ -359,7 +334,7 @@ export default function OpenmiLanding({ onSignIn }: OpenmiLandingProps) {
               <br />
               See what it changes.
             </h2>
-            <PrimaryCta onSignIn={openSignIn} />
+            <PrimaryCta />
             <p className="lp-mono lp-cta-note">Read the repo. Stage the diff. Approve the commit.</p>
           </div>
         </section>
@@ -372,16 +347,10 @@ export default function OpenmiLanding({ onSignIn }: OpenmiLandingProps) {
             <Link href="/about">About</Link>
             <Link href="/plus">Plans</Link>
             <Link href="/privacy">Privacy</Link>
-            {/* A signed-out reader who has finished the page wants the product,
-                not another tour of the page they just read: this opens the
-                sign-in screen instead of pointing back at / and looping. */}
-            {onSignIn ? (
-              <button type="button" onClick={onSignIn}>
-                Open the app
-              </button>
-            ) : (
-              <Link href="/">Open the app</Link>
-            )}
+            {/* The product is behind the account gate at /chat, so this opens
+                the sign-in screen for a signed-out reader instead of returning
+                them to the page they just finished. */}
+            <Link href="/chat">Open the app</Link>
           </nav>
           <p className="lp-mono lp-copyright">Openmi · 2026</p>
         </div>

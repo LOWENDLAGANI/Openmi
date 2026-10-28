@@ -395,7 +395,7 @@ export default function OpenmiPlusPage() {
       <main className="min-h-dvh bg-[#0b1310] px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
         <div className="mx-auto w-full max-w-2xl lg:max-w-3xl">
           <Link
-            href="/"
+            href="/chat"
             aria-label="Back to Openmi"
             className="lift mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12] hover:text-white"
           >
@@ -434,7 +434,7 @@ export default function OpenmiPlusPage() {
                 to know who it is before it can show one.
               </p>
               <Link
-                href="/"
+                href="/chat"
                 className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12]"
               >
                 {account ? "Sign in to Openmi" : "Checking your account…"}

@@ -934,7 +934,7 @@ test("the step route streams its progress instead of answering once", () => {
   assert.match(source, /onEvent: send/, "the route forwards every event as it happens");
   assert.match(source, /cleanTranscript\(body\.transcript\)/);
   // And the client reads that stream rather than waiting for a whole answer.
-  assert.match(read("app/page.tsx"), /readAgentStream\(response\.body/);
+  assert.match(read("app/chat/page.tsx"), /readAgentStream\(response\.body/);
 });
 
 // ── turn state ──────────────────────────────────────────────────────────────
@@ -1926,7 +1926,7 @@ test("the OAuth start route requires a verified account", () => {
 test("editing a message in a repository chat goes through the agent", () => {
   // Ordinary chat has no repository access. An edit routed there would answer
   // the same words with a different, worse capability and no sign of it.
-  const source = read("app/page.tsx");
+  const source = read("app/chat/page.tsx");
   assert.match(source, /sendAgentMessage\(content, \{ editMessageId: messageId \}\)/);
   assert.match(source, /editMessageId\?: string/);
   assert.match(source, /options\?\.editMessageId/);

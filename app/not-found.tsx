@@ -25,7 +25,7 @@ export default function NotFound() {
 
       <div className="mt-6 flex items-center gap-2.5">
         <Link
-          href="/"
+          href="/chat"
           className="rounded-full bg-[#2f6b48] px-5 py-2.5 text-[13px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
         >
           Back to chat

@@ -121,7 +121,7 @@ async function main(): Promise<void> {
   });
 
   await test("the ad is kept off the screens it does not belong on", () => {
-    const page = read("app/page.tsx");
+    const page = read("app/chat/page.tsx");
     assert.match(page, /!focusHome && !temporary && \(\s*<AdBanner/);
     assert.match(page, /enabled=\{appConfig\?\.adsEnabled !== false\}/);
   });

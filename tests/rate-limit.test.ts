@@ -240,7 +240,7 @@ async function main(): Promise<void> {
   });
 
   await test("the composer reads the body's field before the sentence", () => {
-    const page = read("app/page.tsx");
+    const page = read("app/chat/page.tsx");
     assert.match(page, /noteRateLimit\(message, payload\?\.retryAfterSeconds\)/);
     assert.match(page, /noteRateLimit\(evt\.error, evt\.retryAfterSeconds\)/);
     // And a successful answer clears the countdown instead of waiting it out.

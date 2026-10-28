@@ -351,7 +351,7 @@ test("email registration is a real sign-up, not an upgrade of a hidden guest", (
 });
 
 test("the main page gates the product on a signed-in account", () => {
-  const source = code("app/page.tsx");
+  const source = code("app/chat/page.tsx");
   assert.match(source, /watchAccount/);
   assert.match(source, /if \(!account\.signedIn\)/);
   assert.match(source, /AuthScreen/);

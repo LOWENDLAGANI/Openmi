@@ -306,8 +306,9 @@ connection…".
 ## Layout
 
 ```
-app/                 routes; /api/chat is the streaming proxy, /api/agent/step
-                     is one read-only agent step
+app/                 routes; page.tsx is the public landing page, chat/ is the
+                     product behind the account gate, /api/chat is the streaming
+                     proxy and /api/agent/step one read-only agent step
 components/          chat shell, sidebar, settings, admin console, RepoPanel
 lib/                 dew.ts (pricing), providers.ts (server-only chains),
                      models.ts (client-visible catalog), db.ts (Dexie),

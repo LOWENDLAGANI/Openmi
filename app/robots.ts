@@ -35,7 +35,7 @@ export default function robots(): MetadataRoute.Robots {
         // naming them here would only tell a scraper where to aim.
         userAgent: "*",
         allow: "/",
-        disallow: "/api/",
+        disallow: ["/api/", "/chat"],
       },
     ],
     // Share previews are the growth loop, so the pages that carry them are

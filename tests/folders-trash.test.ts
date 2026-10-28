@@ -177,7 +177,7 @@ console.log("\nthe code that delivers it");
 const cloudHistory = code("lib/cloudHistory.ts");
 const sidebar = code("components/Sidebar.tsx");
 const trashOverlay = code("components/TrashOverlay.tsx");
-const page = code("app/page.tsx");
+const page = code("app/chat/page.tsx");
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20261024000100_folders_trash.sql"),
   "utf8"

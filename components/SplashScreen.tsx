@@ -5,7 +5,7 @@
 // the background while this image sits over it, then blurs and dissolves away
 // to reveal the ready app. Nothing about the app is blocked by this.
 //
-// It plays once per browser session, on a fresh visit to `/` only. Returning
+// It plays once per browser session, on a fresh visit to the app only. Returning
 // to the page, reloading, or opening `/about` skips it — sessionStorage is the
 // marker, so closing the tab gives the next visit its splash back.
 //

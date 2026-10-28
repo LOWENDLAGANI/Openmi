@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   });
 
   await test("a question that is only a document stays in the thread", () => {
-    const page = read("app/page.tsx");
+    const page = read("app/chat/page.tsx");
     const start = page.indexOf("const visibleMessages");
     const filter = page.slice(start, start + 400);
     assert.ok(start > 0, "the visible-message filter moved; this contract needs rewriting");

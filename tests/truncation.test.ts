@@ -77,7 +77,7 @@ test("the route reads the reason the model stopped", () => {
 });
 
 test("the client stores the flag on the message", () => {
-  const page = read("app/page.tsx");
+  const page = read("app/chat/page.tsx");
   assert.match(page, /evt\.truncated/, "the client ignores the truncated event");
   assert.match(
     page,
