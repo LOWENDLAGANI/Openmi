@@ -188,8 +188,10 @@ export async function POST(req: NextRequest): Promise<Response> {
             })
           );
           if (!deducted.ok) {
-            console.warn(
-              `[dew] agent charge of ${price} not recorded for uid ${identity.uid} (conflict=${deducted.conflict}, reason=${deducted.reason ?? "unknown"})`
+            // Error, not warning: a step that produced work and was not billed
+            // is lost revenue, not a note.
+            console.error(
+              `[dew] agent charge of ${price} not recorded for uid ${identity.uid} (event=dew_charge_failed, conflict=${deducted.conflict}, reason=${deducted.reason ?? "unknown"})`
             );
           } else {
             await recordDewTransaction(authorization, identity.uid, {

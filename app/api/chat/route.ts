@@ -745,10 +745,11 @@ export async function POST(req: NextRequest): Promise<Response> {
           })
         );
         if (!deduct.ok) {
-          // A missed charge is logged, not hidden: it is a real shortfall in the
-          // ledger and the only way it gets noticed.
-          console.warn(
-            `[dew] charge of ${price} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`
+          // A missed charge is a real shortfall in the ledger, and it must not
+          // sit in the logs at a level nobody alerts on. This ran for days as a
+          // warning while every request was served free.
+          console.error(
+            `[dew] charge of ${price} Dew not recorded for uid ${identity.uid} (event=dew_charge_failed, conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`
           );
         } else {
           // The append-only log entry, best effort — the policy refuses junk, so
