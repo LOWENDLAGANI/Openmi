@@ -395,7 +395,7 @@ export default function PrivacyPage() {
                   [
                     "Show one advertisement",
                     "Ad slot; Google’s own identifiers",
-                    "Consent where required, otherwise legitimate interests",
+                    "Legitimate interests, with an opt-out at Google (§8)",
                   ],
                   ["Diagnose crashes", "Error and stack trace, stripped of content", "Legitimate interests (reliability)"],
                   ["Meet legal obligations and respond to lawful requests", "As required", "Legal obligation"],
@@ -505,9 +505,11 @@ export default function PrivacyPage() {
                     .
                   </>,
                   <>
-                    <span className="text-text-hi">Where consent is required</span> (the EEA, the
-                    UK and Switzerland), an ad is requested only after you have made a choice in
-                    Google’s consent message.
+                    <span className="text-text-hi">Regional consent:</span> this deployment does
+                    not yet present a consent message for the EEA, the UK or Switzerland, so in
+                    those regions an ad may be requested without a consent prompt. The Google Ad
+                    Settings link above is the control available today, and the operator can switch
+                    the ad slot off for the whole deployment.
                   </>,
                   <>
                     <span className="text-text-hi">No ad</span> is requested on the sign-in screen,
@@ -535,7 +537,10 @@ export default function PrivacyPage() {
                     "GitHub connection and stored API keys",
                     "Until you disconnect or remove them, or erase your data",
                   ],
-                  ["Rate-limit and usage counters", "Short-lived; daily counters roll over"],
+                  [
+                    "Rate-limit and usage counters",
+                    "Burst counters reset within a minute; daily usage rows stay until you erase your data",
+                  ],
                   ["Error reports", "Per the reporting service’s retention setting"],
                 ]}
               />
@@ -589,8 +594,8 @@ export default function PrivacyPage() {
                   </>,
                   <>
                     <span className="text-text-hi">Erase:</span> Settings → Your data → clear this
-                    browser and delete your account’s synced conversations, change sets, GitHub
-                    connections and stored keys.
+                    browser and delete your account’s synced conversations, folders, trashed chats,
+                    change sets, GitHub connections and stored keys.
                   </>,
                   <>
                     <span className="text-text-hi">Revoke a share link:</span>{" "}
@@ -661,11 +666,15 @@ export default function PrivacyPage() {
                   </a>
                 ) : (
                   <>
-                    contact the operator through the{" "}
-                    <Link href="/about" className="text-accent underline decoration-accent/30 underline-offset-2">
-                      About page
-                    </Link>
-                    .
+                    this deployment does not publish a contact address yet. Requests that need a
+                    person — closing the account, correcting data, withdrawing consent — should go
+                    to whoever operates it. Everything that touches your content can be done
+                    without one: <span className="text-text-hi">Settings → Your data</span> exports
+                    a copy or erases it, and the{" "}
+                    <Link href="/shares" className="text-accent underline decoration-accent/30 underline-offset-2">
+                      shares page
+                    </Link>{" "}
+                    revokes a public link.
                   </>
                 )}
               </p>

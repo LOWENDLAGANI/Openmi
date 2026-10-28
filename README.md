@@ -30,8 +30,8 @@ when you say so**, on a branch of its own.
   is known) and spent before paid credit; unused free Dew does not carry over,
   while trial, redeemed and topped-up Dew never expires. A spend history on
   `/activity` shows where it went: per day, per model, and how much came from
-  the free bucket rather than paid credit.Invitations on `/plus` give both
-people 5 Dew, with one claim per account and a ten-invite cap per inviter.
+  the  free bucket rather than paid credit. Invitations on `/plus` give both
+  people 25 Dew, with one claim per account and a ten-invite cap per inviter.
   Token counts are still recorded and shown; they no longer price the request.
 - **Paid passes**: $4 for 15 days or $8 for 30 days, shown in the reader's
   country currency and activated by the owner after the existing manual

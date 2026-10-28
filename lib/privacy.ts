@@ -63,6 +63,11 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
       "shared_chats",
       "chat_messages",
       "chats",
+      // Folders and the trash are the account's too: a folder name and a
+      // deleted thread are still the person's data, and erasing everything
+      // except those two would leave both behind.
+      "folders",
+      "trash",
       "memories",
       "github_connections",
       "github_default",
