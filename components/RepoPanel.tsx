@@ -183,6 +183,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [repoFilter, setRepoFilter] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
   const [fileFilter, setFileFilter] = useState("");
   const [tree, setTree] = useState<TreeFile[] | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -198,6 +199,13 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const [replaceFor, setReplaceFor] = useState<GithubConnectionItem | null>(null);
   const patInputRef = useRef<HTMLInputElement | null>(null);
 
+  /** The projects matching the picker's filter; all of them when it is empty. */
+  const filteredProjects = useMemo(() => {
+    const needle = projectFilter.trim().toLowerCase();
+    if (!needle) return projects;
+    return projects.filter((item) => item.repoFullName.toLowerCase().includes(needle));
+  }, [projects, projectFilter]);
+
   const status = statusState.phase === "ready" ? statusState.status : null;
 
   // Escape closes the panel, the same way it closes Settings. The panel covers
@@ -211,14 +219,6 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-
-  // Read inside `refresh` without making it a dependency: the panel-opened
-  // effect must not re-run every time a repository is selected, or the notice
-  // it just set would be cleared by its own refresh.
-  const projectRef = useRef(project);
-  useEffect(() => {
-    projectRef.current = project;
-  }, [project]);
 
   const loadStatus = useCallback(async (): Promise<GithubStatus | null> => {
     setStatusState({ phase: "checking" });
@@ -285,10 +285,13 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const refresh = useCallback(async () => {
     setError(null);
     const next = await loadStatus();
-    const attached = await loadProjects();
+    await loadProjects();
     if (next?.connected) await loadRepos();
-    if (!projectRef.current && attached.length > 0) onSelectProject(attached[0]);
-  }, [loadStatus, loadProjects, loadRepos, onSelectProject]);
+    // Nothing is selected on the panel's behalf. Picking the first project for
+    // the reader made "Switch" look broken: clearing the selection and
+    // reopening the panel put the same project straight back, with nothing on
+    // screen to say why. A project is now chosen only by choosing it.
+  }, [loadStatus, loadProjects, loadRepos]);
 
   useEffect(() => {
     if (!open) return;
@@ -487,12 +490,41 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
       });
       setProjects((current) => [data.project, ...current.filter((item) => item.id !== data.project.id)]);
       onSelectProject(data.project);
-      setNotice(`Attached ${repo.fullName}.`);
+      setOpenPath(null);
+      setFileText(null);
+      void loadTree(data.project.id);
+      setNotice(`Attached ${repo.fullName}. It is now the project this chat uses.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not attach the repository.");
     } finally {
       setBusy(null);
     }
+  };
+
+  /**
+   * Selecting a project is the whole interaction, so it answers immediately:
+   * the row marks itself, the notice says which project the chat now uses, and
+   * the file tree below reloads for it.
+   */
+  const chooseProject = (item: ProjectSummary) => {
+    setError(null);
+    if (project?.id === item.id) {
+      setNotice(`${item.repoFullName} is already the project this chat uses.`);
+      return;
+    }
+    onSelectProject(item);
+    setOpenPath(null);
+    setFileText(null);
+    void loadTree(item.id);
+    setNotice(`Now using ${item.repoFullName} for this chat and the agent.`);
+  };
+
+  /** Removing the selected project clears it, rather than leaving a dead pointer. */
+  const removeProject = (item: ProjectSummary) => {
+    if (project?.id === item.id) onSelectProject(null);
+    setProjects((current) => current.filter((entry) => entry.id !== item.id));
+    setNotice(`Removed ${item.repoFullName} from your projects.`);
+    void api(`/api/projects/${item.id}`, { method: "DELETE" }).catch(() => undefined);
   };
 
   const openFile = async (path: string) => {
@@ -926,7 +958,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                       }}
                       className="shrink-0 rounded-lg px-2 py-1 text-[10px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
                     >
-                      Change
+                      Switch
                     </button>
                   </div>
 
@@ -987,37 +1019,85 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
 
               {projects.length > 0 && (
                 <div>
-                  <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">Your projects</h3>
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2 px-1">
+                    <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">Choose a project</h3>
+                    <span className="text-[9.5px] tabular-nums text-white/25">{projects.length}</span>
+                  </div>
+                  <p className="mb-2 px-1 text-[10px] leading-relaxed text-white/30">
+                    The agent reads the project you pick. Selecting one switches this chat to it.
+                  </p>
+                  {projects.length > 5 && (
+                    <input
+                      value={projectFilter}
+                      onChange={(event) => setProjectFilter(event.target.value)}
+                      placeholder="Filter projects…"
+                      className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+                    />
+                  )}
                   <div className="space-y-1">
-                    {projects.map((item) => (
-                      <div key={item.id} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onSelectProject(item)}
-                          className="min-w-0 flex-1 truncate text-left font-mono text-[11px] text-white/65 hover:text-white"
+                    {filteredProjects.map((item) => {
+                      const selected = project?.id === item.id;
+                      return (
+                        <div
+                          key={item.id}
+                          className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
+                            selected
+                              ? "border-[#a9d8bb]/35 bg-[#a9d8bb]/[0.07]"
+                              : "border-white/[0.06] bg-white/[0.02]"
+                          }`}
                         >
-                          {item.repoFullName}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (project?.id === item.id) onSelectProject(null);
-                            setProjects((current) => current.filter((entry) => entry.id !== item.id));
-                            void api(`/api/projects/${item.id}`, { method: "DELETE" }).catch(() => undefined);
-                          }}
-                          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-white/25 transition-colors hover:bg-white/[0.07] hover:text-red-300"
-                          aria-label={`Remove ${item.repoFullName}`}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
+                          <button
+                            type="button"
+                            onClick={() => chooseProject(item)}
+                            aria-current={selected ? "true" : undefined}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
+                                selected
+                                  ? "border-[#a9d8bb]/70 bg-[#a9d8bb]/25 text-[#d7f0e1]"
+                                  : "border-white/15 text-transparent"
+                              }`}
+                            >
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="m5 13 4 4L19 7" />
+                              </svg>
+                            </span>
+                            <span
+                              className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
+                                selected ? "text-white" : "text-white/65"
+                              }`}
+                            >
+                              {item.repoFullName}
+                            </span>
+                            <span className={`shrink-0 text-[9px] ${selected ? "text-[#a9d8bb]" : "text-white/25"}`}>
+                              {selected ? "using" : "use"}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeProject(item)}
+                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-white/25 transition-colors hover:bg-white/[0.07] hover:text-red-300"
+                            aria-label={`Remove ${item.repoFullName}`}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {filteredProjects.length === 0 && (
+                      <p className="px-1 py-2 text-[10.5px] text-white/30">No project matches that filter.</p>
+                    )}
                   </div>
                 </div>
               )}
 
               <div>
-                <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">Your repositories</h3>
+                <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">Add a repository</h3>
+                <p className="mb-2 px-1 text-[10px] leading-relaxed text-white/30">
+                  Attaching adds the repository to your projects and switches this chat to it.
+                </p>
                 <input
                   value={repoFilter}
                   onChange={(event) => setRepoFilter(event.target.value)}
@@ -1042,7 +1122,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
                         {repo.private && (
                           <span className="shrink-0 rounded bg-white/[0.06] px-1 py-0.5 text-[8px] uppercase tracking-wide text-white/35">private</span>
                         )}
-                        <span className="shrink-0 text-[9px] text-white/25">{busy === repo.fullName ? "…" : repo.defaultBranch}</span>
+                        <span className="shrink-0 text-[9px] text-white/25">{repo.defaultBranch}</span>
+                        <span className="shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] text-white/45">
+                          {busy === repo.fullName ? "adding…" : "add"}
+                        </span>
                       </button>
                     ))}
                   </div>
