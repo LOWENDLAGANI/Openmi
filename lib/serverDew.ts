@@ -11,7 +11,7 @@
 //      credits, `dew_wallets` holds the spend, and the policies let a caller
 //      *read* their own and insert a credit only when the code it names is worth
 //      exactly that. A modified client cannot write itself a balance.
-//   2. `spent` is incremented by `deduct_dew()` in one statement. The old build
+//   2. `spent` is incremented by `start_hour_session()` in one statement. The old build
 //      needed an ETag dance because REST had no transactions; a conditional write
 //      that lost the race dropped the charge, and a fallback plain write could
 //      fold a concurrent charge in early. Postgres just adds, so two overlapping
@@ -252,87 +252,6 @@ export async function ensureTrialGrant(
     return { ok: true, alreadyGranted: false };
   } catch {
     return { ok: false, alreadyGranted: false };
-  }
-}
-
-/**
- * Deducts the cost of one request and says how it was paid for.
- *
- * `deduct_dew_split()` adds to the caller's own wallet in one locked statement
- * and answers the new paid spend as a plain number. The uid comes from the
- * token, so the only wallet it can touch is the caller's own, and `newSpent`
- * comes back from the database rather than from the value the route computed —
- * which is what makes the caller's view of the ledger agree with the stored one
- * even when two requests overlap.
- *
- * The free/paid split is arithmetic here rather than a second return shape: the
- * wallet only moves by the paid half, so the difference between the total it
- * answered and the total this build read before the request is what paid credit
- * covered, and the rest of the price came out of today's free bucket.
- *
- * That shape is deliberate. The function used to be `returns table (spent
- * numeric, …)`, and a RETURNS TABLE column is a plpgsql variable: the body
- * incremented a wallet column of the same name and every charge died with
- * "column reference spent is ambiguous". A numeric answer declares no OUT
- * parameter, so that mistake has nothing to attach to.
- */
-export async function deductDew(
-  authorization: string | null,
-  uid: string,
-  previousSpent: number,
-  charge: number
-): Promise<{
-  ok: boolean;
-  newSpent: number;
-  freeCharged: number;
-  paidCharged: number;
-  conflict: boolean;
-  reason?: string;
-}> {
-  const token = bearer(authorization);
-  const client = token ? clientForToken(token) : null;
-  /** A refused or unreadable charge: the balance did not move. */
-  const refusal = (reason: string) => ({
-    ok: false as const,
-    newSpent: previousSpent,
-    freeCharged: 0,
-    paidCharged: 0,
-    conflict: false as const,
-    reason,
-  });
-  if (!client || !uid) return refusal("unconfigured");
-  if (charge <= 0) {
-    return { ok: true, newSpent: previousSpent, freeCharged: 0, paidCharged: 0, conflict: false };
-  }
-
-  const amount = roundDew(charge);
-  try {
-    const answer = await client.rpc("deduct_dew_split", { p_amount: amount });
-    if (answer.error) {
-      const message = answer.error.message;
-      return refusal(
-        /ambiguous/i.test(message)
-          ? `${message} — the deployed charge function is the old ambiguous body; run supabase/migrations/20261028000200_charge_dew.sql`
-          : message
-      );
-    }
-
-    const newSpent = Number(answer.data);
-    if (!Number.isFinite(newSpent)) return refusal("the charge answered no spent total");
-
-    // The wallet only moves by the paid half, so the delta *is* that half. It is
-    // clamped to the price because an overlapping request can move the total
-    // between this build's read and this answer.
-    const paidCharged = roundDew(Math.min(Math.max(newSpent - previousSpent, 0), amount));
-    return {
-      ok: true,
-      newSpent,
-      freeCharged: roundDew(amount - paidCharged),
-      paidCharged,
-      conflict: false,
-    };
-  } catch (cause) {
-    return refusal(cause instanceof Error ? cause.message : "threw");
   }
 }
 

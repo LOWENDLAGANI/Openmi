@@ -15,8 +15,7 @@ import { join } from "node:path";
 import {
   DAILY_FREE_DEW,
   DEW_PACKS,
-  DEW_PER_HOUR_SESSION,
-  DEW_PER_REQUEST,
+  DEW_PER_HOUR,
   HOUR_SESSION_MS,
   PAID_DAILY_FREE_DEW,
   dailyAllowance,
@@ -33,9 +32,7 @@ import {
   formatDew,
   isSupportedTimeZone,
   nextSpent,
-  requestPrice,
   roundDew,
-  sessionPrice,
   sumCredits,
   toMillidew,
 } from "../lib/dew";
@@ -47,32 +44,13 @@ import {
   localPrice,
 } from "../lib/pricing";
 import { parseRedeemCode } from "../lib/redeemState";
-import type { ModeId } from "../lib/models";
 
-// ── Flat pricing ─────────────────────────────────────────────────────────────
-// A request costs the same whatever the model writes. The price is keyed by
-// model, so adding a model is a pricing decision rather than a formula.
+// ── One price: an hour ───────────────────────────────────────────────────────
+// There is no per-request charge. Three Dew buys an hour of usage on every model,
+// in every chat, and the hour is charged once when it starts.
 
-assert.equal(requestPrice("auto"), DEW_PER_REQUEST.auto);
-assert.equal(requestPrice("code"), DEW_PER_REQUEST.code);
-// Every mode has a price and no price is free — a free mode would be a hole in
-// the ledger, not a promotion.
-for (const [mode, price] of Object.entries(DEW_PER_REQUEST)) {
-  assert.ok(price > 0, `${mode} is priced at ${price}`);
-  assert.ok(Number.isFinite(price), `${mode} is priced at a non-number`);
-}
-// The code model is the dearer one: it is the model tuned for repository work.
-assert.ok(DEW_PER_REQUEST.code > DEW_PER_REQUEST.auto);
-// DeepSeek V4.1 Flash: 2 Dew a message, or 3 for a whole hour in one chat.
-assert.equal(DEW_PER_REQUEST.flash, 2);
-assert.equal(sessionPrice("flash"), 3);
-assert.equal(DEW_PER_HOUR_SESSION.flash, 3);
+assert.equal(DEW_PER_HOUR, 3);
 assert.equal(HOUR_SESSION_MS, 3_600_000);
-// A mode with no hourly price is billed per request and offered no session.
-assert.equal(sessionPrice("auto"), null);
-assert.equal(sessionPrice("code"), null);
-// An unknown mode falls back to the cheapest known price rather than zero.
-assert.equal(requestPrice("nonsense" as ModeId), DEW_PER_REQUEST.auto);
 
 // ── Rounding ─────────────────────────────────────────────────────────────────
 
@@ -185,11 +163,9 @@ assert.equal(canAfford(DUST_THRESHOLD), true);
 assert.equal(canAfford(0.04), false);
 assert.equal(canAfford(25), true);
 assert.equal(canAfford(0), false);
-assert.equal(canAfford(requestPrice("auto"), requestPrice("auto")), true, "exactly enough is enough");
-assert.equal(canAfford(requestPrice("auto") - 0.001, requestPrice("auto")), false);
-assert.equal(canAfford(requestPrice("code"), requestPrice("code")), true);
-// Someone holding only the auto price cannot start a code request.
-assert.equal(canAfford(requestPrice("auto"), requestPrice("code")), false);
+assert.equal(canAfford(DEW_PER_HOUR, DEW_PER_HOUR), true, "exactly enough for an hour is enough");
+assert.equal(canAfford(DEW_PER_HOUR - 0.001, DEW_PER_HOUR), false);
+assert.equal(canAfford(DEW_PER_HOUR + 10, DEW_PER_HOUR), true);
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -255,23 +231,22 @@ function source(relative: string): string {
 
 const chatSource = source(join("app", "api", "chat", "route.ts"));
 const dewSource = source(join("lib", "serverDew.ts"));
-const deductDewSource = dewSource.slice(dewSource.indexOf("export async function deductDew"), dewSource.indexOf("export interface DewChargeLine"));
 
-// The chat route reads the balance server-side, refuses before the model runs,
-// and charges once the answer is fully known.
-assert.ok(chatSource.includes("resolveDew("), "the chat route must resolve the balance server-side");
-assert.ok(chatSource.includes("canAfford("), "and pre-flight it before any model call");
-assert.ok(chatSource.includes("deductDew("), "and deduct when the answer is done");
+// The chat route requires the account's hour server-side, and refuses before the
+// model runs. A request itself costs nothing.
 assert.ok(
-  chatSource.includes("await deductDew("),
-  "the deduction must be awaited: once the stream closes a serverless deployment may freeze the process, and a charge still in flight never happens"
+  chatSource.includes("readHourSession("),
+  "the chat route must require the caller's hour before answering"
 );
-// The price is flat and comes from the model, not from the tokens.
-assert.ok(chatSource.includes("requestPrice(requested)"), "the route must price the request by its model");
 assert.ok(
-  !chatSource.includes("calcDewCost("),
-  "a per-token calculation is back in the chat route; pricing is flat now"
+  chatSource.includes("outOfDewMessage()"),
+  "a caller with no live hour is refused with the hour's price"
 );
+assert.ok(
+  !chatSource.includes("deductDew("),
+  "no per-request charge: the hour was paid for when it started"
+);
+assert.ok(!chatSource.includes("requestPrice("), "a message has no price of its own any more");
 // Tokens are still reported.
 assert.ok(chatSource.includes("prompt: totalUsage.prompt"), "the token count is no longer reported");
 
@@ -294,16 +269,12 @@ const dewSchema = readFileSync(
 );
 assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
 assert.ok(
-  dewSource.includes('rpc("deduct_dew_split"'),
-  "the charge must go through the one database function, not a client-side total"
+  !dewSource.includes("deductDew"),
+  "usage is billed by the hour, so no per-request charge may survive in the server"
 );
 assert.ok(
-  deductDewSource.includes("paidCharged"),
-  "the charge must report which half paid credit covered"
-);
-assert.ok(
-  /ambiguous/i.test(deductDewSource),
-  "an ambiguous-body failure must be reported with the migration that fixes it, not swallowed"
+  !dewSource.includes('rpc("deduct_dew_split"'),
+  "the only charge is starting an hour; nothing charges a message"
 );
 assert.ok(
   /set spent = public\.dew_wallets\.spent \+ excluded\.spent/.test(dewSchema),
@@ -322,7 +293,6 @@ assert.ok(
     !/grant (update|insert)[^;]*on public\.dew_wallets to authenticated/.test(dewSchema),
   "a caller must be able to read their spend and not write it, or a modified client could reset its own balance"
 );
-assert.ok(deductDewSource.includes("reason:"), "a refusal is reported with its own diagnosis, not just a boolean");
 
 // ── The daily bucket in the database ────────────────────────────────────────
 //
@@ -380,8 +350,8 @@ const chargeSchema = readFileSync(
 );
 const chargeCode = chargeSchema.replace(/--.*$/gm, "");
 assert.ok(
-  /create function public\.deduct_dew_split\(p_amount numeric\)\s*\nreturns numeric/.test(chargeCode),
-  "the one charge must answer a plain number: a RETURNS TABLE column is the variable that made every charge ambiguous"
+  /create function public\.start_hour_session\(\)\s*\nreturns jsonb/.test(chargeCode),
+  "the one charge must answer jsonb: a RETURNS TABLE column is the variable that made the old charge ambiguous"
 );
 assert.ok(
   !/returns table/.test(chargeCode),
@@ -397,7 +367,7 @@ assert.ok(
   "the duplicate doors must be deleted rather than left as a second way to charge"
 );
 assert.ok(
-  /set spent = w\.spent \+ paid_amount/.test(chargeCode),
+  /set spent = w\.spent \+ paid_charged/.test(chargeCode),
   "the wallet increment must name the row alias it reads"
 );
 assert.ok(
@@ -506,15 +476,37 @@ assert.ok(
   activitySchema.includes("deduct_dew_split(numeric)"),
   "the schema audit must know about the new function"
 );
-assert.ok(
-  chatSource.includes("free: deduct.freeCharged"),
-  "the chat route must write the free half it was actually charged"
-);
 
 // ── Hour sessions ───────────────────────────────────────────────────────────
-// The hour is a server-owned row. One account holds at most one at a time, the
-// charge and the row are written together, and a live session only makes a
-// message free when it names the same chat.
+// The hour is a server-owned row and the only thing that costs Dew. One account
+// holds at most one at a time, the charge and the row are written together, and
+// a live hour covers every chat and every model.
+
+const hourSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000200_charge_dew.sql"),
+  "utf8"
+);
+assert.ok(
+  /create function public\.start_hour_session\(\)\s*\nreturns jsonb/.test(hourSchema),
+  "the one charge takes no argument and declares no OUT parameter to be ambiguous with"
+);
+assert.ok(
+  /price numeric := 3/.test(hourSchema),
+  "three Dew is the server's own constant, not something a caller chooses"
+);
+assert.ok(
+  /drop function if exists public\.deduct_dew_split\(numeric\)/.test(hourSchema) &&
+    /drop function if exists public\.deduct_dew\(numeric\)/.test(hourSchema),
+  "no per-request charge may survive this migration"
+);
+assert.ok(
+  /drop table public\.hour_sessions/.test(hourSchema),
+  "the old per-chat table is dropped, guarded so a second run keeps a live hour"
+);
+assert.ok(
+  /owner uuid primary key/.test(hourSchema) && /free_charged := least\(price, free_left\)/.test(hourSchema),
+  "one hour per account, with the free bucket paying first"
+);
 
 assert.ok(
   /create table if not exists public\.hour_sessions[\s\S]*owner uuid primary key/.test(pricingSchema),
@@ -576,12 +568,12 @@ assert.ok(
   "starting an hour must not be callable by an anonymous session"
 );
 assert.ok(
-  chatSource.includes("readHourSessionForChat"),
-  "the chat route must match the session to the chat before it skips the charge"
+  chatSource.includes("readHourSession"),
+  "the chat route must read the account's hour before it answers anything"
 );
 assert.ok(
-  /!coveredBySession && identity/.test(chatSource),
-  "a covered message must not be charged a second time"
+  /!coveredBySession/.test(chatSource) && /outOfDewMessage\(\)/.test(chatSource),
+  "a message with no live hour is refused, and a covered one is not charged again"
 );
 
 // ── Paid plans and local prices ─────────────────────────────────────────────

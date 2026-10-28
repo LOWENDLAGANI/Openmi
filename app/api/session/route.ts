@@ -1,20 +1,23 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, isSameOriginRequest, rateLimitRefusal, verifyCaller } from "@/lib/serverControl";
 import { clientForToken } from "@/lib/supabase";
-import { HOUR_SESSION_MS, outOfDewMessage, sessionPrice } from "@/lib/dew";
+import { DEW_PER_HOUR, HOUR_SESSION_MS, outOfDewMessage } from "@/lib/dew";
 import { readHourSession, type ActiveHourSession } from "@/lib/hourSession";
 
-// ── One hour, one chat ──────────────────────────────────────────────────────
+// ── One hour, every chat ────────────────────────────────────────────────────
 //
-// The price is decided here, from the server's own price list — never from the
-// body. The row and the charge are written by `start_hour_session()` in one
-// transaction, so the only way to obtain the hour is to pay for it and the only
-// way to hold two is to have two rows, which the primary key forbids.
+// Openmi charges for time, not for messages: three Dew opens an hour that covers
+// every answer in every chat and on every model. This route is the only way to
+// buy one, and the price is the server's own constant — never the body's — so a
+// modified client cannot buy an hour for less.
+//
+// The same RPC writes the row and moves the wallet in one transaction, so the
+// only way to hold an hour is to have paid for it, and the primary key on the
+// account makes a second one impossible.
 //
 // Two refusals are a choice rather than an error:
-//   409 session-active  — this account is already in an hour; the answer names
-//                         the chat that owns it so the client can offer
-//                         "continue there" or "end it and start here".
+//   409 session-active  — this account already has an hour running; the answer
+//                         carries its expiry so the client can just use it.
 //   402 insufficient   — the hour is more than today's free Dew plus the paid
 //                         wallet, which is the moment the wallet page matters.
 //
@@ -23,16 +26,12 @@ import { readHourSession, type ActiveHourSession } from "@/lib/hourSession";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FLASH = "flash" as const;
-
 interface SessionBody {
   action?: unknown;
-  chatId?: unknown;
 }
 
 function sessionPayload(session: ActiveHourSession) {
   return {
-    chatId: session.chatId,
     price: session.price,
     startedAt: session.startedAt,
     expiresAt: session.expiresAt,
@@ -60,7 +59,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   return Response.json(
     {
       session: session ? sessionPayload(session) : null,
-      price: sessionPrice(FLASH),
+      price: DEW_PER_HOUR,
       durationMs: HOUR_SESSION_MS,
     },
     { headers: { "Cache-Control": "no-store" } }
@@ -106,20 +105,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "That is not a session action." }, { status: 400 });
   }
 
-  const chatId = typeof body.chatId === "string" ? body.chatId.trim() : "";
-  if (!chatId || chatId.length > 200) {
-    return Response.json({ error: "A session needs a chat." }, { status: 400 });
-  }
-
-  const price = sessionPrice(FLASH);
-  if (price === null) {
-    return Response.json({ error: "This model has no hour session." }, { status: 400 });
-  }
-
-  // No price in the call: the function charges its own constant. Sending one
-  // would make the price client-chosen, and any signed-in account can call
-  // this RPC directly.
-  const { data, error } = await client.rpc("start_hour_session", { p_chat_id: chatId });
+  // No price and no chat in the call: the hour is the account's, and the
+  // function charges its own constant.
+  const { data, error } = await client.rpc("start_hour_session");
   if (error) return sessionUnavailable(error);
 
   const result = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
@@ -128,9 +116,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       return Response.json(
         {
           code: "session-active",
-          error:
-            "An hour session is already running. Continue in that chat, or end it before starting a new one here.",
-          chatId: typeof result.chat_id === "string" ? result.chat_id : "",
+          error: "An hour is already running on this account.",
           expiresAt: Date.parse(String(result.expires_at ?? "")) || 0,
         },
         { status: 409, headers: { "Cache-Control": "no-store" } }
@@ -146,19 +132,18 @@ export async function POST(req: NextRequest): Promise<Response> {
         { status: 402, headers: { "Cache-Control": "no-store" } }
       );
     }
-    return Response.json({ error: "The session could not be started." }, { status: 502 });
+    return Response.json({ error: "The hour could not be started." }, { status: 502 });
   }
 
   const session = await readHourSession(authorization, identity.uid);
   return Response.json(
     {
       ok: true,
-      price: number(result.price) || price,
+      price: number(result.price) || DEW_PER_HOUR,
       session: session
         ? sessionPayload(session)
         : {
-            chatId: typeof result.chat_id === "string" ? result.chat_id : chatId,
-            price: number(result.price) || price,
+            price: number(result.price) || DEW_PER_HOUR,
             startedAt: Date.now(),
             expiresAt: Date.parse(String(result.expires_at ?? "")) || Date.now() + HOUR_SESSION_MS,
           },
@@ -174,7 +159,7 @@ function sessionUnavailable(error: { code?: string; message?: string }): Respons
   return Response.json(
     {
       error: missing
-        ? "Hour sessions are not available on this deployment yet: apply migration 20261028000000_pricing_sessions.sql."
+        ? "Hour sessions are not available on this deployment yet: apply migration 20261028000200_charge_dew.sql."
         : "The session could not be changed. Try again in a moment.",
     },
     { status: 503 }

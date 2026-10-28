@@ -15,9 +15,8 @@ import { GithubError } from "@/lib/github/client";
 import { runAgentStep } from "@/lib/agent/run";
 import { cleanHistory, cleanTranscript } from "@/lib/agent/transcript";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
-import { canAfford, outOfDewMessage, requestPrice } from "@/lib/dew";
-import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
-import { resolveDew } from "@/lib/serverRedeem";
+import { outOfDewMessage } from "@/lib/dew";
+import { readHourSession } from "@/lib/hourSession";
 
 // ── One agent step, streamed ─────────────────────────────────────────────────
 //
@@ -34,15 +33,15 @@ import { resolveDew } from "@/lib/serverRedeem";
 // — the checks, the balance, the project — still answers with a JSON error and
 // a status code, because those are refusals, not progress.
 //
-// What the client *cannot* choose is the budget. Steps used, tokens spent and
-// "this turn has been paid for" live in a signed blob (lib/agent/turns.ts); the
-// client carries it and can read it, but any edit invalidates it. A new turn
-// starts a new charge, and the charge is flat for the model, not per step.
+// What the client *cannot* choose is the budget. Steps used and tokens spent
+// live in a signed blob (lib/agent/turns.ts); the client carries it and can read
+// it, but any edit invalidates it.
 //
-// The price is `requestPrice("code")` because repository work runs on the Code
-// model. An administrator is exempt, as everywhere else. A proposal is part of
-// the turn that produced it: staging does not cost extra and does not write to
-// GitHub, so the flat charge is unchanged.
+// The agent is not billed per turn. It draws on the account's hour session — the
+// same hour chat uses — so a long turn costs exactly what a short one costs, and
+// nothing is charged while the hour runs. An administrator is exempt, as
+// everywhere else. A proposal is part of the turn that produced it: staging does
+// not cost extra and does not write to GitHub.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,18 +124,16 @@ export async function POST(req: NextRequest): Promise<Response> {
   // does.
   const accountKeys = await readUserKeys(authorization, identity.uid);
 
-  // ── The Dew ledger ────────────────────────────────────────────────────────
-  // Checked before the model runs, exactly like /api/chat. A turn that is
-  // continuing on a signed token has already been paid for; the balance is only
-  // re-read when this is the first step.
+  // ── The hour ──────────────────────────────────────────────────────────────
+  // Checked before the model runs, exactly like /api/chat. The agent draws on the
+  // same hour as chat — one unit for the whole product — so a step is covered
+  // when the account has one and refused when it does not. No step has a price
+  // of its own, which is what makes a long turn cost the same as a short one.
   const isCallerAdmin = isAdmin(identity);
-  const price = requestPrice("code");
-  const continuing = typeof body.turnToken === "string" && body.turnToken.length > 0;
-  let dewState: DewState | null = null;
 
-  if (!isCallerAdmin && !continuing) {
-    dewState = await resolveDew(authorization, identity.uid);
-    if (!canAfford(dewState.balance, price)) {
+  if (!isCallerAdmin) {
+    const session = await readHourSession(authorization, identity.uid);
+    if (!session) {
       return Response.json({ error: outOfDewMessage() }, { status: 402 });
     }
   }
@@ -173,36 +170,8 @@ export async function POST(req: NextRequest): Promise<Response> {
           onEvent: send,
         });
 
-        // ── The charge ──────────────────────────────────────────────────────
-        // Once per turn, after the first step actually produced something. A
-        // step that failed before reaching a model was refused above and costs
-        // nothing.
-        if (result.chargedNow && !isCallerAdmin && dewState && (result.content.trim() || result.steps.length > 0)) {
-          const billed = result.usage;
-          const deducted = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
-            (cause: unknown) => ({
-              ok: false,
-              newSpent: dewState!.spent,
-              conflict: false,
-              reason: cause instanceof Error ? cause.message : "threw",
-            })
-          );
-          if (!deducted.ok) {
-            // Error, not warning: a step that produced work and was not billed
-            // is lost revenue, not a note.
-            console.error(
-              `[dew] agent charge of ${price} not recorded for uid ${identity.uid} (event=dew_charge_failed, conflict=${deducted.conflict}, reason=${deducted.reason ?? "unknown"})`
-            );
-          } else {
-            await recordDewTransaction(authorization, identity.uid, {
-              dew: price,
-              model: "code",
-              prompt: billed.prompt,
-              completion: billed.completion,
-              repo: project.repoFullName,
-            }).catch(() => undefined);
-          }
-        }
+        // The step was covered by the account's hour, so nothing is charged per
+        // turn: `result.usage` is recorded with the transcript, not billed.
 
         // ── The proposal, made reviewable ───────────────────────────────────
         // Staging lives in memory for the length of this request, so a proposal

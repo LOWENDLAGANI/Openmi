@@ -1834,13 +1834,18 @@ test("the GitHub client only ever GETs", () => {
   assert.doesNotMatch(source, /\/git\/blobs`?\s*,\s*\{[\s\S]{0,40}method/, "no blob writes");
 });
 
-test("the step route charges before it reads a model", () => {
+test("the step route requires a live hour before it reads a model", () => {
   const source = read("app/api/agent/step/route.ts");
-  // Call sites, not imports: both names appear in the import block above.
-  const charge = source.indexOf("canAfford(dewState.balance");
+  // Call sites, not imports: the name appears in the import block above too.
+  const hour = source.indexOf("readHourSession(authorization");
   const step = source.lastIndexOf("await runAgentStep(");
-  assert.ok(charge > 0, "the route must check the balance");
-  assert.ok(step > charge, "the balance check must come before the model call");
+  assert.ok(hour > 0, "the route must require the account's hour");
+  assert.ok(step > hour, "the hour check must come before the model call");
+  assert.doesNotMatch(
+    source,
+    /deductDew|requestPrice/,
+    "a step is covered by the hour that was already paid for, not billed per turn"
+  );
   assert.match(source, /isSameOriginRequest/);
 });
 

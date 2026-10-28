@@ -19,9 +19,8 @@ import {
 import { rateLimitMessage } from "@/lib/rateLimitPolicy";
 import { resolveDew } from "@/lib/serverRedeem";
 import { readUserKeys } from "@/lib/providerKeys";
-import { readHourSessionForChat } from "@/lib/hourSession";
-import { canAfford, estimateTokenUsage, outOfDewMessage, requestPrice } from "@/lib/dew";
-import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
+import { readHourSession } from "@/lib/hourSession";
+import { estimateTokenUsage, outOfDewMessage } from "@/lib/dew";
 
 // ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
 //   OPENROUTER_API_KEY → Auto router
@@ -369,46 +368,33 @@ export async function POST(req: NextRequest): Promise<Response> {
   const chatId = typeof body.chatId === "string" ? body.chatId.trim().slice(0, 200) : "";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
-  // ── The Dew ledger ────────────────────────────────────────────────────────
-  // A request costs a flat price for the model it runs on. The balance is read
-  // with this caller's verified token — never from anything the body carries —
-  // and a caller below that price is refused before any model runs.
+  // ── The hour ──────────────────────────────────────────────────────────────
+  // Openmi charges for time, not for messages: one live hour covers every
+  // answer in every chat and on every model, and it was charged when it started.
+  // A request with no live hour is refused before any model runs, so nothing is
+  // served for free — and nothing is charged twice.
   //
   // The administrator is exempt. They mint the credits, and their exemption is
   // derived from the verified identity like every other decision here.
   //
-  // An unidentified caller has no balance and no way to hold one — Dew lives at
-  // dew/{uid}, and without a verified uid there is nowhere to put it. The
-  // identityGate above already refuses them when a ban or cap is configured;
-  // this closes the remaining hole where Dew is the only control.
+  // An unidentified caller has no hour and no way to hold one. The identityGate
+  // above already refuses them when a ban or cap is configured; this closes the
+  // remaining hole where Dew is the only control.
   const isCallerAdmin = isAdmin(identity);
-  const price = requestPrice(requested);
-  let dewState: DewState | null = null;
-
-  // A live hour session is the only thing besides the administrator's exemption
-  // that makes a message free. It is read from `hour_sessions` with this
-  // caller's own token and matched to the chat; a client that omits the chat is
-  // simply billed per request, and a session for a different chat never covers
-  // this one. The session was charged when it started, in the same transaction
-  // that wrote the row.
   const coveredBySession = Boolean(
-    identity &&
-      requested === "flash" &&
-      chatId &&
-      (await readHourSessionForChat(authorization, identity.uid, chatId))
+    identity && (await readHourSession(authorization, identity.uid))
   );
 
   if (!isCallerAdmin && !coveredBySession) {
     if (!identity) {
-      // "You're out of Dew" is the wrong sentence for a browser whose identity
-      // could not be checked: it sends somebody to the top-up page for a problem
-      // no amount of Dew can fix. Say what actually happened.
+      // "You need an hour" is the wrong sentence for a browser whose identity
+      // could not be checked: it sends somebody to the wallet for a problem no
+      // amount of Dew can fix. Say what actually happened.
       return errorStream(
         "**Openmi could not verify this browser.** Reload the page and try again — a message is only answered for a session the server can identify."
       );
     }
-    dewState = await resolveDew(authorization, identity.uid);
-    if (!canAfford(dewState.balance, price)) return errorStream(outOfDewMessage());
+    return errorStream(outOfDewMessage());
   }
 
   const reasoningEffort: ReasoningEffort | null =
@@ -723,50 +709,8 @@ export async function POST(req: NextRequest): Promise<Response> {
         );
       }
 
-      // ── The deduction ────────────────────────────────────────────────────
-      // A flat price, charged once, after the answer is known. It is charged
-      // only when something was actually answered: a request that never reached
-      // a model was refused above, and a stream that failed before writing a
-      // word is not a request the user received.
-      //
-      // Awaited, not fired-and-forgotten: once this stream closes, a serverless
-      // deployment is free to freeze the process, and a charge still in flight
-      // in that window is a charge that never happens.
-      if (!isCallerAdmin && !coveredBySession && identity && dewState && answer.trim().length > 0) {
-        const billed = { prompt: totalUsage.prompt, completion: totalUsage.completion };
-        const deduct = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
-          (cause: unknown) => ({
-            ok: false,
-            newSpent: dewState!.spent,
-            freeCharged: 0,
-            paidCharged: 0,
-            conflict: false,
-            reason: cause instanceof Error ? cause.message : "threw",
-          })
-        );
-        if (!deduct.ok) {
-          // A missed charge is a real shortfall in the ledger, and it must not
-          // sit in the logs at a level nobody alerts on. This ran for days as a
-          // warning while every request was served free.
-          console.error(
-            `[dew] charge of ${price} Dew not recorded for uid ${identity.uid} (event=dew_charge_failed, conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`
-          );
-        } else {
-          // The append-only log entry, best effort — the policy refuses junk, so
-          // a failure here costs only the history, never the balance. The token
-          // counts ride along for the ledger even though they do not price it.
-          await recordDewTransaction(authorization, identity.uid, {
-            dew: price,
-            model: requested,
-            prompt: billed.prompt,
-            completion: billed.completion,
-            // The same split the wallet moved, recorded with the charge so the
-            // activity page can say whether today's free Dew or paid credit
-            // paid for this request.
-            free: deduct.freeCharged,
-          }).catch(() => undefined);
-        }
-      }
+      // The answer was covered by the hour that was already paid for, so there
+      // is nothing to charge here: a request has no price of its own.
 
       // Only now, after every model has had its turn, is the answer known to be
       // incomplete. Emitting this earlier would tell the user the answer is cut
