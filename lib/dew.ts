@@ -19,7 +19,7 @@
 // `start_hour_session()`.
 
 export const DEW_PER_UNIT = 100; // 100 Dew = $1.00 of value
-export const TRIAL_DEW = 25; // granted once at account creation
+export const TRIAL_DEW = 5; // granted once at account creation
 /**
  * Free Dew every account is given at the start of each day.
  *
@@ -205,7 +205,7 @@ export interface DewLedger {
  * One account's paid Dew: credits minus spend, floored at zero.
  *
  * The stored shape is a map of credits and a spent total:
- *   { credits: { TRIAL: 25, CODE1: 100 }, spent: 12.375 }
+ *   { credits: { TRIAL: 5, CODE1: 100 }, spent: 12.375 }
  * The balance is always derived — credits minus spent — never read from a
  * single scalar a client could have written. Free daily Dew is deliberately
  * not folded in here: what somebody bought must not expire at midnight. Use

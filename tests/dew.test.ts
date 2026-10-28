@@ -66,13 +66,13 @@ assert.equal(toMillidew(0), 0);
 // ── Balance derivation ────────────────────────────────────────────────────────
 
 // Credits minus spent, floored at zero
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: 12.375 }), 12.625);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5 }, spent: 12.375 }), 0);
 assert.equal(dewBalanceFrom(null), 0);
 assert.equal(dewBalanceFrom(undefined), 0);
 assert.equal(dewBalanceFrom({}), 0);
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: 30 }), 0);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5 }, spent: 30 }), 0);
 assert.equal(dewBalanceFrom({ spent: 5 }), 0);
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: -3 }), 25);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5 }, spent: -3 }), 5);
 
 // ── Sum credits ───────────────────────────────────────────────────────────────
 //
@@ -82,10 +82,10 @@ assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: -3 }), 25);
 
 assert.equal(sumCredits(null), 0);
 assert.equal(sumCredits({}), 0);
-assert.equal(sumCredits({ TRIAL: 25, CODE1: 100 }), 125_000);
-assert.equal(sumCredits({ TRIAL: 25, bad: "not a number", CODE1: 100 }), 125_000);
-assert.equal(sumCredits({ TRIAL: 25, negative: -10, CODE1: 100 }), 125_000);
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25, CODE1: 100 }, spent: 0 }), 125);
+assert.equal(sumCredits({ TRIAL: 5, CODE1: 100 }), 105_000);
+assert.equal(sumCredits({ TRIAL: 5, bad: "not a number", CODE1: 100 }), 105_000);
+assert.equal(sumCredits({ TRIAL: 5, negative: -10, CODE1: 100 }), 105_000);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5, CODE1: 100 }, spent: 0 }), 105);
 
 // ── The daily free allotment ─────────────────────────────────────────────────
 //
@@ -140,9 +140,9 @@ assert.equal(
 assert.equal(dailyDewRemaining({ dailyDay: "2026-10-25", dailySpent: 2 }, today), 8);
 
 // Free Dew rides on top of what was bought and is spent first.
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 0 }, today), 35);
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 24 }, today), 11);
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 30 }, today), 10, "paid Dew floors at zero, the bucket does not");
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 5 }, spent: 0 }, today), 15);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 5 }, spent: 24 }, today), 10);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 5 }, spent: 30 }, today), 10, "paid Dew floors at zero, the bucket does not");
 assert.equal(dewAvailableFrom({ credits: {}, spent: 0, dailyDay: today, dailySpent: 5 }, today), 5);
 // Paid Dew does not expire with the bucket.
 assert.equal(dewAvailableFrom({ credits: { CODE1: 100 }, spent: 0, dailyDay: "2026-10-20", dailySpent: 5 }, today), 110);

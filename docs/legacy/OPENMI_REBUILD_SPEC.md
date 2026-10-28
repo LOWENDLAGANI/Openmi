@@ -1190,7 +1190,7 @@ Openmi has **no subscriptions and no daily caps** any more. Everything is paid f
 **Dew (💧)**, a pay-as-you-go currency charged from a server-side balance:
 
 - **Unit:** 1 Dew ≈ **US $0.01** of value (100 Dew = $1).
-- **Trial:** every account receives **25 Dew** once, at `/api/dew` POST — the value is
+- **Trial:** every account receives **5 Dew** once, at `/api/dew` POST — the value is
   pinned by the database rules, not by any client.
 - **Precision:** balances and charges are kept to **3 decimal places** (`roundDew`).
 - **Image generation:** flat **1 Dew** per successful generation.
