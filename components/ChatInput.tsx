@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type 
 import Link from "next/link";
 import QuickActions from "./QuickActions";
 import ContextRing from "./ContextRing";
+import Spinner from "./Spinner";
 import { estimateContextUsage } from "@/lib/contextBudget";
 
 // ── ChatInput: floating composer with attachments — minimal, mobile-first ───
@@ -439,7 +440,7 @@ export default function ChatInput({
             ))}
             {compressing && (
               <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-dashed border-line-strong">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-text-low border-t-transparent" />
+                <Spinner size={16} className="text-text-low" />
               </div>
             )}
           </div>

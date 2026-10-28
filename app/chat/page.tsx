@@ -17,6 +17,7 @@ import OpenmiMark from "@/components/OpenmiMark";
 import FocusHome from "@/components/FocusHome";
 import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
+import Spinner from "@/components/Spinner";
 import type { ProjectSummary } from "@/lib/projects";
 import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
@@ -1656,7 +1657,7 @@ export default function HomePage() {
   if (!account) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
-        <OpenmiMark className="h-8 w-8 animate-pulse" />
+        <Spinner variant="dew" size={30} label="Loading Openmi" className="text-[#a9d8bb]" />
         <SplashScreen />
       </div>
     );
@@ -1690,7 +1691,7 @@ export default function HomePage() {
   if (deviceAccount !== account.id) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
-        <OpenmiMark className="h-8 w-8 animate-pulse" />
+        <Spinner variant="dew" size={30} label="Loading Openmi" className="text-[#a9d8bb]" />
         <SplashScreen />
       </div>
     );
@@ -1701,7 +1702,7 @@ export default function HomePage() {
   if (!displayName) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
-        <OpenmiMark className="h-8 w-8 animate-pulse" />
+        <Spinner variant="dew" size={30} label="Loading Openmi" className="text-[#a9d8bb]" />
         <SplashScreen />
       </div>
     );

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AdminControls from "./AdminControls";
+import Spinner from "./Spinner";
 import ModelHealthSection from "./ModelHealth";
 import { fetchVisitorRegistry, type VisitorProfile } from "@/lib/cloudHistory";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
@@ -550,7 +551,10 @@ export default function AdminPanel({
                   className="mb-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0e1613] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2f6b48]/50"
                 />
                 {users === null ? (
-                  <p className="py-2 text-[11px] text-white/35">Loading…</p>
+                  <p className="flex items-center gap-1.5 py-2 text-[11px] text-white/35">
+                    <Spinner size={12} className="text-[#a9d8bb]" />
+                    Loading…
+                  </p>
                 ) : users.length === 0 ? (
                   <p className="py-2 text-[11px] leading-relaxed text-white/35">
                     Nobody has visited yet. Anyone who opens Openmi and gives a name appears here,
@@ -622,7 +626,10 @@ export default function AdminPanel({
                   Read live from the browser database. {supabaseConfigured ? "Supabase is configured." : "Supabase is not configured."}
                 </p>
                 {named === null ? (
-                  <p className="py-2 text-[11px] text-white/35">Loading…</p>
+                  <p className="flex items-center gap-1.5 py-2 text-[11px] text-white/35">
+                    <Spinner size={12} className="text-[#a9d8bb]" />
+                    Loading…
+                  </p>
                 ) : named.length === 0 ? (
                   <p className="py-2 text-[11px] text-white/35">No one has entered a name yet.</p>
                 ) : (
@@ -679,7 +686,10 @@ export default function AdminPanel({
             <>
               <p className="mb-3 text-[10px] text-white/30">Chats from this device</p>
               {chats === null ? (
-                <p className="py-2 text-[11px] text-white/35">Loading…</p>
+                <p className="flex items-center gap-1.5 py-2 text-[11px] text-white/35">
+                  <Spinner size={12} className="text-[#a9d8bb]" />
+                  Loading…
+                </p>
               ) : chats.length === 0 ? (
                 <p className="py-2 text-[11px] text-white/35">No chats logged for this person.</p>
               ) : (
@@ -704,7 +714,10 @@ export default function AdminPanel({
           {view.name === "chat" && (
             <>
               {chat === null ? (
-                <p className="py-2 text-[11px] text-white/35">Loading…</p>
+                <p className="flex items-center gap-1.5 py-2 text-[11px] text-white/35">
+                  <Spinner size={12} className="text-[#a9d8bb]" />
+                  Loading…
+                </p>
               ) : chat.messages.length === 0 ? (
                 <p className="py-2 text-[11px] text-white/35">This chat has no stored messages.</p>
               ) : (
@@ -747,7 +760,10 @@ export default function AdminPanel({
                 Cancel
               </button>
               <button type="button" onClick={() => void runWipe()} disabled={busy} className="flex-1 rounded-[10px] bg-red-500 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">
-                {busy ? "Deleting…" : "Delete"}
+                <span className="inline-flex items-center justify-center gap-1.5">
+                  {busy && <Spinner size={11} className="text-white" />}
+                  {busy ? "Deleting…" : "Delete"}
+                </span>
               </button>
             </div>
           </div>
@@ -977,7 +993,10 @@ function CodesSection({
           disabled={busy || !isValidCode(word)}
           className="mt-2 w-full rounded-[10px] bg-white/10 px-3 py-2 text-[12px] font-semibold text-white transition hover:bg-white/[0.16] disabled:opacity-40"
         >
-          {busy ? "Saving…" : "Create code"}
+          <span className="inline-flex items-center justify-center gap-1.5">
+            {busy && <Spinner size={12} className="text-white" />}
+            {busy ? "Saving…" : "Create code"}
+          </span>
         </button>
       </div>
 
@@ -1170,7 +1189,10 @@ function AuditSection({
       )}
 
       {entries === null ? (
-        <p className="py-1 text-[11px] text-white/35">Loading…</p>
+        <p className="flex items-center gap-1.5 py-1 text-[11px] text-white/35">
+          <Spinner size={12} className="text-[#a9d8bb]" />
+          Loading…
+        </p>
       ) : entries.length === 0 ? (
         <p className="py-1 text-[11px] leading-relaxed text-white/35">
           Nothing recorded yet. Every code made, switched off or deleted lands here with the note

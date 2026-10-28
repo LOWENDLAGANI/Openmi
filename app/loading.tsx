@@ -1,16 +1,15 @@
 // ── Route loading ────────────────────────────────────────────────────────────
-// Shown while a route's own JS and data are still arriving. It is deliberately
-// the same mark the chat shows while it thinks, so the app never appears to
-// hand off to a different screen between pages.
+// Shown while a route's own JS and data are still arriving. It uses the
+// full-screen spinner — the droplet with its orbiting bead — so a page change
+// reads as one continuous product rather than handing off to a generic
+// browser spinner.
+
+import Spinner from "@/components/Spinner";
 
 export default function Loading() {
   return (
     <div className="flex h-[100dvh] items-center justify-center bg-[#060a08]">
-      <span
-        className="h-7 w-7 animate-spin rounded-full border-2 border-[#a9d8bb]/40 border-t-transparent"
-        role="status"
-        aria-label="Loading"
-      />
+      <Spinner variant="dew" size={34} label="Loading" className="text-[#a9d8bb]" />
     </div>
   );
 }

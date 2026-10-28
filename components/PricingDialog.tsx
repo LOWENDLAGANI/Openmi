@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { formatDew } from "@/lib/dew";
+import Spinner from "@/components/Spinner";
 
 // ── Pay for the hour ────────────────────────────────────────────────────────
 //
@@ -133,7 +134,10 @@ export default function PricingDialog({
                 disabled={busy}
                 className="mt-3 w-full rounded-full border border-amber-300/30 py-3 text-[14px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? "Ending the hour…" : `End it and start an hour for ${modeLabel}`}
+                <span className="inline-flex items-center justify-center gap-2">
+                  {busy && <Spinner size={14} className="text-amber-100" />}
+                  {busy ? "Ending the hour…" : `End it and start an hour for ${modeLabel}`}
+                </span>
               </button>
             ) : (
               <p className="mt-3 text-[12px] leading-relaxed text-white/45">
@@ -170,7 +174,10 @@ export default function PricingDialog({
               disabled={busy}
               className="mt-4 w-full rounded-full bg-white py-3 text-[14.5px] font-semibold text-black transition-transform hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
             >
-              {busy ? "Starting…" : `Start the hour — ${formatDew(priceDew)} Dew`}
+              <span className="inline-flex items-center justify-center gap-2">
+                {busy && <Spinner size={15} className="text-black/70" />}
+                {busy ? "Starting…" : `Start the hour — ${formatDew(priceDew)} Dew`}
+              </span>
             </button>
           </>
         ) : (

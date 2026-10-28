@@ -7,6 +7,7 @@ import { isShareId, shareUrl, type ShareMessage, type ShareSnapshot } from "@/li
 import Link from "next/link";
 import Markdown from "./Markdown";
 import OpenmiMark from "./OpenmiMark";
+import Spinner from "./Spinner";
 import ChangeReview from "./ChangeReview";
 import { useSmoothText } from "@/lib/useSmoothText";
 import { useEffect, useRef, useState } from "react";
@@ -580,15 +581,7 @@ function TypingDots({ message }: { message: string }) {
           the message card above it. */}
       <span className="typing-waiter-glow" aria-hidden="true" />
       <div className="flex items-center gap-2 py-1">
-        <span className="flex items-center gap-1" aria-hidden="true">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="h-1 w-1 rounded-full animate-blink bg-text-mid"
-              style={{ animationDelay: `${i * 0.18}s` }}
-            />
-          ))}
-        </span>
+        <Spinner variant="pulse" size={13} className="text-text-mid" />
         <span className="text-[12px] leading-relaxed text-text-mid">{message}</span>
       </div>
     </div>

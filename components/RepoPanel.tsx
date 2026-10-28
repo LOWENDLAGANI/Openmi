@@ -5,6 +5,7 @@ import { authHeader, supabaseConfigured } from "@/lib/supabase";
 import { linkGithubAccount } from "@/lib/githubLink";
 import { parseScopes, recoveryFor, type PatRecovery } from "@/lib/github/pat";
 import type { ProjectSummary } from "@/lib/projects";
+import Spinner from "@/components/Spinner";
 
 // ── The repository workspace ────────────────────────────────────────────────
 //
@@ -788,7 +789,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject, loc
               <div className="h-12 animate-pulse rounded-2xl bg-white/[0.04]" />
               <div className="h-12 animate-pulse rounded-2xl bg-white/[0.03]" />
               <div className="h-12 animate-pulse rounded-2xl bg-white/[0.02]" />
-              <p className="pt-1 text-[12px] text-white/35">Checking the connection…</p>
+              <p className="flex items-center gap-2 pt-1 text-[12px] text-white/35">
+                <Spinner size={14} className="text-[#a9d8bb]" />
+                Checking the connection…
+              </p>
             </div>
           ) : statusState.phase === "signed-out" ? (
             <div className="space-y-3">
@@ -937,7 +941,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject, loc
                   </div>
                   <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
                     {tree === null ? (
-                      <p className="px-3 py-3 text-[12.5px] text-white/35">Reading files…</p>
+                      <p className="flex items-center gap-2 px-3 py-3 text-[12.5px] text-white/35">
+                        <Spinner size={14} className="text-[#a9d8bb]" />
+                        Reading files…
+                      </p>
                     ) : filteredFiles.length === 0 ? (
                       <p className="px-3 py-3 text-[12.5px] text-white/35">No files match.</p>
                     ) : (
@@ -1168,7 +1175,8 @@ export default function RepoPanel({ open, onClose, project, onSelectProject, loc
               </div>
 
               {filteredRows.length === 0 ? (
-                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-[13px] text-white/35">
+                <div className="flex items-center gap-2.5 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-[13px] text-white/35">
+                  {reposLoading && rows.length === 0 && <Spinner size={15} className="text-[#a9d8bb]" />}
                   {reposLoading && rows.length === 0
                     ? "Reading your repositories…"
                     : query.trim()

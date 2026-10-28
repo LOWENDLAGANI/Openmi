@@ -11,6 +11,7 @@ import {
   type OAuthProvider,
 } from "@/lib/account";
 import { changePassword } from "@/lib/emailAuth";
+import Spinner from "@/components/Spinner";
 import {
   accountExplanation,
   accountHeadline,
@@ -191,7 +192,7 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
                   )}
                   {uploading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      <Spinner size={16} className="text-white" />
                     </div>
                   )}
                 </button>
