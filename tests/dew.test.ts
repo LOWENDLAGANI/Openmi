@@ -46,8 +46,8 @@ import {
 import { parseRedeemCode } from "../lib/redeemState";
 
 // ── One price: an hour ───────────────────────────────────────────────────────
-// There is no per-request charge. Three Dew buys an hour of usage on every model,
-// in every chat, and the hour is charged once when it starts.
+// There is no per-request charge. Three Dew buys an hour of usage on the model it
+// was bought for, in every chat, and the hour is charged once when it starts.
 
 assert.equal(DEW_PER_HOUR, 3);
 assert.equal(HOUR_SESSION_MS, 3_600_000);
@@ -480,7 +480,7 @@ assert.ok(
 // ── Hour sessions ───────────────────────────────────────────────────────────
 // The hour is a server-owned row and the only thing that costs Dew. One account
 // holds at most one at a time, the charge and the row are written together, and
-// a live hour covers every chat and every model.
+// a live hour covers every chat on the one model it was bought for.
 
 const hourSchema = readFileSync(
   join(process.cwd(), "supabase/migrations/20261028000200_charge_dew.sql"),
@@ -574,6 +574,63 @@ assert.ok(
 assert.ok(
   /!coveredBySession/.test(chatSource) && /outOfDewMessage\(\)/.test(chatSource),
   "a message with no live hour is refused, and a covered one is not charged again"
+);
+
+// ── The hour is for one model and one repository ────────────────────────────
+// The purchase is not a subscription to everything. The row records the model
+// and repository it was bought for, and both routes refuse a request that asks
+// for another one instead of spending the hour there.
+
+const scopeSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000300_session_scope.sql"),
+  "utf8"
+);
+const scopeCode = scopeSchema.replace(/--.*$/gm, "");
+assert.ok(
+  /add column if not exists model text/.test(scopeCode) &&
+    /add column if not exists project_id text/.test(scopeCode) &&
+    /add column if not exists repo_full_name text/.test(scopeCode),
+  "the hour row must remember which model and repository it was bought for"
+);
+assert.ok(
+  /check \(model in \('auto', 'code', 'flash'\)\)/.test(scopeCode),
+  "a model the product does not offer must not be storable as an hour's scope"
+);
+assert.ok(
+  /create function public\.start_hour_session\(p_model text default 'auto', p_project_id text default null\)[\s\S]*security definer/.test(
+    scopeCode
+  ),
+  "the start must take the scope and run server-side, not take a price"
+);
+assert.ok(
+  /from public\.projects p[\s\S]*?p\.owner = auth\.uid\(\)[\s\S]*?p\.id = chosen_project/.test(scopeCode),
+  "a repository scope must be a project this account actually owns"
+);
+assert.ok(
+  /'model', active\.model/.test(scopeCode) && /'project_id', active\.project_id/.test(scopeCode),
+  "a refused second start must carry the live binding, or the interface can only say 'active'"
+);
+
+const sessionSource = source(join("app", "api", "session", "route.ts"));
+const agentSource = source(join("app", "api", "agent", "step", "route.ts"));
+assert.ok(
+  /p_model: requestedModel/.test(sessionSource) && /p_project_id: project\?\.id \?\? null/.test(sessionSource),
+  "the session route must buy the hour for the requested model and repository"
+);
+assert.ok(
+  sessionSource.includes("session-model-locked") &&
+    sessionSource.includes("session-repo-locked") &&
+    sessionSource.includes("hourModelRefusal") &&
+    sessionSource.includes("hourRepoRefusal"),
+  "a live hour for another model or repository must be refused with that binding named"
+);
+assert.ok(
+  /hourSession\.model !== requested/.test(chatSource) && chatSource.includes("hourModelRefusal"),
+  "chat must refuse a model the hour was not bought for before it answers"
+);
+assert.ok(
+  /session\.model !== "code"/.test(agentSource) && /session\.projectId !== project\.id/.test(agentSource),
+  "the agent must run only on the model and repository the hour was bought for"
 );
 
 // ── Paid plans and local prices ─────────────────────────────────────────────

@@ -19,9 +19,11 @@ when you say so**, on a branch of its own.
 - Local-first history in IndexedDB (Dexie), synced to the signed-in account.
 - **An account is required.** Sign in or register with Google, GitHub, Microsoft
   or an email address and password, all held by Supabase Auth.
-- **Dew**: one flat price per model — `0.25` for Auto, `0.5` for Groq, and
-  DeepSeek V4.1 Flash at `2` per message or `3` for a one-hour session in one
-  chat. Every account also gets **10 free Dew a day**, refilled at midnight in
+- **Dew**: one price — `3` Dew buys a one-hour session that covers every answer
+  in every chat on the model it was bought for. A session started in the
+  repository workspace is bound to that repository too: asking for another model
+  or another repository is refused until the hour is ended. Every account also
+  gets **10 free Dew a day**, refilled at midnight in
   the account's own timezone (the browser's at registration, Malaysia until one
   is known) and spent before paid credit; unused free Dew does not carry over,
   while trial, redeemed and topped-up Dew never expires. A spend history on
@@ -33,8 +35,9 @@ people 5 Dew, with one claim per account and a ten-invite cap per inviter.
   country currency and activated by the owner after the existing manual
   DuitNow transfer. A pass raises the daily bucket to **15 Dew** and adds
   priority support, more usage and everything in Free. The hour session is
-  server-owned: one live session per account, charged atomically when it
-  starts, and a second start is refused with the chat that already owns it.
+  server-owned: one live session per account, charged atomically when it starts,
+  bound to one model and one repository, and a second start for a different
+  scope is refused with the active one named.
 - Temporary chats, folders, a thirty-day trash, palette search, branching
   replies, web search, attachments, push, PWA, admin console.
 - **A context ring** above the composer: the last request's real prompt count

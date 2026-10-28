@@ -16,7 +16,7 @@ import { runAgentStep } from "@/lib/agent/run";
 import { cleanHistory, cleanTranscript } from "@/lib/agent/transcript";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
 import { outOfDewMessage } from "@/lib/dew";
-import { readHourSession } from "@/lib/hourSession";
+import { hourModelRefusal, hourRepoRefusal, readHourSession } from "@/lib/hourSession";
 
 // ── One agent step, streamed ─────────────────────────────────────────────────
 //
@@ -129,12 +129,28 @@ export async function POST(req: NextRequest): Promise<Response> {
   // same hour as chat — one unit for the whole product — so a step is covered
   // when the account has one and refused when it does not. No step has a price
   // of its own, which is what makes a long turn cost the same as a short one.
+  //
+  // The hour remembers what it was bought for, and the agent uses exactly that:
+  // the Code model and the one repository the hour was started on. A different
+  // model, or a different repository, is refused with the active one named —
+  // the buyer either continues with it or ends the hour and starts another.
+  // Silently spending a repository-scoped hour on another repository would give
+  // away a purchase the person did not make.
   const isCallerAdmin = isAdmin(identity);
 
   if (!isCallerAdmin) {
     const session = await readHourSession(authorization, identity.uid);
     if (!session) {
       return Response.json({ error: outOfDewMessage() }, { status: 402 });
+    }
+    if (session.model !== "code") {
+      return Response.json({ code: "session-model-locked", error: hourModelRefusal(session, "code") }, { status: 409 });
+    }
+    if (session.projectId !== project.id) {
+      return Response.json(
+        { code: "session-repo-locked", error: hourRepoRefusal(session, project.repoFullName) },
+        { status: 409 }
+      );
     }
   }
 

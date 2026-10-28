@@ -2,32 +2,54 @@ import { NextRequest } from "next/server";
 import { checkRateLimit, isSameOriginRequest, rateLimitRefusal, verifyCaller } from "@/lib/serverControl";
 import { clientForToken } from "@/lib/supabase";
 import { DEW_PER_HOUR, HOUR_SESSION_MS, outOfDewMessage } from "@/lib/dew";
-import { readHourSession, type ActiveHourSession } from "@/lib/hourSession";
+import { readProject, isProjectId } from "@/lib/projects";
+import {
+  hourModelRefusal,
+  hourRepoRefusal,
+  normalizeHourModel,
+  readHourSession,
+  type ActiveHourSession,
+} from "@/lib/hourSession";
+import { DEFAULT_MODE_ID, type ModeId } from "@/lib/models";
 
-// ── One hour, every chat ────────────────────────────────────────────────────
+// ── One hour, one model, one repository ─────────────────────────────────────
 //
-// Openmi charges for time, not for messages: three Dew opens an hour that covers
-// every answer in every chat and on every model. This route is the only way to
-// buy one, and the price is the server's own constant — never the body's — so a
+// Openmi charges for time, not for messages: three Dew opens an hour. This route
+// is the only way to buy one, and it takes exactly what the hour is for — the
+// model the buyer picked and, when they are working in a repository, that
+// repository. The price is the server's own constant, never the body's, so a
 // modified client cannot buy an hour for less.
 //
 // The same RPC writes the row and moves the wallet in one transaction, so the
 // only way to hold an hour is to have paid for it, and the primary key on the
-// account makes a second one impossible.
+// account makes a second one impossible. The RPC also re-validates the model and
+// the repository, because a signed-in account can call it directly through
+// PostgREST.
 //
-// Two refusals are a choice rather than an error:
-//   409 session-active  — this account already has an hour running; the answer
-//                         carries its expiry so the client can just use it.
-//   402 insufficient   — the hour is more than today's free Dew plus the paid
-//                         wallet, which is the moment the wallet page matters.
+// Three refusals are a choice rather than an error:
+//   409 session-active       — this account already has an equivalent hour
+//                              running; the answer carries it so the client can
+//                              simply use it.
+//   409 session-model-locked — the live hour is for another model. The message
+//                              names it and offers the two choices: continue
+//                              with it, or end the hour and start this one.
+//   409 session-repo-locked  — the live hour is for another repository (or for
+//                              no repository at all).
+//   402 insufficient        — the hour is more than today's free Dew plus the
+//                              paid wallet, which is the moment the wallet page
+//                              matters.
 //
-// Both travel as JSON because the composer acts on them, not on prose.
+// All travel as JSON because the composer acts on them, not on prose.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface SessionBody {
   action?: unknown;
+  /** The model the hour is bought for. Missing reads as the product default. */
+  model?: unknown;
+  /** The repository the hour is bought for; absent for ordinary chat. */
+  projectId?: unknown;
 }
 
 function sessionPayload(session: ActiveHourSession) {
@@ -35,12 +57,36 @@ function sessionPayload(session: ActiveHourSession) {
     price: session.price,
     startedAt: session.startedAt,
     expiresAt: session.expiresAt,
+    model: session.model,
+    projectId: session.projectId,
+    repoFullName: session.repoFullName,
   };
 }
 
 function number(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nullableText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+/**
+ * The hour a refusal is talking about, read from the RPC's own answer.
+ *
+ * The RPC echoes the live binding, so this needs no second query and cannot
+ * describe an hour that has already expired: `ends` is the row's own expiry.
+ */
+function activeFromRpc(result: Record<string, unknown>): ActiveHourSession {
+  return {
+    price: number(result.price) || DEW_PER_HOUR,
+    startedAt: Date.now(),
+    expiresAt: Date.parse(String(result.expires_at ?? "")) || Date.now() + HOUR_SESSION_MS,
+    model: normalizeHourModel(result.model),
+    projectId: nullableText(result.project_id),
+    repoFullName: nullableText(result.repo_full_name),
+  };
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
@@ -105,19 +151,84 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "That is not a session action." }, { status: 400 });
   }
 
-  // No price and no chat in the call: the hour is the account's, and the
-  // function charges its own constant.
-  const { data, error } = await client.rpc("start_hour_session");
+  // ── What this hour is for ─────────────────────────────────────────────────
+  // The model is one of the product's modes; anything else is refused here and
+  // again in the database. A missing model is the product default, so a client
+  // written before this rule still buys an hour it can actually use.
+  const requestedModel: ModeId | null =
+    body.model === undefined || body.model === null || body.model === ""
+      ? DEFAULT_MODE_ID
+      : body.model === "auto" || body.model === "code" || body.model === "flash"
+        ? body.model
+        : null;
+  if (!requestedModel) {
+    return Response.json({ error: "That is not a model Openmi offers." }, { status: 400 });
+  }
+
+  // The repository is validated as this account's own project before the RPC
+  // sees it. An id that is not owned is refused as not attached, which is the
+  // same answer as not existing: another account's project is not a fact this
+  // route is willing to confirm.
+  const requestedProjectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+  let project = null;
+  if (requestedProjectId) {
+    if (!isProjectId(requestedProjectId)) {
+      return Response.json({ error: "That is not a repository id." }, { status: 400 });
+    }
+    project = await readProject(authorization, identity.uid, requestedProjectId);
+    if (!project) {
+      return Response.json({ error: "That repository is not attached to this account." }, { status: 404 });
+    }
+  }
+
+  const { data, error } = await client.rpc("start_hour_session", {
+    p_model: requestedModel,
+    p_project_id: project?.id ?? null,
+  });
   if (error) return sessionUnavailable(error);
 
   const result = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
   if (!result || result.ok !== true) {
     if (result?.reason === "active") {
+      const active = activeFromRpc(result);
+      const locked = {
+        price: active.price,
+        startedAt: active.startedAt,
+        expiresAt: active.expiresAt,
+        model: active.model,
+        projectId: active.projectId,
+        repoFullName: active.repoFullName,
+      };
+
+      if (active.model !== requestedModel) {
+        return Response.json(
+          {
+            code: "session-model-locked",
+            error: hourModelRefusal(active, requestedModel),
+            session: locked,
+          },
+          { status: 409, headers: { "Cache-Control": "no-store" } }
+        );
+      }
+      // The repository is only a conflict when one is being asked for. An hour
+      // bought on a repository still covers ordinary chat on its own model,
+      // which is the one thing it was sold as covering.
+      if (project && active.projectId !== project.id) {
+        return Response.json(
+          {
+            code: "session-repo-locked",
+            error: hourRepoRefusal(active, project.repoFullName),
+            session: locked,
+          },
+          { status: 409, headers: { "Cache-Control": "no-store" } }
+        );
+      }
       return Response.json(
         {
           code: "session-active",
           error: "An hour is already running on this account.",
-          expiresAt: Date.parse(String(result.expires_at ?? "")) || 0,
+          expiresAt: active.expiresAt,
+          session: locked,
         },
         { status: 409, headers: { "Cache-Control": "no-store" } }
       );
@@ -146,6 +257,9 @@ export async function POST(req: NextRequest): Promise<Response> {
             price: number(result.price) || DEW_PER_HOUR,
             startedAt: Date.now(),
             expiresAt: Date.parse(String(result.expires_at ?? "")) || Date.now() + HOUR_SESSION_MS,
+            model: normalizeHourModel(result.model),
+            projectId: nullableText(result.project_id),
+            repoFullName: nullableText(result.repo_full_name),
           },
     },
     { headers: { "Cache-Control": "no-store" } }
@@ -159,7 +273,7 @@ function sessionUnavailable(error: { code?: string; message?: string }): Respons
   return Response.json(
     {
       error: missing
-        ? "Hour sessions are not available on this deployment yet: apply migration 20261028000200_charge_dew.sql."
+        ? "Hour sessions are not available on this deployment yet: apply migration 20261028000300_session_scope.sql."
         : "The session could not be changed. Try again in a moment.",
     },
     { status: 503 }

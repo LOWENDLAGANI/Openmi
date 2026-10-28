@@ -10,9 +10,11 @@
 //
 // ── Billing by the hour ───────────────────────────────────────────────────────
 // Usage is bought in one-hour sessions, not per message. Three Dew opens an hour
-// that covers every answer in every chat, on every model; a request itself costs
-// nothing, so the price of a conversation is known before it starts. Tokens are
-// still counted and reported, but they are telemetry, not the bill.
+// that covers every answer in every chat on the one model it was bought for —
+// and, when it is started in a repository, on that repository only. A request
+// itself costs nothing, so the price of a conversation is known before it
+// starts. Tokens are still counted and reported, but they are telemetry, not the
+// bill.
 //
 // One unit for everything is deliberate: chat and the repository agent draw on the
 // same hour, so there is one number to understand and one place it is charged —
@@ -73,9 +75,11 @@ export const DEW_PRECISION = 3;
 /**
  * The one price: three Dew buys an hour of usage.
  *
- * There is no per-request charge. An hour covers every answer in every chat, on
- * every model, so a person pays for time and not for how much the model writes —
- * which is the one price that is predictable before a conversation starts.
+ * There is no per-request charge. An hour covers every answer in every chat on
+ * the model it was bought for, so a person pays for time and not for how much
+ * the model writes — which is the one price that is predictable before a
+ * conversation starts. Changing the model or the repository is a new purchase,
+ * never a toggle inside a live hour.
  */
 export const DEW_PER_HOUR = 3;
 
@@ -284,5 +288,5 @@ export function canAfford(balance: number, price: number = DUST_THRESHOLD): bool
 
 /** The sentence the chat shows when somebody has run dry. */
 export function outOfDewMessage(): string {
-  return `**You need an hour to keep chatting.** Openmi charges for time, not per message: ${formatDew(DEW_PER_HOUR)} Dew covers every answer in every chat for one hour. You get ${formatDew(DAILY_FREE_DEW)} free Dew every day (${formatDew(PAID_DAILY_FREE_DEW)} with a paid pass), refilled at midnight in your account's timezone, so those free Dew already buy ${formatDew(DAILY_FREE_DEW / DEW_PER_HOUR)} hours a day. Start an hour from the composer, top up on the /plus page, or redeem a Dew code.`;
+  return `**You need an hour to keep chatting.** Openmi charges for time, not per message: ${formatDew(DEW_PER_HOUR)} Dew covers every answer in every chat for one hour, on the one model you pick. You get ${formatDew(DAILY_FREE_DEW)} free Dew every day (${formatDew(PAID_DAILY_FREE_DEW)} with a paid pass), refilled at midnight in your account's timezone, so those free Dew already buy ${formatDew(DAILY_FREE_DEW / DEW_PER_HOUR)} hours a day. Start an hour from the composer, top up on the /plus page, or redeem a Dew code.`;
 }

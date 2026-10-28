@@ -113,49 +113,94 @@ interface SendOptions {
 }
 
 // ── The hour session, from the browser's side ────────────────────────────────
-// The server owns whether an hour may start; these two calls only ask. A 409
-// carries the chat that already owns the hour so the dialog can offer to go
-// there or end it, and a 402 carries the shortfall so it can point at the
-// wallet. Neither response is trusted for pricing: the price is the server's.
+// The server owns whether an hour may start and what it covers; these two calls
+// only ask. A live hour is bound to one model and, when it was started in a
+// repository, to that repository. A 409 that names a different one is a refusal
+// with two honest answers — keep using the active one, or end the hour — and a
+// 402 carries the shortfall so the dialog can point at the wallet. Neither
+// response is trusted for pricing: the price is the server's.
+
+/** The live hour as the server describes it. */
+interface HourView {
+  expiresAt: number;
+  model: ModeId;
+  /** The repository the hour is bound to, or null for ordinary chat. */
+  projectId: string | null;
+  repoFullName: string | null;
+}
 
 interface HourStartOk {
   ok: true;
-  chatId: string;
-  expiresAt: number;
+  session: HourView;
 }
 
 interface HourStartFail {
   ok: false;
   code?: string;
-  chatId?: string;
-  expiresAt?: number;
+  /** The live hour the refusal is about, when there is one. */
+  session?: HourView | null;
   error?: string;
 }
 
-async function requestHourSession(chatId: string): Promise<HourStartOk | HourStartFail> {
+/** One stored or returned hour, in the shape the rest of the page expects. */
+function hourViewFrom(raw: unknown): HourView | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.expiresAt !== "number") return null;
+  return {
+    expiresAt: value.expiresAt,
+    model: value.model === "code" || value.model === "flash" ? value.model : "auto",
+    projectId: typeof value.projectId === "string" && value.projectId ? value.projectId : null,
+    repoFullName: typeof value.repoFullName === "string" && value.repoFullName ? value.repoFullName : null,
+  };
+}
+
+/**
+ * Why a live hour does not cover the send in front of the user, in one sentence.
+ *
+ * The same rule the server enforces, said before the request is made so the
+ * refusal appears where the user is looking rather than as a failed answer.
+ */
+function hourConflictLabel(
+  hour: HourView,
+  requiredModel: ModeId,
+  project: ProjectSummary | null
+): string | null {
+  if (hour.model !== requiredModel) {
+    return `Your hour is for ${getMode(hour.model).display}, not ${getMode(requiredModel).display}.`;
+  }
+  if (project && hour.projectId !== project.id) {
+    return hour.repoFullName
+      ? `Your hour is for ${hour.repoFullName}, not ${project.repoFullName}.`
+      : `Your hour was started without a repository, so it cannot cover ${project.repoFullName}.`;
+  }
+  return null;
+}
+
+async function requestHourSession(
+  model: ModeId,
+  projectId: string | null
+): Promise<HourStartOk | HourStartFail> {
   try {
     const response = await fetch("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await authHeader()) },
-      body: JSON.stringify({ action: "start", chatId }),
+      body: JSON.stringify({ action: "start", model, projectId }),
     });
     const data = (await response.json().catch(() => null)) as {
-      session?: { chatId?: unknown; expiresAt?: unknown } | null;
+      session?: unknown;
       code?: unknown;
-      chatId?: unknown;
-      expiresAt?: unknown;
       error?: unknown;
     } | null;
 
-    const session = data?.session;
-    if (response.ok && session && typeof session.chatId === "string" && typeof session.expiresAt === "number") {
-      return { ok: true, chatId: session.chatId, expiresAt: session.expiresAt };
+    const session = hourViewFrom(data?.session);
+    if (response.ok && session) {
+      return { ok: true, session };
     }
     return {
       ok: false,
       code: typeof data?.code === "string" ? data.code : undefined,
-      chatId: typeof data?.chatId === "string" ? data.chatId : undefined,
-      expiresAt: typeof data?.expiresAt === "number" ? data.expiresAt : undefined,
+      session,
       error:
         typeof data?.error === "string"
           ? data.error
@@ -230,12 +275,22 @@ export default function HomePage() {
   const tempThreadRef = useRef(new TempThread());
   const [tempMessages, setTempMessages] = useState<ChatMessage[]>([]);
   // The account's live hour session, if any, and the first-message price
-  // dialog. The dialog holds the composed message until a price is chosen.
-  const [hourSession, setHourSession] = useState<{ expiresAt: number } | null>(null);
+  // dialog. The dialog holds the composed message until a price is chosen, and
+  // knows which model and repository that hour has to be bought for.
+  const [hourSession, setHourSession] = useState<HourView | null>(null);
   const [pricingPrompt, setPricingPrompt] = useState<{
     text: string;
     images: ImageAttachment[];
     documents: DocumentAttachment[];
+    /** True when the message goes to the repository agent once the hour exists. */
+    agent: boolean;
+    /** The model the hour must be bought for. */
+    model: ModeId;
+    /** The repository it must be bought for, or null for ordinary chat. */
+    projectId: string | null;
+    repoFullName: string | null;
+    /** A live hour that does not cover this send, when there is one. */
+    conflict: string | null;
   } | null>(null);
   const [pricingBusy, setPricingBusy] = useState(false);
   const [pricingNotice, setPricingNotice] = useState<string | null>(null);
@@ -604,6 +659,15 @@ export default function HomePage() {
       );
       return;
     }
+    // A live hour is bought for one model. Switching the picker would not switch
+    // the hour, so the switch is refused here with the two choices that exist:
+    // keep using the active model, or end the hour and buy another.
+    if (hourSession && hourSession.model !== mode) {
+      setModelNotice(
+        `Your hour is for ${getMode(hourSession.model).display}. Continue with it, or end the hour session above the composer to switch to ${getMode(mode).display}.`
+      );
+      return;
+    }
     setSelectedMode(mode);
     setModelNotice(null);
     saveSelectedMode(mode);
@@ -677,10 +741,17 @@ export default function HomePage() {
       try {
         const response = await fetch("/api/session", { headers: await authHeader(), cache: "no-store" });
         if (!response.ok) return;
-        const data = (await response.json()) as { session?: { expiresAt?: unknown } | null };
-        const row = data.session;
+        const data = (await response.json()) as { session?: unknown };
+        const session = hourViewFrom(data.session);
         if (cancelled) return;
-        setHourSession(row && typeof row.expiresAt === "number" ? { expiresAt: row.expiresAt } : null);
+        setHourSession(session);
+        // The hour was bought for one model, so that is the model on screen
+        // until it ends. Leaving the picker on a stored preference would mean
+        // every message is refused for a reason the user cannot see.
+        if (session) {
+          setSelectedMode(session.model);
+          saveSelectedMode(session.model);
+        }
       } catch {
         // A session that cannot be read is simply not shown; the route still
         // enforces it when a message is sent.
@@ -1357,15 +1428,13 @@ export default function HomePage() {
   /**
    * Starts an hour for the composed message and sends it.
    *
-   * `endFirst` is the "end it and start a new hour here" answer to the
-   * server's 409. Nothing here decides whether an hour is allowed: the server
-   * refuses, names the live chat, and this offers the two honest replies.
+   * The hour is bought for exactly what the message needs: the model it would run
+   * on and, for the agent, the repository in front of the user. `endFirst` is the
+   * "end it and start a new hour here" answer to the server's lock refusal — the
+   * live hour is never replaced silently.
    */
   const runHourStart = useCallback(
-    async (
-      payload: { text: string; images: ImageAttachment[]; documents: DocumentAttachment[] },
-      endFirst: boolean
-    ) => {
+    async (payload: NonNullable<typeof pricingPrompt>, endFirst: boolean) => {
       if (pricingBusy) return;
       setPricingBusy(true);
       setPricingNotice(null);
@@ -1374,29 +1443,30 @@ export default function HomePage() {
           await requestEndHourSession();
           setHourSession(null);
         }
-        // The hour is the account's, not the chat's, but the message still needs
-        // a chat to land in: create it first, then buy the hour, then send.
-        let chatId = activeChatId;
-        if (!chatId) {
-          const chat = await createChat();
-          chatId = chat.id;
-          setActiveChatId(chatId);
-        }
-        const started = await requestHourSession(chatId);
+        const started = await requestHourSession(payload.model, payload.projectId);
         if (started.ok) {
-          setHourSession({ expiresAt: started.expiresAt });
+          setHourSession(started.session);
           setPricingPrompt(null);
           void refreshDew();
-          void sendMessage(payload.text, payload.images, payload.documents, { chatId });
+          if (payload.agent) void sendAgentMessage(payload.text);
+          else void sendMessage(payload.text, payload.images, payload.documents);
           return;
         }
-        if (started.code === "session-active") {
-          // The hour already running is this account's own, so there is nothing
-          // to choose between: use it.
-          setHourSession({ expiresAt: started.expiresAt ?? Date.now() + 3_600_000 });
+        if (started.code === "session-active" && started.session) {
+          // The hour already running is this account's own and covers this
+          // request, so there is nothing to choose between: use it.
+          setHourSession(started.session);
           setPricingPrompt(null);
           void refreshDew();
-          void sendMessage(payload.text, payload.images, payload.documents, { chatId });
+          if (payload.agent) void sendAgentMessage(payload.text);
+          else void sendMessage(payload.text, payload.images, payload.documents);
+          return;
+        }
+        if (started.code === "session-model-locked" || started.code === "session-repo-locked") {
+          // The live hour is for something else. It stays until the buyer ends it
+          // deliberately, so the dialog says so and offers that second step.
+          setPricingNotice(started.error ?? "The hour that is running is for another model or repository.");
+          if (started.session) setHourSession(started.session);
           return;
         }
         if (started.code === "insufficient-dew") {
@@ -1411,13 +1481,20 @@ export default function HomePage() {
         setPricingBusy(false);
       }
     },
-    [activeChatId, pricingBusy, sendMessage]
+    [pricingBusy, sendAgentMessage, sendMessage]
   );
 
   const resolvePricing = useCallback(() => {
     const payload = pricingPrompt;
     if (!payload || pricingBusy) return;
     void runHourStart(payload, false);
+  }, [pricingBusy, pricingPrompt, runHourStart]);
+
+  /** The buyer's answer to a live hour for something else: end it, then buy this. */
+  const resolveReplace = useCallback(() => {
+    const payload = pricingPrompt;
+    if (!payload || pricingBusy) return;
+    void runHourStart(payload, true);
   }, [pricingBusy, pricingPrompt, runHourStart]);
 
   const handleEndHour = useCallback(async () => {
@@ -1432,21 +1509,35 @@ export default function HomePage() {
       // With a repository attached, a plain question goes to the agent. Anything
       // carrying attachments stays in ordinary chat: the agent has no way to
       // read an image, and silently dropping one would be worse than saying so.
-      if (project && images.length === 0 && (!documents || documents.length === 0)) {
-        void sendAgentMessage(text);
-        return;
-      }
-      // An hour is the only way to talk to Openmi, so a message composed with no
-      // live hour waits here until one is bought. Temporary chats have no account
-      // row to hold an hour, so they are left to the route's own refusal.
-      if (!temporary && !hourSession) {
+      const agentTurn = Boolean(project) && images.length === 0 && (!documents || documents.length === 0);
+      // The hour decides which model and repository may answer, so the send is
+      // matched against what was actually bought: Code and this repository for
+      // the agent, the selected mode for chat. A live hour for something else is
+      // never spent here; the dialog names it and offers to end it first.
+      const requiredModel: ModeId = agentTurn ? "code" : selectedMode;
+      const agentProject = agentTurn ? project : null;
+      const covered =
+        hourSession !== null &&
+        hourSession.model === requiredModel &&
+        (!agentProject || hourSession.projectId === agentProject.id);
+      if (!temporary && !covered) {
         setPricingNotice(null);
-        setPricingPrompt({ text, images, documents: documents ?? [] });
+        setPricingPrompt({
+          text,
+          images,
+          documents: documents ?? [],
+          agent: agentTurn,
+          model: requiredModel,
+          projectId: agentProject?.id ?? null,
+          repoFullName: agentProject?.repoFullName ?? null,
+          conflict: hourSession ? hourConflictLabel(hourSession, requiredModel, agentProject) : null,
+        });
         return;
       }
-      void sendMessage(text, images, documents);
+      if (agentTurn) void sendAgentMessage(text);
+      else void sendMessage(text, images, documents);
     },
-    [hourSession, project, sendAgentMessage, sendMessage, temporary]
+    [hourSession, project, selectedMode, sendAgentMessage, sendMessage, temporary]
   );
 
   // With a repository attached, an answer was produced by the agent and has to
@@ -1725,18 +1816,21 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setRepoOpen(true)}
-                className="lift relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white"
+                className="lift flex h-9 shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-[12px] font-medium text-white/65 transition-colors hover:border-white/15 hover:bg-white/[0.06] hover:text-white"
                 aria-label={project ? `Repository: ${project.repoFullName}` : "Choose a repository"}
-                title={project ? project.repoFullName : "Repository — connect GitHub and browse files"}
+                title={project ? project.repoFullName : "Repository"}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M6 3v12a3 3 0 0 0 3 3h6" />
                   <circle cx="6" cy="18" r="3" />
                   <circle cx="18" cy="6" r="3" />
                   <path d="M18 9v3a3 3 0 0 1-3 3h-3" />
                 </svg>
+                <span className="max-w-[110px] truncate sm:max-w-[160px]">
+                  {project ? project.repoFullName : "Repository"}
+                </span>
                 {project && (
-                  <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#7fd1a1]" aria-hidden="true" />
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#7fd1a1]" aria-hidden="true" />
                 )}
               </button>
               <ModeSelector
@@ -1833,7 +1927,8 @@ export default function HomePage() {
               >
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#a9d8bb]" />
                 <span className="min-w-0 truncate">
-                  Hour session active · ends{" "}
+                  Hour · {getMode(hourSession.model).display}
+                  {hourSession.repoFullName ? ` · ${hourSession.repoFullName}` : ""} · ends{" "}
                   {new Date(hourSession.expiresAt).toLocaleTimeString(undefined, {
                     hour: "numeric",
                     minute: "2-digit",
@@ -1873,14 +1968,17 @@ export default function HomePage() {
 
       {pricingPrompt && (
         <PricingDialog
-          modeLabel={getMode(selectedMode).display}
+          modeLabel={getMode(pricingPrompt.model).display}
+          repoLabel={pricingPrompt.repoFullName}
           priceDew={DEW_PER_HOUR}
           balance={dew.balance}
           dailyRemaining={dew.dailyRemaining}
           paid={dew.paid}
           busy={pricingBusy}
           notice={pricingNotice}
+          conflict={pricingPrompt.conflict}
           onStart={resolvePricing}
+          onReplace={resolveReplace}
           onClose={() => {
             if (!pricingBusy) {
               setPricingPrompt(null);
@@ -1895,6 +1993,11 @@ export default function HomePage() {
         onClose={() => setRepoOpen(false)}
         project={project}
         onSelectProject={setProject}
+        lockedProject={
+          hourSession?.projectId
+            ? { id: hourSession.projectId, repoFullName: hourSession.repoFullName ?? "the active repository" }
+            : null
+        }
       />
       <SettingsPanel
         open={settingsOpen}

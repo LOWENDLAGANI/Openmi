@@ -8,15 +8,16 @@ import type { ProjectSummary } from "@/lib/projects";
 
 // ── The repository workspace ────────────────────────────────────────────────
 //
-// Three states in one panel, in the order a new user meets them:
+// The panel has one job, and it is the first thing on screen: pick the
+// repository the agent works on. Everything else is either the result of that
+// choice (the file browser) or account housekeeping, folded behind "Manage".
 //
-//   1. GitHub is not connected  → one button and a sentence about what it grants.
-//   2. Connected, no project    → the repos this connection can see.
-//   3. A project is attached    → the file tree the agent reads, and a viewer.
-//
-// The tree and the viewer are not a filesystem browser for its own sake: they
-// show exactly the files the agent may read. When a file is not here, the agent
-// cannot see it either, which makes the pane an honest picture of its knowledge.
+// It used to present every part at once — connections, a token form, the current
+// project, a list of projects, a list of repositories — in 10px type, so a new
+// person had to read three headings to find the list that mattered. Now there is
+// one list: attached projects come first and are marked "Using", the account's
+// other repositories follow and add themselves when picked. One search box
+// covers both. Choosing a row is the whole interaction.
 //
 // ── Why the panel no longer says "Checking the connection…" forever ─────────
 // The check used to be a bare `fetch` with no deadline, whose failure left the
@@ -40,6 +41,12 @@ interface RepoPanelProps {
   onClose: () => void;
   project: ProjectSummary | null;
   onSelectProject: (project: ProjectSummary | null) => void;
+  /**
+   * The repository a live hour is bound to. While it is set, another repository
+   * cannot be chosen here: the hour was bought for this one, and the panel says
+   * so instead of letting the selection drift away from what was paid for.
+   */
+  lockedProject?: { id: string; repoFullName: string } | null;
 }
 
 interface GithubConnectionItem {
@@ -171,7 +178,37 @@ function reasonMessage(reason: string | null): string {
   }
 }
 
-export default function RepoPanel({ open, onClose, project, onSelectProject }: RepoPanelProps) {
+/** A repository row in the picker: an attached project, or one to add. */
+interface PickerRow {
+  fullName: string;
+  branch: string;
+  project: ProjectSummary | null;
+  repo: RepoItem | null;
+}
+
+/** The mark used for a repository, at two sizes. */
+function RepoMark({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 3v12a3 3 0 0 0 3 3h6" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M18 9v3a3 3 0 0 1-3 3h-3" />
+    </svg>
+  );
+}
+
+export default function RepoPanel({ open, onClose, project, onSelectProject, lockedProject = null }: RepoPanelProps) {
   const [statusState, setStatusState] = useState<StatusState>({ phase: "checking" });
   const [repos, setRepos] = useState<RepoItem[]>([]);
   // The empty-list sentence must not appear while the list is still on its way:
@@ -182,8 +219,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [repoFilter, setRepoFilter] = useState("");
-  const [projectFilter, setProjectFilter] = useState("");
+  const [query, setQuery] = useState("");
   const [fileFilter, setFileFilter] = useState("");
   const [tree, setTree] = useState<TreeFile[] | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -198,15 +234,51 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   /** The connection a new paste would replace, when one was picked to fix. */
   const [replaceFor, setReplaceFor] = useState<GithubConnectionItem | null>(null);
   const patInputRef = useRef<HTMLInputElement | null>(null);
-
-  /** The projects matching the picker's filter; all of them when it is empty. */
-  const filteredProjects = useMemo(() => {
-    const needle = projectFilter.trim().toLowerCase();
-    if (!needle) return projects;
-    return projects.filter((item) => item.repoFullName.toLowerCase().includes(needle));
-  }, [projects, projectFilter]);
+  // Which face of the workspace is showing. "pick" is the list of repositories;
+  // "browse" is the chosen repository's files. A choice moves to "browse", and
+  // "Change" comes back — so selecting a directory is never something to scroll
+  // around looking for.
+  const [view, setView] = useState<"pick" | "browse">("pick");
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const status = statusState.phase === "ready" ? statusState.status : null;
+
+  // ── The one list ──────────────────────────────────────────────────────────
+  // Attached projects first, so the current one is always at the top and never
+  // hides below a long list of repositories. A repository already attached under
+  // a different case is not offered twice.
+  const rows = useMemo<PickerRow[]>(() => {
+    const attached = new Set(projects.map((item) => item.repoFullName.toLowerCase()));
+    return [
+      ...projects.map((item) => ({
+        fullName: item.repoFullName,
+        branch: item.defaultBranch,
+        project: item,
+        repo: null,
+      })),
+      ...repos
+        .filter((repo) => !attached.has(repo.fullName.toLowerCase()))
+        .map((repo) => ({
+          fullName: repo.fullName,
+          branch: repo.defaultBranch,
+          project: null,
+          repo,
+        })),
+    ];
+  }, [projects, repos]);
+
+  const filteredRows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter((row) => row.fullName.toLowerCase().includes(needle));
+  }, [rows, query]);
+
+  const filteredFiles = useMemo(() => {
+    if (!tree) return [];
+    const needle = fileFilter.trim().toLowerCase();
+    const list = needle ? tree.filter((file) => file.path.toLowerCase().includes(needle)) : tree;
+    return list.slice(0, 400);
+  }, [tree, fileFilter]);
 
   // Escape closes the panel, the same way it closes Settings. The panel covers
   // the page, so a keyboard user who opened it by accident needs one key to get
@@ -219,6 +291,13 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Opening the panel shows whichever face is useful: the files of a chosen
+  // project, or the list when there is nothing chosen yet.
+  useEffect(() => {
+    if (!open) return;
+    setView(project ? "browse" : "pick");
+  }, [open, project]);
 
   const loadStatus = useCallback(async (): Promise<GithubStatus | null> => {
     setStatusState({ phase: "checking" });
@@ -297,6 +376,8 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     if (!open) return;
     setError(null);
     setNotice(null);
+    setQuery("");
+    setAccountOpen(false);
 
     // A round trip to github.com comes back here with `?github=connected`,
     // `?github=cancelled` or `?github=error&reason=…`. The query is consumed
@@ -331,19 +412,6 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
     if (!open || !project) return;
     void loadTree(project.id);
   }, [open, project, loadTree]);
-
-  const filteredRepos = useMemo(() => {
-    const needle = repoFilter.trim().toLowerCase();
-    if (!needle) return repos;
-    return repos.filter((repo) => repo.fullName.toLowerCase().includes(needle));
-  }, [repos, repoFilter]);
-
-  const filteredFiles = useMemo(() => {
-    if (!tree) return [];
-    const needle = fileFilter.trim().toLowerCase();
-    const list = needle ? tree.filter((file) => file.path.toLowerCase().includes(needle)) : tree;
-    return list.slice(0, 400);
-  }, [tree, fileFilter]);
 
   /**
    * Starts a connection.
@@ -409,7 +477,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
       // notice only has to say what just happened.
       setNotice(
         data.warning
-          ? `Saved as @${data.login}. It needs attention — see the note below.`
+          ? `Saved as @${data.login}. It needs attention — see the note above.`
           : `Connected as @${data.login}. Choose a repository.`
       );
       const next = await loadStatus();
@@ -481,6 +549,12 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
 
   const attach = async (repo: RepoItem) => {
     if (busy) return;
+    if (lockedProject) {
+      setError(
+        `Your hour is for ${lockedProject.repoFullName}. End the hour session before attaching another repository.`
+      );
+      return;
+    }
     setBusy(repo.fullName);
     setError(null);
     try {
@@ -492,6 +566,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
       onSelectProject(data.project);
       setOpenPath(null);
       setFileText(null);
+      setView("browse");
       void loadTree(data.project.id);
       setNotice(`Attached ${repo.fullName}. It is now the project this chat uses.`);
     } catch (cause) {
@@ -504,24 +579,35 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
   /**
    * Selecting a project is the whole interaction, so it answers immediately:
    * the row marks itself, the notice says which project the chat now uses, and
-   * the file tree below reloads for it.
+   * the panel moves to that repository's files.
    */
   const chooseProject = (item: ProjectSummary) => {
     setError(null);
     if (project?.id === item.id) {
-      setNotice(`${item.repoFullName} is already the project this chat uses.`);
+      setView("browse");
+      return;
+    }
+    if (lockedProject && lockedProject.id !== item.id) {
+      setError(
+        `Your hour is for ${lockedProject.repoFullName}, so another repository cannot use it. Continue with ${lockedProject.repoFullName}, or end the hour session and start a new one here.`
+      );
       return;
     }
     onSelectProject(item);
     setOpenPath(null);
     setFileText(null);
+    setFileFilter("");
+    setView("browse");
     void loadTree(item.id);
     setNotice(`Now using ${item.repoFullName} for this chat and the agent.`);
   };
 
   /** Removing the selected project clears it, rather than leaving a dead pointer. */
   const removeProject = (item: ProjectSummary) => {
-    if (project?.id === item.id) onSelectProject(null);
+    if (project?.id === item.id) {
+      onSelectProject(null);
+      setView("pick");
+    }
     setProjects((current) => current.filter((entry) => entry.id !== item.id));
     setNotice(`Removed ${item.repoFullName} from your projects.`);
     void api(`/api/projects/${item.id}`, { method: "DELETE" }).catch(() => undefined);
@@ -579,14 +665,13 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
    * two from drifting apart.
    */
   const tokenForm = (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-      <p className="text-[12px] font-medium text-white/85">
-        {replaceFor ? `Replace the @${replaceFor.login} token` : "Connect with a personal access token"}
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3">
+      <p className="text-[13px] font-medium text-white/85">
+        {replaceFor ? `Replace the @${replaceFor.login} token` : "Personal access token"}
       </p>
-      <p className="mt-1 text-[11px] leading-relaxed text-white/40">
-        Create one at github.com/settings/tokens with the <code className="rounded bg-black/40 px-1 py-0.5 text-[10px]">repo</code> scope
-        (or Contents: Read plus Metadata: Read on a fine-grained token), then paste it here. It is sealed on the server and
-        never sent back to this browser.
+      <p className="mt-1 text-[12px] leading-relaxed text-white/40">
+        Create one at github.com/settings/tokens with the <code className="rounded bg-black/40 px-1 py-0.5 text-[11px]">repo</code> scope
+        (or Contents: Read plus Metadata: Read on a fine-grained token).
       </p>
       <input
         ref={patInputRef}
@@ -596,29 +681,29 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
         placeholder="ghp_… or github_pat_…"
         autoComplete="off"
         spellCheck={false}
-        className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 font-mono text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+        className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-[12.5px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
       />
-      <div className="mt-1.5 flex gap-1.5">
+      <div className="mt-2 flex gap-2">
         <input
           value={patLabel}
           onChange={(event) => setPatLabel(event.target.value)}
           placeholder="Label (optional)"
           maxLength={40}
-          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[12.5px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
         />
         <button
           type="button"
           onClick={() => void connectWithToken()}
           disabled={busy === "pat" || !patToken.trim()}
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
+          className="shrink-0 rounded-xl px-4 py-2 text-[12.5px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
           style={{ background: "linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 58%, #000) 100%)" }}
         >
           {busy === "pat" ? "Checking…" : replaceFor ? "Replace" : "Connect"}
         </button>
       </div>
       {replaceFor && (
-        <p className="mt-1.5 flex items-center gap-2 text-[10px] leading-relaxed text-white/35">
-          Saving replaces the token for @{replaceFor.login} — the connection keeps its place in the list.
+        <p className="mt-2 flex items-center gap-2 text-[11px] leading-relaxed text-white/35">
+          Saving replaces the token for @{replaceFor.login}.
           <button
             type="button"
             onClick={() => {
@@ -636,6 +721,10 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
 
   if (!open) return null;
 
+  const connected = status?.connected === true;
+  const projectId = project?.id ?? null;
+  const showBrowser = connected && project !== null && view === "browse";
+
   return (
     <div className="fixed inset-0 z-[130] flex justify-end" role="dialog" aria-modal="true" aria-label="Repository workspace">
       <button
@@ -644,43 +733,44 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
         onClick={onClose}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
       />
-      <section className="animate-rise relative flex h-full w-full max-w-xl flex-col border-l border-white/10 bg-[#0b1310]/[0.99] shadow-2xl shadow-black/70">
-        <header className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2f6b48]/20 text-[#a9d8bb]">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M6 3v12a3 3 0 0 0 3 3h6" />
-              <circle cx="6" cy="18" r="3" />
-              <circle cx="18" cy="6" r="3" />
-              <path d="M18 9v3a3 3 0 0 1-3 3h-3" />
-            </svg>
+      <section className="animate-rise relative flex h-full w-full max-w-2xl flex-col border-l border-white/10 bg-[#0b1310]/[0.99] shadow-2xl shadow-black/70">
+        <header className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3 sm:px-5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2f6b48]/20 text-[#a9d8bb]">
+            <RepoMark size={18} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[14px] font-semibold text-white">Repository</h2>
-            <p className="truncate text-[11px] text-white/40">
-              {project ? `${project.repoFullName} · ${project.defaultBranch} @ ${project.baseSha.slice(0, 7)}` : "Read-only access for the agent"}
+            <h2 className="truncate text-[15px] font-semibold text-white">
+              {showBrowser && project ? project.repoFullName : "Repository"}
+            </h2>
+            <p className="truncate text-[12px] text-white/40">
+              {showBrowser && project
+                ? `${project.defaultBranch} @ ${project.baseSha.slice(0, 7)}`
+                : connected
+                  ? `${rows.length} ${rows.length === 1 ? "repository" : "repositories"}`
+                  : "Not connected"}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white"
+            className="rounded-xl p-2.5 text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white"
             aria-label="Close"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
           {error && (
-            <div role="alert" className="mb-3 rounded-xl border border-red-400/20 bg-red-500/[0.07] px-3 py-2 text-[12px] leading-relaxed text-red-200/85">
+            <div role="alert" className="mb-3 rounded-2xl border border-red-400/20 bg-red-500/[0.07] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-red-200/85">
               {error}
               {statusState.phase === "error" && (
                 <button
                   type="button"
                   onClick={() => void refresh()}
-                  className="mt-2 block rounded-lg border border-red-200/25 px-2 py-1 text-[11px] font-medium text-red-100/90 transition-colors hover:bg-red-200/10"
+                  className="mt-2 block rounded-lg border border-red-200/25 px-2.5 py-1 text-[11.5px] font-medium text-red-100/90 transition-colors hover:bg-red-200/10"
                 >
                   Try again
                 </button>
@@ -688,449 +778,476 @@ export default function RepoPanel({ open, onClose, project, onSelectProject }: R
             </div>
           )}
           {notice && (
-            <div role="status" className="mb-3 rounded-xl border border-[#a9d8bb]/20 bg-[#a9d8bb]/[0.06] px-3 py-2 text-[12px] leading-relaxed text-[#c9e6d4]/90">
+            <div role="status" className="mb-3 rounded-2xl border border-[#a9d8bb]/20 bg-[#a9d8bb]/[0.06] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[#c9e6d4]/90">
               {notice}
             </div>
           )}
 
           {statusState.phase === "checking" ? (
-            <p className="text-[12px] text-white/40">Checking the connection…</p>
+            <div className="space-y-2.5" aria-busy="true">
+              <div className="h-12 animate-pulse rounded-2xl bg-white/[0.04]" />
+              <div className="h-12 animate-pulse rounded-2xl bg-white/[0.03]" />
+              <div className="h-12 animate-pulse rounded-2xl bg-white/[0.02]" />
+              <p className="pt-1 text-[12px] text-white/35">Checking the connection…</p>
+            </div>
           ) : statusState.phase === "signed-out" ? (
             <div className="space-y-3">
-              <p className="text-[13px] leading-relaxed text-white/60">
+              <p className="text-[13.5px] leading-relaxed text-white/65">
                 Openmi could not identify this browser, so GitHub cannot be attached to an account yet.
               </p>
-              <p className="text-[11px] leading-relaxed text-white/35">{statusState.message}</p>
+              <p className="text-[12px] leading-relaxed text-white/35">{statusState.message}</p>
               {!supabaseConfigured && (
-                <div className="rounded-xl border border-amber-300/20 bg-amber-400/[0.05] p-3 text-[12px] leading-relaxed text-amber-100/85">
+                <div className="rounded-2xl border border-amber-300/20 bg-amber-400/[0.05] p-3.5 text-[12.5px] leading-relaxed text-amber-100/85">
                   This deployment has no Supabase project configured, so there is no account to attach GitHub to. Set the
-                  <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11px]">NEXT_PUBLIC_SUPABASE_*</code>
+                  <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11.5px]">NEXT_PUBLIC_SUPABASE_*</code>
                   values and redeploy.
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => void refresh()}
-                className="w-full rounded-xl border border-white/[0.09] px-4 py-2 text-[12px] font-medium text-white/70 transition hover:bg-white/[0.06]"
+                className="w-full rounded-2xl border border-white/[0.09] px-4 py-3 text-[13px] font-medium text-white/70 transition hover:bg-white/[0.06]"
               >
                 Check again
               </button>
             </div>
           ) : statusState.phase === "error" ? (
             <div className="space-y-3">
-              <p className="text-[13px] leading-relaxed text-white/60">
+              <p className="text-[13.5px] leading-relaxed text-white/65">
                 The connection could not be checked.
               </p>
-              <p className="text-[11px] leading-relaxed text-white/35">{statusState.message}</p>
+              <p className="text-[12px] leading-relaxed text-white/35">{statusState.message}</p>
               <button
                 type="button"
                 onClick={() => void refresh()}
-                className="w-full rounded-xl px-4 py-2.5 text-[13px] font-semibold text-[#0a100d] transition-opacity"
+                className="w-full rounded-2xl px-4 py-3 text-[13.5px] font-semibold text-[#0a100d] transition-opacity"
                 style={{ background: "linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 58%, #000) 100%)" }}
               >
                 Try again
               </button>
             </div>
           ) : !statusState.status.configured ? (
-            <div className="rounded-xl border border-amber-300/20 bg-amber-400/[0.05] p-3 text-[12px] leading-relaxed text-amber-100/85">
+            <div className="rounded-2xl border border-amber-300/20 bg-amber-400/[0.05] p-3.5 text-[12.5px] leading-relaxed text-amber-100/85">
               This deployment cannot store a GitHub connection yet. The owner needs to set
-              <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11px]">GITHUB_TOKEN_KEY</code>
+              <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-[11.5px]">GITHUB_TOKEN_KEY</code>
               to a 32-byte hex value and redeploy.
             </div>
-          ) : !statusState.status.connected ? (
+          ) : !connected ? (
             <div className="space-y-3">
-              <p className="text-[13px] leading-relaxed text-white/60">
-                Connect GitHub to let the agent read a repository. Your Openmi account stays the account — GitHub is
-                attached to it, so your chats and Dew do not move.
-              </p>
-              {status?.oauth ? (
-                <>
-                  {/* The round trip is the door most people should take: no
-                      console tab, no scope to look up, no secret handled by
-                      hand. It is offered first for that reason; the token
-                      form is still one tap away for anyone who wants it. */}
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-5">
+                <p className="text-[15px] font-semibold text-white">Connect GitHub</p>
+                <p className="mt-1 text-[12.5px] text-white/40">Read the repository the agent works on.</p>
+                {status?.oauth ? (
                   <button
                     type="button"
                     onClick={() => void connect()}
                     disabled={busy === "connect"}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[14px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
                     style={{ background: "linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 58%, #000) 100%)" }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       <path d="M12 2.2A9.8 9.8 0 0 0 2.2 12c0 4.3 2.8 8 6.7 9.3.5.1.7-.2.7-.5v-1.7c-2.7.6-3.3-1.3-3.3-1.3-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.3-1.1.6-1.4-2.2-.3-4.4-1.1-4.4-4.8 0-1.1.4-1.9 1-2.6-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.5 1 2.6 0 3.7-2.2 4.5-4.4 4.8.3.3.6.9.6 1.9v2.8c0 .3.2.6.7.5a9.8 9.8 0 0 0 6.7-9.3A9.8 9.8 0 0 0 12 2.2Z" />
                     </svg>
                     {busy === "connect" ? "Waiting for GitHub…" : "Continue with GitHub"}
                   </button>
-                  <p className="text-[11px] leading-relaxed text-white/35">
-                    Read-only access to the repositories you choose. Nothing is committed without your approval, and no
-                    token is handled by hand.
+                ) : (
+                  <div className="mt-4">{tokenForm}</div>
+                )}
+              </div>
+              {status?.oauth &&
+                (patOpen ? (
+                  tokenForm
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPatOpen(true)}
+                    className="w-full rounded-2xl border border-white/[0.08] px-4 py-3 text-[13px] font-medium text-white/55 transition-colors hover:border-white/15 hover:text-white/85"
+                  >
+                    Use a personal access token
+                  </button>
+                ))}
+            </div>
+          ) : showBrowser && project ? (
+            // ── The chosen repository ───────────────────────────────────────
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 rounded-2xl border border-[#a9d8bb]/20 bg-[#a9d8bb]/[0.05] p-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#a9d8bb]/15 text-[#b9e3c8]">
+                  <RepoMark size={18} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-mono text-[13.5px] font-semibold text-white">{project.repoFullName}</p>
+                  <p className="mt-0.5 truncate text-[11.5px] text-white/40">
+                    {project.defaultBranch} @ {project.baseSha.slice(0, 7)}
                   </p>
-                  {patOpen ? (
-                    tokenForm
-                  ) : (
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setView("pick")}
+                  className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[12px] font-semibold text-black transition-transform hover:scale-[1.02]"
+                >
+                  Change
+                </button>
+              </div>
+
+              {openPath ? (
+                <div className="rounded-2xl border border-white/[0.07] bg-black/20">
+                  <div className="flex items-center gap-2 border-b border-white/[0.06] px-2.5 py-2">
                     <button
                       type="button"
-                      onClick={() => setPatOpen(true)}
-                      className="text-[11px] text-white/50 underline-offset-2 transition-colors hover:text-white/80 hover:underline"
+                      onClick={() => {
+                        setOpenPath(null);
+                        setFileText(null);
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
                     >
-                      Use a personal access token instead
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m15 18-6-6 6-6" />
+                      </svg>
+                      Files
                     </button>
-                  )}
-                </>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-white/40">{openPath}</span>
+                  </div>
+                  <pre className="max-h-[58vh] overflow-auto p-3 text-[12px] leading-relaxed text-white/75">
+                    {fileText ?? (error ? "" : "Loading…")}
+                  </pre>
+                </div>
               ) : (
                 <>
-                  {tokenForm}
-                  <p className="text-[11px] leading-relaxed text-white/35">
-                    The agent gets read access to the repositories you choose. It cannot change anything without your
-                    approval.
-                  </p>
+                  <div className="relative">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/30"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-3.6-3.6" />
+                    </svg>
+                    <input
+                      value={fileFilter}
+                      onChange={(event) => setFileFilter(event.target.value)}
+                      placeholder="Search files"
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 py-2.5 pl-9 pr-3 text-[13px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+                    />
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
+                    {tree === null ? (
+                      <p className="px-3 py-3 text-[12.5px] text-white/35">Reading files…</p>
+                    ) : filteredFiles.length === 0 ? (
+                      <p className="px-3 py-3 text-[12.5px] text-white/35">No files match.</p>
+                    ) : (
+                      <div className="max-h-[52vh] divide-y divide-white/[0.04] overflow-y-auto">
+                        {filteredFiles.map((file) => (
+                          <button
+                            key={file.path}
+                            type="button"
+                            onClick={() => void openFile(file.path)}
+                            className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-white/[0.05]"
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="shrink-0 text-white/25"
+                              aria-hidden="true"
+                            >
+                              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+                              <path d="M14 3v5h5" />
+                            </svg>
+                            <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-white/70">{file.path}</span>
+                            <span className="shrink-0 text-[10.5px] text-white/20">{formatSize(file.size)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {truncated && (
+                    <p className="px-1 text-[11px] text-white/30">
+                      This list is capped; the agent sees the same capped list.
+                    </p>
+                  )}
                 </>
               )}
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2">
-                <span className="truncate text-[12px] text-white/70">
-                  Connected as <span className="font-semibold text-white">@{statusState.status.login ?? "GitHub"}</span>
+            // ── Choose a repository ────────────────────────────────────────
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-1.5 pl-3">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="shrink-0 text-white/35"
+                  aria-hidden="true"
+                >
+                  <path d="M12 2.2A9.8 9.8 0 0 0 2.2 12c0 4.3 2.8 8 6.7 9.3.5.1.7-.2.7-.5v-1.7c-2.7.6-3.3-1.3-3.3-1.3-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.3-1.1.6-1.4-2.2-.3-4.4-1.1-4.4-4.8 0-1.1.4-1.9 1-2.6-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.5 1 2.6 0 3.7-2.2 4.5-4.4 4.8.3.3.6.9.6 1.9v2.8c0 .3.2.6.7.5a9.8 9.8 0 0 0 6.7-9.3A9.8 9.8 0 0 0 12 2.2Z" />
+                </svg>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-white/70">
+                  <span className="font-semibold text-white">@{statusState.status.login ?? "GitHub"}</span>
+                  {attention.length > 0 && (
+                    <span className="ml-2 rounded-full bg-amber-400/15 px-2 py-0.5 text-[10.5px] font-medium text-amber-100/90">
+                      {attention.length} to fix
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"
-                  onClick={() => void disconnect()}
-                  disabled={busy === "disconnect"}
-                  className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+                  onClick={() => setAccountOpen((value) => !value)}
+                  className="shrink-0 rounded-xl px-3 py-1.5 text-[12px] font-medium text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
+                  aria-expanded={accountOpen}
                 >
-                  Disconnect
+                  {accountOpen ? "Done" : "Manage"}
                 </button>
               </div>
 
-              {attention.length > 0 && (
-                <div className="space-y-2">
-                  {attention.map(({ connection, recovery }) => {
-                    const blocked = recovery.level === "blocked";
+              {accountOpen && (
+                <div className="space-y-3 rounded-2xl border border-white/[0.07] bg-black/20 p-3">
+                  {attention.length > 0 && (
+                    <div className="space-y-2">
+                      {attention.map(({ connection, recovery }) => {
+                        const blocked = recovery.level === "blocked";
+                        return (
+                          <div
+                            key={connection.id}
+                            className={`rounded-xl border p-2.5 ${
+                              blocked
+                                ? "border-red-400/25 bg-red-500/[0.06]"
+                                : "border-amber-300/20 bg-amber-400/[0.05]"
+                            }`}
+                          >
+                            <p className={`text-[12px] font-semibold ${blocked ? "text-red-100/90" : "text-amber-100/90"}`}>
+                              {recovery.headline}
+                            </p>
+                            <p className={`mt-0.5 text-[11px] leading-relaxed ${blocked ? "text-red-100/60" : "text-amber-100/60"}`}>
+                              <span className="font-mono text-white/70">@{connection.login}</span> — {recovery.body}
+                            </p>
+
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                              <span className="text-[9px] uppercase tracking-[0.1em] text-white/30">Scope</span>
+                              <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-[#a9d8bb]">
+                                {recovery.classicScope}
+                              </code>
+                              <span className="text-[9px] text-white/25">or</span>
+                              {recovery.fineGrained.map((scope) => (
+                                <code key={scope} className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-[#a9d8bb]">
+                                  {scope}
+                                </code>
+                              ))}
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <a
+                                href={recovery.tokenUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded-md border border-white/[0.14] px-2 py-1 text-[11px] font-medium text-white/75 transition-colors hover:bg-white/[0.07] hover:text-white"
+                              >
+                                Open GitHub tokens ↗
+                              </a>
+                              <a
+                                href={recovery.fineGrainedUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-1 py-1 text-[11px] text-white/40 underline-offset-2 transition-colors hover:text-white/70 hover:underline"
+                              >
+                                New fine-grained token
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => startReplacement(connection)}
+                                className="rounded-md border border-white/[0.14] px-2 py-1 text-[11px] font-medium text-white/75 transition-colors hover:bg-white/[0.07] hover:text-white"
+                              >
+                                Replace token
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void removeConnection(connection.id)}
+                                disabled={busy === `remove:${connection.id}`}
+                                className="px-1 py-1 text-[11px] text-white/40 transition-colors hover:text-red-300 disabled:opacity-50"
+                              >
+                                {busy === `remove:${connection.id}` ? "Removing…" : "Remove"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {(statusState.status.connections?.length ?? 0) > 0 && (
+                    <div className="space-y-1">
+                      {(statusState.status.connections ?? []).map((item) => {
+                        const isDefault = statusState.status.defaultId === item.id;
+                        const detail = item.scopes
+                          ? item.scopes.slice(0, 40)
+                          : item.canReadRepos
+                            ? "fine-grained token"
+                            : "no repository access";
+                        return (
+                          <div key={item.id} className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => void promoteConnection(item.id)}
+                              disabled={busy === `default:${item.id}` || isDefault}
+                              title={isDefault ? "Used for repository reads" : "Use this connection for repository reads"}
+                              className="min-w-0 flex-1 text-left disabled:cursor-default"
+                            >
+                              <span className="block truncate text-[12px] text-white/75">
+                                @{item.login}
+                                {item.label && item.label !== item.login ? ` · ${item.label}` : ""}
+                              </span>
+                              <span className="block truncate text-[10.5px] text-white/30">{detail}</span>
+                            </button>
+                            {isDefault ? (
+                              <span className="shrink-0 rounded-full bg-[#a9d8bb]/15 px-2 py-0.5 text-[9px] uppercase tracking-wide text-[#a9d8bb]/80">
+                                default
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-[10px] text-white/20">{busy === `default:${item.id}` ? "…" : item.kind}</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => void removeConnection(item.id)}
+                              disabled={busy === `remove:${item.id}`}
+                              className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-white/25 transition-colors hover:bg-white/[0.07] hover:text-red-300 disabled:opacity-50"
+                              aria-label={`Remove the @${item.login} connection`}
+                            >
+                              {busy === `remove:${item.id}` ? "…" : "Remove"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {tokenForm}
+
+                  <button
+                    type="button"
+                    onClick={() => void disconnect()}
+                    disabled={busy === "disconnect"}
+                    className="w-full rounded-xl border border-red-400/15 px-3 py-2 text-[12px] font-medium text-red-200/70 transition-colors hover:bg-red-500/[0.08] hover:text-red-200 disabled:opacity-50"
+                  >
+                    {busy === "disconnect" ? "Disconnecting…" : "Disconnect GitHub"}
+                  </button>
+                </div>
+              )}
+
+              <div className="relative">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/30"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.6-3.6" />
+                </svg>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search repositories"
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-9 pr-3 text-[13.5px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+                />
+              </div>
+
+              {filteredRows.length === 0 ? (
+                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-[13px] text-white/35">
+                  {reposLoading && rows.length === 0
+                    ? "Reading your repositories…"
+                    : query.trim()
+                      ? "No repositories match."
+                      : "No repositories to show."}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {filteredRows.slice(0, 100).map((row) => {
+                    const selected = row.project !== null && row.project.id === projectId;
+                    const locked =
+                      lockedProject !== null &&
+                      row.project !== null &&
+                      row.project.id !== lockedProject.id;
+                    const working = busy === row.fullName;
                     return (
                       <div
-                        key={connection.id}
-                        className={`rounded-xl border p-2.5 ${
-                          blocked
-                            ? "border-red-400/25 bg-red-500/[0.06]"
-                            : "border-amber-300/20 bg-amber-400/[0.05]"
+                        key={row.project?.id ?? row.fullName}
+                        className={`flex items-center gap-1 rounded-2xl border px-1.5 py-1 transition-colors ${
+                          selected
+                            ? "border-[#a9d8bb]/35 bg-[#a9d8bb]/[0.08]"
+                            : "border-white/[0.06] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.045]"
                         }`}
                       >
-                        <p
-                          className={`text-[11.5px] font-semibold ${
-                            blocked ? "text-red-100/90" : "text-amber-100/90"
-                          }`}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (row.project) chooseProject(row.project);
+                            else if (row.repo) void attach(row.repo);
+                          }}
+                          disabled={working || locked}
+                          className="flex min-w-0 flex-1 items-center gap-3 px-1.5 py-2 text-left disabled:cursor-not-allowed"
                         >
-                          {recovery.headline}
-                        </p>
-                        <p
-                          className={`mt-0.5 text-[10.5px] leading-relaxed ${
-                            blocked ? "text-red-100/60" : "text-amber-100/60"
-                          }`}
-                        >
-                          <span className="font-mono text-white/70">@{connection.login}</span> — {recovery.body}
-                        </p>
-
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                          <span className="text-[9px] uppercase tracking-[0.1em] text-white/30">Scope</span>
-                          <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-[#a9d8bb]">
-                            {recovery.classicScope}
-                          </code>
-                          <span className="text-[9px] text-white/25">or</span>
-                          {recovery.fineGrained.map((scope) => (
-                            <code
-                              key={scope}
-                              className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-[#a9d8bb]"
-                            >
-                              {scope}
-                            </code>
-                          ))}
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <a
-                            href={recovery.tokenUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded-md border border-white/[0.14] px-2 py-1 text-[10px] font-medium text-white/75 transition-colors hover:bg-white/[0.07] hover:text-white"
+                          <span
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                              selected ? "bg-[#a9d8bb]/15 text-[#b9e3c8]" : "bg-white/[0.05] text-white/40"
+                            }`}
                           >
-                            Open GitHub tokens ↗
-                          </a>
-                          <a
-                            href={recovery.fineGrainedUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-1 py-1 text-[10px] text-white/40 underline-offset-2 transition-colors hover:text-white/70 hover:underline"
+                            <RepoMark size={17} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className={`block truncate font-mono text-[13px] ${selected ? "text-white" : "text-white/80"}`}>
+                              {row.fullName}
+                            </span>
+                            <span className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-white/35">
+                              {row.project && <span className="text-[#a9d8bb]/80">Project</span>}
+                              {row.repo?.private && <span>Private</span>}
+                              <span className="truncate">{row.branch}</span>
+                            </span>
+                          </span>
+                          <span
+                            className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                              selected
+                                ? "bg-[#a9d8bb]/15 text-[#b9e3c8]"
+                                : "bg-white/[0.06] text-white/55"
+                            }`}
                           >
-                            New fine-grained token
-                          </a>
+                            {selected ? "Using" : working ? "Adding…" : row.project ? "Use" : "Add"}
+                          </span>
+                        </button>
+                        {row.project && (
                           <button
                             type="button"
-                            onClick={() => startReplacement(connection)}
-                            className="rounded-md border border-white/[0.14] px-2 py-1 text-[10px] font-medium text-white/75 transition-colors hover:bg-white/[0.07] hover:text-white"
+                            onClick={() => {
+                              if (row.project) removeProject(row.project);
+                            }}
+                            className="shrink-0 rounded-xl p-2 text-white/20 transition-colors hover:bg-white/[0.06] hover:text-red-300"
+                            aria-label={`Remove ${row.fullName}`}
                           >
-                            Replace token
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+                            </svg>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => void removeConnection(connection.id)}
-                            disabled={busy === `remove:${connection.id}`}
-                            className="px-1 py-1 text-[10px] text-white/40 transition-colors hover:text-red-300 disabled:opacity-50"
-                          >
-                            {busy === `remove:${connection.id}` ? "Removing…" : "Remove"}
-                          </button>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
               )}
-
-              {(statusState.status.connections?.length ?? 0) > 0 && (
-                <div>
-                  <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
-                    GitHub connections
-                  </h3>
-                  <div className="space-y-1">
-                    {(statusState.status.connections ?? []).map((item) => {
-                      const isDefault = statusState.status.defaultId === item.id;
-                      const detail = item.scopes
-                        ? item.scopes.slice(0, 40)
-                        : item.canReadRepos
-                          ? "fine-grained token"
-                          : "no repository access";
-                      return (
-                        <div
-                          key={item.id}
-                          className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => void promoteConnection(item.id)}
-                            disabled={busy === `default:${item.id}` || isDefault}
-                            title={isDefault ? "Used for repository reads" : "Use this connection for repository reads"}
-                            className="min-w-0 flex-1 text-left disabled:cursor-default"
-                          >
-                            <span className="block truncate text-[11px] text-white/75">
-                              @{item.login}
-                              {item.label && item.label !== item.login ? ` · ${item.label}` : ""}
-                            </span>
-                            <span className="block truncate text-[9.5px] text-white/30">{detail}</span>
-                          </button>
-                          {isDefault ? (
-                            <span className="shrink-0 rounded bg-[#a9d8bb]/15 px-1 py-0.5 text-[8px] uppercase tracking-wide text-[#a9d8bb]/80">
-                              default
-                            </span>
-                          ) : (
-                            <span className="shrink-0 text-[9px] text-white/20">
-                              {busy === `default:${item.id}` ? "…" : item.kind}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => void removeConnection(item.id)}
-                            disabled={busy === `remove:${item.id}`}
-                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-white/25 transition-colors hover:bg-white/[0.07] hover:text-red-300 disabled:opacity-50"
-                            aria-label={`Remove the @${item.login} connection`}
-                          >
-                            {busy === `remove:${item.id}` ? "…" : "Remove"}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {tokenForm}
-
-              {project && (
-                <div className="rounded-xl border border-[#a9d8bb]/15 bg-[#a9d8bb]/[0.035]">
-                  <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] px-3 py-2">
-                    <span className="truncate text-[12px] font-semibold text-white/85">{project.repoFullName}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSelectProject(null);
-                        setTree(null);
-                        setOpenPath(null);
-                        setFileText(null);
-                      }}
-                      className="shrink-0 rounded-lg px-2 py-1 text-[10px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
-                    >
-                      Switch
-                    </button>
-                  </div>
-
-                  {openPath ? (
-                    <div className="p-2">
-                      <div className="mb-2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpenPath(null);
-                            setFileText(null);
-                          }}
-                          className="rounded-lg px-2 py-1 text-[10px] text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
-                        >
-                          ← Files
-                        </button>
-                        <span className="truncate font-mono text-[10px] text-white/40">{openPath}</span>
-                      </div>
-                      <pre className="max-h-[55vh] overflow-auto rounded-lg bg-black/40 p-2 text-[10.5px] leading-relaxed text-white/75">
-                        {fileText ?? (error ? "" : "Loading…")}
-                      </pre>
-                    </div>
-                  ) : (
-                    <div className="p-2">
-                      <input
-                        value={fileFilter}
-                        onChange={(event) => setFileFilter(event.target.value)}
-                        placeholder="Filter files…"
-                        className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
-                      />
-                      {tree === null ? (
-                        <p className="px-1 py-2 text-[11px] text-white/35">Reading the tree…</p>
-                      ) : filteredFiles.length === 0 ? (
-                        <p className="px-1 py-2 text-[11px] text-white/35">No files match.</p>
-                      ) : (
-                        <div className="max-h-[45vh] space-y-0.5 overflow-y-auto">
-                          {filteredFiles.map((file) => (
-                            <button
-                              key={file.path}
-                              type="button"
-                              onClick={() => void openFile(file.path)}
-                              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-white/[0.05]"
-                            >
-                              <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-white/60">{file.path}</span>
-                              <span className="shrink-0 text-[9px] text-white/20">{formatSize(file.size)}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      <p className="mt-2 px-1 text-[9.5px] leading-relaxed text-white/25">
-                        {truncated ? "This list is capped; the agent sees the same capped list. " : ""}
-                        Dependencies, build output and lockfiles are excluded.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {projects.length > 0 && (
-                <div>
-                  <div className="mb-1.5 flex items-baseline justify-between gap-2 px-1">
-                    <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">Choose a project</h3>
-                    <span className="text-[9.5px] tabular-nums text-white/25">{projects.length}</span>
-                  </div>
-                  <p className="mb-2 px-1 text-[10px] leading-relaxed text-white/30">
-                    The agent reads the project you pick. Selecting one switches this chat to it.
-                  </p>
-                  {projects.length > 5 && (
-                    <input
-                      value={projectFilter}
-                      onChange={(event) => setProjectFilter(event.target.value)}
-                      placeholder="Filter projects…"
-                      className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
-                    />
-                  )}
-                  <div className="space-y-1">
-                    {filteredProjects.map((item) => {
-                      const selected = project?.id === item.id;
-                      return (
-                        <div
-                          key={item.id}
-                          className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
-                            selected
-                              ? "border-[#a9d8bb]/35 bg-[#a9d8bb]/[0.07]"
-                              : "border-white/[0.06] bg-white/[0.02]"
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => chooseProject(item)}
-                            aria-current={selected ? "true" : undefined}
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          >
-                            <span
-                              aria-hidden="true"
-                              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
-                                selected
-                                  ? "border-[#a9d8bb]/70 bg-[#a9d8bb]/25 text-[#d7f0e1]"
-                                  : "border-white/15 text-transparent"
-                              }`}
-                            >
-                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="m5 13 4 4L19 7" />
-                              </svg>
-                            </span>
-                            <span
-                              className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
-                                selected ? "text-white" : "text-white/65"
-                              }`}
-                            >
-                              {item.repoFullName}
-                            </span>
-                            <span className={`shrink-0 text-[9px] ${selected ? "text-[#a9d8bb]" : "text-white/25"}`}>
-                              {selected ? "using" : "use"}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeProject(item)}
-                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-white/25 transition-colors hover:bg-white/[0.07] hover:text-red-300"
-                            aria-label={`Remove ${item.repoFullName}`}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {filteredProjects.length === 0 && (
-                      <p className="px-1 py-2 text-[10.5px] text-white/30">No project matches that filter.</p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">Add a repository</h3>
-                <p className="mb-2 px-1 text-[10px] leading-relaxed text-white/30">
-                  Attaching adds the repository to your projects and switches this chat to it.
-                </p>
-                <input
-                  value={repoFilter}
-                  onChange={(event) => setRepoFilter(event.target.value)}
-                  placeholder="Filter repositories…"
-                  className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
-                />
-                {reposLoading && filteredRepos.length === 0 ? (
-                  <p className="px-1 py-2 text-[11px] text-white/35">Reading your repositories…</p>
-                ) : filteredRepos.length === 0 ? (
-                  <p className="px-1 py-2 text-[11px] text-white/35">No repositories to show. If this is unexpected, reconnect GitHub.</p>
-                ) : (
-                  <div className="space-y-1">
-                    {filteredRepos.slice(0, 100).map((repo) => (
-                      <button
-                        key={repo.fullName}
-                        type="button"
-                        onClick={() => void attach(repo)}
-                        disabled={busy === repo.fullName}
-                        className="flex w-full items-center gap-2 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-left transition-colors hover:border-white/15 hover:bg-white/[0.04] disabled:opacity-50"
-                      >
-                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-white/70">{repo.fullName}</span>
-                        {repo.private && (
-                          <span className="shrink-0 rounded bg-white/[0.06] px-1 py-0.5 text-[8px] uppercase tracking-wide text-white/35">private</span>
-                        )}
-                        <span className="shrink-0 text-[9px] text-white/25">{repo.defaultBranch}</span>
-                        <span className="shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] text-white/45">
-                          {busy === repo.fullName ? "adding…" : "add"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           )}
         </div>

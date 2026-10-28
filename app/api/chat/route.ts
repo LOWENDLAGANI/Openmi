@@ -19,7 +19,7 @@ import {
 import { rateLimitMessage } from "@/lib/rateLimitPolicy";
 import { resolveDew } from "@/lib/serverRedeem";
 import { readUserKeys } from "@/lib/providerKeys";
-import { readHourSession } from "@/lib/hourSession";
+import { hourModelRefusal, readHourSession } from "@/lib/hourSession";
 import { estimateTokenUsage, outOfDewMessage } from "@/lib/dew";
 
 // ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
@@ -370,9 +370,14 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // ── The hour ──────────────────────────────────────────────────────────────
   // Openmi charges for time, not for messages: one live hour covers every
-  // answer in every chat and on every model, and it was charged when it started.
-  // A request with no live hour is refused before any model runs, so nothing is
-  // served for free — and nothing is charged twice.
+  // answer in every chat on the model it was bought for, and it was charged when
+  // it started. A request with no live hour is refused before any model runs, so
+  // nothing is served for free — and nothing is charged twice.
+  //
+  // The model is part of the purchase. Asking for a different one is not a
+  // fallback to hide: it is refused, with the active model named and the choice
+  // to keep using it or end the hour. Answering it under another model would
+  // spend an hour the buyer did not buy.
   //
   // The administrator is exempt. They mint the credits, and their exemption is
   // derived from the verified identity like every other decision here.
@@ -381,9 +386,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   // above already refuses them when a ban or cap is configured; this closes the
   // remaining hole where Dew is the only control.
   const isCallerAdmin = isAdmin(identity);
-  const coveredBySession = Boolean(
-    identity && (await readHourSession(authorization, identity.uid))
-  );
+  const hourSession = identity ? await readHourSession(authorization, identity.uid) : null;
+  const coveredBySession = Boolean(hourSession);
 
   if (!isCallerAdmin && !coveredBySession) {
     if (!identity) {
@@ -395,6 +399,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       );
     }
     return errorStream(outOfDewMessage());
+  }
+
+  if (!isCallerAdmin && hourSession && hourSession.model !== requested) {
+    return errorStream(hourModelRefusal(hourSession, requested));
   }
 
   const reasoningEffort: ReasoningEffort | null =

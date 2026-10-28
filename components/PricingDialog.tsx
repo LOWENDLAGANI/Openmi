@@ -7,9 +7,14 @@ import { formatDew } from "@/lib/dew";
 // ── Pay for the hour ────────────────────────────────────────────────────────
 //
 // Openmi bills time, not messages: one price buys an hour of usage in every chat
-// and on every model. This dialog is the moment that hour is bought, so it says
-// plainly where the Dew comes from — today's free bucket first, the wallet after
-// it — because the charge itself already does exactly that.
+// on one model — and, when it is bought in a repository, on that repository
+// only. This dialog is the moment that hour is bought, so it says what the hour
+// covers and where the Dew comes from — today's free bucket first, the wallet
+// after it — because the charge itself already does exactly that.
+//
+// A live hour for a different model or repository is a refusal, not a silent
+// replacement: the dialog says which hour is running and offers ending it as a
+// separate, deliberate step. The server refuses until that happens.
 //
 // The price arrives as a prop from the server's price list. A modified client can
 // change the number on screen, but not what `start_hour_session()` charges: the
@@ -17,6 +22,8 @@ import { formatDew } from "@/lib/dew";
 
 export interface PricingDialogProps {
   modeLabel: string;
+  /** The repository the hour will be bound to, or null for ordinary chat. */
+  repoLabel?: string | null;
   priceDew: number;
   /** Spendable now: today's free Dew plus the paid wallet. */
   balance: number;
@@ -25,19 +32,29 @@ export interface PricingDialogProps {
   busy?: boolean;
   /** A refusal worth showing in place of the button, e.g. a raced balance. */
   notice?: string | null;
+  /**
+   * A live hour this purchase does not match. Present means the purchase is
+   * blocked until that hour is ended, so only the replace action is offered.
+   */
+  conflict?: string | null;
   onStart: () => void;
+  /** Ends the live hour, then buys this one. */
+  onReplace?: () => void;
   onClose: () => void;
 }
 
 export default function PricingDialog({
   modeLabel,
+  repoLabel = null,
   priceDew,
   balance,
   dailyRemaining,
   paid,
   busy = false,
   notice = null,
+  conflict = null,
   onStart,
+  onReplace,
   onClose,
 }: PricingDialogProps) {
   useEffect(() => {
@@ -88,8 +105,9 @@ export default function PricingDialog({
           {formatDew(priceDew)} Dew for an hour
         </h2>
         <p className="mt-1.5 text-[13px] leading-relaxed text-white/50">
-          One hour covers every answer in every chat, on every model. There is no
-          per-message charge.
+          One hour covers every answer in every chat on {modeLabel}
+          {repoLabel ? `, and only the ${repoLabel} repository` : ""}. There is no per-message
+          charge.
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-white/50">
           You have <span className="font-medium text-white/85">{formatDew(dailyRemaining)} free Dew</span> today
@@ -103,7 +121,35 @@ export default function PricingDialog({
           </p>
         )}
 
-        {canStart ? (
+        {conflict ? (
+          <>
+            <p className="mt-4 rounded-[14px] border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5 text-[12px] leading-relaxed text-amber-100/80">
+              {conflict} Ending the hour now ends the time you have already paid for.
+            </p>
+            {canStart && onReplace ? (
+              <button
+                type="button"
+                onClick={onReplace}
+                disabled={busy}
+                className="mt-3 w-full rounded-full border border-amber-300/30 py-3 text-[14px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {busy ? "Ending the hour…" : `End it and start an hour for ${modeLabel}`}
+              </button>
+            ) : (
+              <p className="mt-3 text-[12px] leading-relaxed text-white/45">
+                Keep using the active hour until it ends, or top up so this one can be started after it.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="mt-2 w-full rounded-full py-2.5 text-[13px] font-medium text-white/60 transition-colors hover:text-white disabled:opacity-40"
+            >
+              Keep the active hour
+            </button>
+          </>
+        ) : canStart ? (
           <>
             <div className="mt-4 rounded-[14px] border border-white/[0.07] bg-black/20 px-3 py-2.5">
               {coveredByFree ? (
