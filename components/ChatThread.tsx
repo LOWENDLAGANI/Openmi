@@ -428,13 +428,11 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
       {/* The answer is a card: white on the gray canvas, a hairline border and
           the softest shadow that still lifts it off the page. The model badge
           sits at the top of the card rather than floating above it, so the
-          whole turn is one object. */}
-      <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
+          whole turn is one object. */}          <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
         {/* Header only when there is an answer to head. A turn that produced
             no text has already returned above as a bare alert. */}
         {msg.content && (
           <div className="mb-2.5 flex items-center gap-2">
-            <ModelBadge model={msg.model} />
             {msg.usage && (
               <span
                 className="text-[10px] text-text-low"
@@ -883,18 +881,6 @@ export default function ChatThread({  messages,
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">
-              <div className="mb-2 flex items-center gap-2">
-                {(() => {
-                  const m = messages.find((x) => x.id === streamingId);
-                  return m ? (
-                    <>
-                      <ModelBadge model={m.model} />
-                    </>
-                  ) : (
-                    <span className="text-[12px] font-medium text-text-mid">Openmi</span>
-                  );
-                })()}
-              </div>
               <TypingDots message={loadingMessage} />
             </div>
           )}
@@ -910,27 +896,6 @@ export default function ChatThread({  messages,
   );
 }
 
-// ── Model identity badge (added for UI overhaul) ──────────────────────────
-// Visual indicator showing which Openmi model responded with color-coded styling
-import { OPENMI_MODES } from "@/lib/models";
-
-function ModelBadge({ model }: { model?: string }) {
-  // A stored message carries the display name rather than the mode id, so both
-  // are matched. Looking up the id alone made every pinned mode fall back to
-  // Auto's badge and label.
-  const mode =
-    OPENMI_MODES.find((m) => m.id === model || m.display === model) ?? OPENMI_MODES[0];
-  const isCode = mode.id === "code";
-  const badgeClass = isCode ? "model-badge model-badge-code" : "model-badge model-badge-auto";
-  const label = mode.display;
-  
-  return (
-    <span className={badgeClass}>
-      <span className="model-badge-dot" />
-      {label}
-    </span>
-  );
-}
 
 /** The triangle every alert in the thread uses. */
 function AlertIcon() {
