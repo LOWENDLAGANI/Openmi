@@ -500,7 +500,7 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
             directly under the text that explains it. It reads the stored change
             set rather than the step response, so a reload keeps a reviewable
             change instead of losing the only diff the browser ever held. */}
-        {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} />}
+        {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} review={msg.review} />}
 
         {msg.sources && <SearchSources sources={msg.sources} />}
 

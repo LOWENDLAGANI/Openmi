@@ -63,6 +63,7 @@ import type {
   ImageAttachment,
   SearchMode,
   SearchSource,
+  ProposalReview,
 } from "@/lib/types";
 import {
   DEFAULT_APPEARANCE,
@@ -1235,7 +1236,12 @@ export default function HomePage() {
 
           // Mutated from the stream callback, so it lives in an object: a plain
           // `let` would be read as its initial value after the await.
-          const state = { failure: null as string | null, finished: false, changesetId: undefined as string | undefined };
+          const state = {
+            failure: null as string | null,
+            finished: false,
+            changesetId: undefined as string | undefined,
+            review: undefined as ProposalReview | undefined,
+          };
           let stepText = "";
 
           const { sawDone } = await readAgentStream(response.body, (event) => {
@@ -1277,6 +1283,7 @@ export default function HomePage() {
             if (event.turnToken) turnToken = event.turnToken;
             if (event.model) answerModel = event.model;
             if (event.changesetId) state.changesetId = event.changesetId;
+            if (event.review) state.review = event.review;
             // The id follows the answer, so the review card survives a reload and
             // still points at the change the server signed.
             if (event.changesetWarning) setModelNotice(event.changesetWarning);
@@ -1291,7 +1298,12 @@ export default function HomePage() {
           });
 
           await flushPatches();
-          if (state.changesetId) await patchMessage(assistantId, { changesetId: state.changesetId });
+          if (state.changesetId) {
+            await patchMessage(assistantId, {
+              changesetId: state.changesetId,
+              ...(state.review ? { review: state.review } : {}),
+            });
+          }
 
           if (state.failure) {
             noteRateLimit(state.failure);

@@ -93,6 +93,36 @@ export interface ChangeSetView {
   files: ChangeSetFileView[];
 }
 
+/**
+ * One thing the pre-flight review wants a reader to know about a proposal.
+ *
+ * `error` is the review's claim that the change would not work; `warning` is
+ * "look at this". The severity is what decides whether the agent repairs its
+ * own proposal before the review screen is ever shown.
+ */
+export interface ReviewFinding {
+  path: string;
+  severity: "error" | "warning";
+  message: string;
+}
+
+/**
+ * The result of checking a proposal before it is handed over.
+ *
+ * Two passes feed it: deterministic checks over the exact bytes (`static`) and
+ * one model read of the diff. `modelChecked` is false when only the first ran,
+ * so a review never implies a second opinion it did not get, and `repaired` is
+ * true when the agent was sent back to fix what was found.
+ */
+export interface ProposalReview {
+  verdict: "pass" | "fix";
+  summary: string;
+  findings: ReviewFinding[];
+  modelChecked: boolean;
+  repaired: boolean;
+  checkedAt: number;
+}
+
 /** The answer to a successful commit: branch, sha, and where to review it. */
 export interface CommitResult {
   sha: string;
@@ -117,6 +147,11 @@ export interface ChatMessage {
    * find, review or commit.
    */
   changesetId?: string;
+  /**
+   * The pre-flight review of that change. Live-only: the change set is the
+   * durable record, so a reloaded conversation shows the diff without it.
+   */
+  review?: ProposalReview;
   images?: ImageAttachment[];
   /** set when the message was produced by the image model rather than chat */
   generatedImages?: GeneratedImage[];

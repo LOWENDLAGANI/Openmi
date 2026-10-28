@@ -21,9 +21,18 @@ import { loadBlob, loadTree } from "@/lib/github/cache";
 import { MAX_AGENT_FILES, filterTree, type TreeFile } from "@/lib/github/tree";
 import { pickSearchCandidates, searchFiles, type SearchableFile } from "@/lib/github/search";
 import { OPENMI_SYSTEM_PROMPT } from "@/lib/systemPrompt";
-import type { AgentStep } from "@/lib/types";
+import type { AgentStep, ProposalReview } from "@/lib/types";
 import { AGENT_TOOL_SCHEMAS, describeToolCall, runTool, type ToolContext, type ToolResult } from "./tools";
 import { stageEdits, type StagedChange } from "./edits";
+import {
+  assembleReview,
+  hasBlockingFinding,
+  parseReview,
+  repairRequest,
+  reviewMessages,
+  staticReview,
+  type ModelReview,
+} from "./review";
 import type { ProviderFamily } from "@/lib/providers";
 import { callAgentModel, type AgentMessage } from "./model";
 import { TOOL_CALL_PLACEHOLDER, type RepoChatMessage } from "./transcript";
@@ -100,6 +109,14 @@ export interface StepResult {
    * The review screen is the consumer; nothing is written until it approves.
    */
   proposals: StagedChange[];
+  /**
+   * The pre-flight review of those changes, when anything was staged.
+   *
+   * Null means no proposal was made, not that the change is unreviewed. The
+   * change set itself is not signed over this: it is a report shown beside the
+   * diff, never an authority over whether the commit may proceed.
+   */
+  review: ProposalReview | null;
 }
 
 /** The rules the agent works under, prepended to the product prompt. */
@@ -177,6 +194,7 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
       label: "Openmi",
       exhausted: true,
       proposals: [],
+      review: null,
     };
   }
 
@@ -210,7 +228,7 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
     { onDelta: (text) => emit({ type: "delta", text }) },
     request.accountKeys ?? {}
   );
-  const usage: TurnUsage = reply.usage;
+  let usage: TurnUsage = reply.usage;
 
   const context = contextFor(filtered.files, token, project.repoFullName);
 
@@ -288,6 +306,101 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
     });
   }
 
+
+  // ── The pre-flight review ────────────────────────────────────────────────
+  // A proposal nobody checked is a guess with a diff around it, so two passes
+  // run before the change is handed over. The static one reads the exact bytes
+  // that would be written; the model one reads the diff with those findings in
+  // hand. An `error` from either sends the agent back once to repair its own
+  // work, and what remains is reported with the change.
+  //
+  // Nothing is executed. There is no checkout here, so this is not a build and
+  // the review never says it is: the card names the checks that actually ran.
+  let review: ProposalReview | null = null;
+  if (proposals.size > 0) {
+    const repoPaths = filtered.files.map((file) => file.path);
+    const stagedNow = () => [...proposals.values()];
+    let findings = staticReview({ changes: stagedNow(), repoPaths });
+    let repaired = false;
+    // One repair round, and only while the turn still has budget: a repair is a
+    // second model call, and a turn that has already spent its reads must not
+    // spend more to polish a diff nobody can afford.
+    const canRepair = existing ? !turnExhausted(advanceTurn(existing, usage)) : true;
+
+    if (canRepair && hasBlockingFinding(findings)) {
+      try {
+        const fix = await callAgentModel(
+          [
+            { role: "system", content: repoPrompt(project) },
+            ...history,
+            ...nextTranscript,
+            repairRequest(findings, stagedNow()),
+          ],
+          AGENT_TOOL_SCHEMAS,
+          request.signal,
+          undefined,
+          request.accountKeys ?? {}
+        );
+        usage = {
+          prompt: usage.prompt + fix.usage.prompt,
+          completion: usage.completion + fix.usage.completion,
+        };
+        // Only proposals matter here. This step returns after the repair, so a
+        // read the model asks for would have nothing left to consume it.
+        for (const call of fix.toolCalls
+          .filter((candidate) => candidate.name === "propose_edits")
+          .slice(0, 4)) {
+          const tool = "propose_edits" as const;
+          emit({ type: "step", index, step: { tool, label: "Repairing the proposal", ok: true, running: true }, pending: true });
+          const result = await runTool(call, context);
+          const finished: AgentStep = {
+            tool,
+            label: result.summary,
+            ok: result.ok,
+            ...(result.detail ? { detail: result.detail } : {}),
+          };
+          steps.push(finished);
+          emit({ type: "step", index, step: finished, pending: false });
+          index += 1;
+        }
+        // The repair may have replaced every file, so the checks run again on
+        // what is actually about to be reviewed rather than on what was there
+        // before it.
+        findings = staticReview({ changes: stagedNow(), repoPaths });
+        repaired = true;
+      } catch {
+        // A repair that cannot be attempted is not a failed review: the static
+        // findings are evidence already, and they are still reported.
+      }
+    }
+
+    // Advisory, and labelled as such: if the reviewer does not answer, the
+    // static pass still describes the state and `modelChecked` says which ran.
+    let model: ModelReview | null = null;
+    try {
+      const answer = await callAgentModel(
+        reviewMessages(
+          stagedNow(),
+          { repoFullName: project.repoFullName, baseSha: project.baseSha, branch: project.defaultBranch },
+          findings
+        ),
+        [],
+        request.signal,
+        undefined,
+        request.accountKeys ?? {}
+      );
+      usage = {
+        prompt: usage.prompt + answer.usage.prompt,
+        completion: usage.completion + answer.usage.completion,
+      };
+      model = parseReview(answer.content, stagedNow());
+    } catch {
+      model = null;
+    }
+
+    review = assembleReview({ staticFindings: findings, model, repaired });
+  }
+
   const baseState: TurnState = existing
     ? advanceTurn(existing, usage)
     : createTurn({
@@ -322,6 +435,7 @@ export async function runAgentStep(request: StepRequest): Promise<StepResult> {
     label: reply.label,
     exhausted: exhausted && wantsMore,
     proposals: [...proposals.values()],
+    review,
   };
 }
 

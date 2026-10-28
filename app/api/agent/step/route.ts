@@ -206,6 +206,10 @@ export async function POST(req: NextRequest): Promise<Response> {
           // display only: this route has no path to a GitHub write, and the
           // change set is committed only by the commit endpoint, after approval.
           proposals: result.proposals,
+          // The pre-flight review, live only: it is a report about the diff,
+          // not part of the signed change set, so a reload shows the change
+          // without it rather than claiming a check that is not stored.
+          review: result.review,
           changesetId,
           changesetWarning,
         });

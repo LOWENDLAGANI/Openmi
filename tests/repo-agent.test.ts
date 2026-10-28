@@ -702,7 +702,23 @@ later("a step runs the proposal the model asked for and returns it for review", 
         { status: 200, headers: { "content-type": "application/json" } }
       );
     }
-    modelBodies.push(JSON.parse(String(init?.body ?? "{}")) as (typeof modelBodies)[number]);
+    const body = JSON.parse(String(init?.body ?? "{}")) as (typeof modelBodies)[number];
+    modelBodies.push(body);
+    // The pre-flight reviewer is called without tools, and its usage is added
+    // to the step's own. It answers with a verdict, not with a tool call.
+    if (!Array.isArray(body.tools) || body.tools.length === 0) {
+      const verdict = JSON.stringify({
+        verdict: "pass",
+        summary: "The diff changes one constant.",
+        findings: [],
+      });
+      const wire = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: verdict } }] })}\n\n`,
+        `data: ${JSON.stringify({ usage: { prompt_tokens: 40, completion_tokens: 10 } })}\n\n`,
+        "data: [DONE]\n\n",
+      ].join("");
+      return new Response(wire, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }
     // A tool call arrives the way the wire sends one: as deltas, with the
     // provider's thought signature on the first fragment and the arguments
     // dribbled out across the rest.
@@ -766,7 +782,13 @@ later("a step runs the proposal the model asked for and returns it for review", 
       ["list_files", "read_file", "search_code", "propose_edits"]
     );
     assert.equal(modelBodies[0]?.stream, true, "a step streams, so the reader sees it work");
-    assert.deepEqual(result.usage, { prompt: 120, completion: 30 }, "reported usage is kept as reported");
+    // The step's usage is what the model reported, plus the review's own call:
+    // a check that costs tokens has to be visible in what the turn spent.
+    assert.deepEqual(result.usage, { prompt: 160, completion: 40 }, "reported usage is kept and the review is counted");
+    assert.equal(result.review?.verdict, "pass");
+    assert.equal(result.review?.repaired, false);
+    assert.equal(result.review?.modelChecked, true, "the reviewer answered, so the card may say so");
+    assert.match(result.review?.summary ?? "", /one constant/);
 
     // The two wire requirements that made every tool loop fail on its second
     // request: the assistant turn needs content, and the call needs its

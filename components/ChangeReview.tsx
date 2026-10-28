@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { authHeader } from "@/lib/supabase";
-import type { ChangeSetFileView, ChangeSetView, CommitResult } from "@/lib/types";
+import type { ChangeSetFileView, ChangeSetView, CommitResult, ProposalReview } from "@/lib/types";
 
 // ── The change under review ─────────────────────────────────────────────────
 //
@@ -19,6 +19,14 @@ import type { ChangeSetFileView, ChangeSetView, CommitResult } from "@/lib/types
 interface ChangeReviewProps {
   /** The change set stored when the agent proposed it. */
   changesetId: string;
+  /**
+   * The pre-flight review, when this browser watched the proposal being made.
+   *
+   * Live only: it is not part of the signed change set, so a reloaded
+   * conversation shows the same diff without the report. Absent is the honest
+   * state for a change that was reviewed on another device.
+   */
+  review?: ProposalReview | null;
 }
 
 interface ApiError extends Error {
@@ -109,7 +117,7 @@ function FileCard({ file, defaultOpen }: { file: ChangeSetFileView; defaultOpen:
   );
 }
 
-export default function ChangeReview({ changesetId }: ChangeReviewProps) {
+export default function ChangeReview({ changesetId, review }: ChangeReviewProps) {
   const [changeSet, setChangeSet] = useState<ChangeSetView | null>(null);
   const [commit, setCommit] = useState<CommitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +230,42 @@ export default function ChangeReview({ changesetId }: ChangeReviewProps) {
           {commit ? "committed" : stale ? "stale" : changeSet?.status === "approved" ? "approved" : "proposed"}
         </span>
       </div>
+
+      {review && (
+        <div
+          className={`mx-2.5 mt-2 rounded-lg border px-2.5 py-2 text-[10.5px] leading-relaxed ${
+            review.verdict === "pass"
+              ? "border-[#7fd1a1]/15 bg-[#7fd1a1]/[0.04] text-white/55"
+              : "border-amber-300/20 bg-amber-300/[0.05] text-white/65"
+          }`}
+        >
+          <p className="flex flex-wrap items-center gap-x-1.5">
+            <span className={review.verdict === "pass" ? "text-[#a9d8bb]" : "text-amber-200/90"}>
+              {review.verdict === "pass" ? "Pre-flight review passed" : "Pre-flight review found problems"}
+            </span>
+            {review.repaired && <span className="text-white/35">· repaired once</span>}
+            {!review.modelChecked && <span className="text-white/30">· static checks only</span>}
+          </p>
+          {review.summary && <p className="mt-0.5 text-white/45">{review.summary}</p>}
+          {review.findings.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {review.findings.slice(0, 4).map((finding, index) => (
+                <li key={index} className="flex gap-1.5">
+                  <span className={finding.severity === "error" ? "shrink-0 text-red-300/80" : "shrink-0 text-amber-200/70"}>
+                    {finding.severity === "error" ? "error" : "warning"}
+                  </span>
+                  <span className="min-w-0 text-white/55">
+                    <span className="font-mono text-white/40">{finding.path}</span> {finding.message}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-1 text-white/25">
+            Structure, imports and JSON were checked here. No build was run before you approve.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-1.5 px-2.5 py-2">
         {busy === "load" && !changeSet ? (

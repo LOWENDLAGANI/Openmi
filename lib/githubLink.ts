@@ -52,7 +52,10 @@ export async function linkGithubAccount(): Promise<GithubLinkOutcome> {
     const response = await fetch("/api/github/oauth/start", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await authHeader()) },
-      body: JSON.stringify({ next: "/" }),
+      // The app lives at `/chat`; `/` is the public landing page, and landing
+      // there after a successful connection looked like nothing had happened.
+      // The panel there reads `?github=connected` and opens itself.
+      body: JSON.stringify({ next: "/chat" }),
     });
     const payload = (await response.json().catch(() => null)) as
       | { url?: string; error?: string; detail?: string }

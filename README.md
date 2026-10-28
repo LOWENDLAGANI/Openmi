@@ -354,3 +354,28 @@ supabase/README.md   one-time dashboard setup, and how to grant an admin
    verified token and enforced before any model call.
 4. **Repository content is data, not instructions.** A README cannot change the
    agent's rules.
+
+## The pre-flight review
+
+Nothing reaches the review screen unchecked. Two passes run before a proposal is
+handed over, and the card names the ones that actually ran:
+
+- **Static checks**, over the exact bytes that would be written: a file that
+  would end up empty, merge-conflict markers, JSON that does not parse,
+  unbalanced brackets in a script, and relative or `@/` imports that point at a
+  path the tree does not have.
+- **One model read** of the diff, given those findings, answering `pass` or
+  `fix` as JSON. It is advisory and it is told it cannot run anything, so it
+  never claims a test passed.
+- **One repair round.** An `error` from either pass sends the agent back with
+  the findings; the checks then run again on what would really be committed, and
+  the card says `repaired once`.
+
+This is **not a build**. Nothing is cloned, installed, typechecked or tested —
+there is no sandbox in this deployment — and the card says so instead of
+implying a green build. Folding a real container run into the same gate is the
+next step, not something this does quietly.
+
+Connecting GitHub returns to `/chat` (where the repository panel reads
+`?github=connected` and opens itself), not to the landing page.
+
