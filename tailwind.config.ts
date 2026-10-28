@@ -62,11 +62,22 @@ const config: Config = {
           "0%": { backgroundPosition: "200% 0" },
           "100%": { backgroundPosition: "-200% 0" },
         },
+        "mark-bounce": {
+          "0%, 100%": { transform: "scale(1)" },
+          "45%": { transform: "scale(1.06)" },
+          "70%": { transform: "scale(0.97)" },
+        },
+        "logo-reveal": {
+          "0%": { opacity: "0", filter: "blur(16px) brightness(1.1)" },
+          "100%": { opacity: "1", filter: "blur(0) brightness(1)" },
+        },
       },
       animation: {
         "fade-in-up": "fade-in-up 0.25s ease-out both",
         "pulse-dot": "pulse-dot 1.2s ease-in-out infinite",
         shimmer: "shimmer 1.8s linear infinite",
+        "mark-bounce": "mark-bounce 0.9s var(--motion-ease-ink) both",
+        "logo-reveal": "logo-reveal 1.1s var(--motion-ease-smooth) both",
       },
     },
   },

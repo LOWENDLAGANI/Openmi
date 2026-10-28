@@ -43,6 +43,14 @@
   --warn-border: rgba(251, 191, 36, 0.2);
   --warn-ink: #fcd34d;
   --warn-strong: #fde68a;
+
+  /* Motion system: buy a few good moments, not motion everywhere. */
+  --motion-ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-ink: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-fast: 140ms var(--motion-ease-smooth);
+  --motion-base: 260ms var(--motion-ease-smooth);
+  --motion-slow: 420ms var(--motion-ease-smooth);
 }
 
 /* ── Light mode: the Openmi product palette ─────────────────────────────────
