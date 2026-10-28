@@ -43,6 +43,34 @@ const adImageOrigins = [
   "https://*.googlesyndication.com",
 ];
 
+// ── Adsterra popunder ───────────────────────────────────────────────────────
+// The popunder's host is assigned per zone by the network, so it cannot be one
+// of the names above: the operator pastes the exact tag URL into
+// NEXT_PUBLIC_ADSTERRA_POPUNDER_SRC and this file reads its origin at build
+// time. Only a .js URL counts, and only the origin is allowed — never a
+// wildcard, and never the whole path.
+//
+// An unset or malformed value contributes nothing, which is the same state as a
+// deployment with no popunder: the policy does not widen for a tag that will
+// not load.
+function popunderScriptOrigin() {
+  const raw = (process.env.NEXT_PUBLIC_ADSTERRA_POPUNDER_SRC ?? "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw.startsWith("//") ? `https:${raw}` : raw);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (!/\.js$/i.test(url.pathname)) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+const popunderOrigin = popunderScriptOrigin();
+// Everything the page may load as script, in one list, so script-src and
+// connect-src cannot drift apart.
+const adScripts = [...adScriptOrigins, ...(popunderOrigin ? [popunderOrigin] : [])];
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   // 'unsafe-inline' for scripts is required by Next's hydration bootstrap, and
@@ -51,11 +79,11 @@ const contentSecurityPolicy = [
   // reload runtime — evaluates a string to register each component, and without
   // it every page of the development site renders as an empty black screen with
   // an EvalError in the console. Production never gets the directive.
-  `script-src 'self' 'unsafe-inline'${devEval} ${adScriptOrigins.join(" ")}`,
+  `script-src 'self' 'unsafe-inline'${devEval} ${adScripts.join(" ")}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${adImageOrigins.join(" ")}`,
   "font-src 'self' data:",
-  `connect-src 'self' https://*.supabase.co wss://*.supabase.co ${adScriptOrigins.join(" ")}`,
+  `connect-src 'self' https://*.supabase.co wss://*.supabase.co ${adScripts.join(" ")}`,
   // The app's own artifact preview, plus the ad iframes. Nothing else.
   `frame-src 'self' ${adFrameOrigins.join(" ")}`,
   "worker-src 'self' blob:",

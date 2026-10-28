@@ -20,6 +20,9 @@ import {
   adsenseClientId,
   adsenseConfigured,
   adsenseSlotId,
+  adPopunderConfigured,
+  adsterraPopunderOrigin,
+  adsterraPopunderSrc,
 } from "../lib/ads";
 
 let failures = 0;
@@ -122,8 +125,17 @@ async function main(): Promise<void> {
 
   await test("the ad is kept off the screens it does not belong on", () => {
     const page = read("app/chat/page.tsx");
-    assert.match(page, /!focusHome && !temporary && \(\s*<AdBanner/);
-    assert.match(page, /enabled=\{appConfig\?\.adsEnabled !== false\}/);
+    // Both the banner and the popunder sit inside the same guard. Either one
+    // outside it would put an advertisement in a temporary chat, which is the
+    // screen whose whole promise is that nothing is recorded.
+    assert.match(
+      page,
+      /!focusHome && !temporary && \([\s\S]*?<AdBanner enabled=\{appConfig\?\.adsEnabled !== false\}/
+    );
+    assert.match(
+      page,
+      /!focusHome && !temporary && \([\s\S]*?<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\}/
+    );
   });
 
   await test("the kill switch is a stored column, not just a code comment", () => {
@@ -133,6 +145,48 @@ async function main(): Promise<void> {
     assert.match(read("lib/serverControl.ts"), /ads_enabled: config\.adsEnabled/);
     assert.match(read("supabase/migrations/20261025000100_ads_enabled.sql"), /ads_enabled boolean not null default true/);
     assert.match(read("components/AdminControls.tsx"), /label="Ads"/);
+  });
+
+  console.log("\nthe popunder");
+
+  await test("a popunder needs a real script URL, not a bare key", () => {
+    assert.equal(
+      adsterraPopunderSrc("//pl123.profitablecpmrate.com/ab/cd.js"),
+      "https://pl123.profitablecpmrate.com/ab/cd.js"
+    );
+    for (const value of ["", "   ", "pl123", "https://example.com/tag", "javascript:alert(1)", undefined]) {
+      assert.equal(adsterraPopunderSrc(value), null, `"${value}" must not be loaded as a script`);
+    }
+  });
+
+  await test("the popunder's origin is what the policy allows", () => {
+    assert.equal(
+      adsterraPopunderOrigin("https://pl9.profitablecpmrate.com/a/b.js"),
+      "https://pl9.profitablecpmrate.com"
+    );
+    assert.equal(adsterraPopunderOrigin(null), null);
+  });
+
+  await test("no tag means no popunder, and the switch still wins", () => {
+    assert.equal(adPopunderConfigured(""), false);
+    assert.equal(adPopunderConfigured(undefined), false);
+    assert.equal(adPopunderConfigured("//pl1.example.com/a.js"), true);
+    const popunder = read("components/AdPopunder.tsx");
+    assert.match(popunder, /if \(!enabled \|\| !src\) return null;/);
+    assert.equal(popunder.match(/<Script/g)?.length, 1, "one tag, not two");
+    assert.match(popunder, /strategy="afterInteractive"/);
+  });
+
+  await test("the popunder is loaded on the same screens as the banner", () => {
+    const page = read("app/chat/page.tsx");
+    assert.match(page, /<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\}/);
+  });
+
+  await test("the CSP derives the popunder origin rather than wildcarding", () => {
+    const config = read("next.config.mjs");
+    assert.match(config, /NEXT_PUBLIC_ADSTERRA_POPUNDER_SRC/);
+    assert.match(config, /const adScripts = \[\.\.\.adScriptOrigins/);
+    assert.match(config, /script-src[^\n]*\$\{adScripts\.join/);
   });
 
   console.log("\nthe policy");
@@ -197,8 +251,11 @@ async function main(): Promise<void> {
   await test("there is a privacy page that names the ad settings and deletion", () => {
     const page = read("app/privacy/page.tsx");
     assert.match(page, /AdSense/);
+    assert.match(page, /Adsterra/);
+    assert.match(page, /popunder/i);
     assert.match(page, /adssettings\.google\.com/);
-    assert.match(page, /Deleting your data/);
+    assert.match(page, /Your rights and controls/);
+    assert.match(page, /Settings → Your data/);
     assert.match(page, /export const metadata/);
   });
 
