@@ -174,6 +174,11 @@ function AboutContent() {
           >
             Open Openmi
           </Link>
+          <p className="mt-4 text-[11.5px] text-white/30">
+            <Link href="/privacy" className="transition-colors hover:text-white/60">
+              Privacy Policy
+            </Link>
+          </p>
         </footer>
       </div>
     </div>

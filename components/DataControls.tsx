@@ -98,12 +98,22 @@ export default function DataControls() {
         </button>
       </div>
 
-      <Link
-        href="/shares"
-        className="mt-2 inline-flex text-[11px] font-medium text-[#a9d8bb]/75 transition-colors hover:text-[#a9d8bb]"
-      >
-        Manage shared links →
-      </Link>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Link
+          href="/shares"
+          className="inline-flex text-[11px] font-medium text-[#a9d8bb]/75 transition-colors hover:text-[#a9d8bb]"
+        >
+          Manage shared links →
+        </Link>
+        {/* The eraser above is only half the promise; the page that explains
+            what is kept and why is the other half. */}
+        <Link
+          href="/privacy"
+          className="inline-flex text-[11px] font-medium text-white/40 transition-colors hover:text-white/70"
+        >
+          Privacy Policy →
+        </Link>
+      </div>
 
       {notice && (
         <p role="status" className="animate-rise mt-2 text-[11px] leading-relaxed text-white/55">

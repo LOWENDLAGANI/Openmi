@@ -171,6 +171,17 @@ export default function AuthScreen({ initialError = null, unavailable = null, ba
           New here? The provider buttons create your account. Your data is stored in this
           project&apos;s Supabase database and only your account can read it.
         </p>
+
+        <p className="mt-2 text-center text-[10.5px] leading-relaxed text-white/30">
+          How your messages, connections and ads are handled is set out in the{" "}
+          <Link
+            href="/privacy"
+            className="text-[#a9d8bb]/80 underline decoration-[#a9d8bb]/25 underline-offset-2 transition-colors hover:text-[#a9d8bb]"
+          >
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </div>
     </div>
   );
