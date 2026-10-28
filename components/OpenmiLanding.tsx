@@ -372,7 +372,16 @@ export default function OpenmiLanding({ onSignIn }: OpenmiLandingProps) {
             <Link href="/about">About</Link>
             <Link href="/plus">Plans</Link>
             <Link href="/privacy">Privacy</Link>
-            <Link href="/">Open the app</Link>
+            {/* A signed-out reader who has finished the page wants the product,
+                not another tour of the page they just read: this opens the
+                sign-in screen instead of pointing back at / and looping. */}
+            {onSignIn ? (
+              <button type="button" onClick={onSignIn}>
+                Open the app
+              </button>
+            ) : (
+              <Link href="/">Open the app</Link>
+            )}
           </nav>
           <p className="lp-mono lp-copyright">Openmi · 2026</p>
         </div>

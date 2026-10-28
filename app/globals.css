@@ -1632,16 +1632,22 @@ html.light .typing-waiter-glow {
   gap: 22px;
   margin-left: auto;
 }
-.lp-footer-links a {
+.lp-footer-links a,
+.lp-footer-links button {
+  padding: 0;
+  border: 0;
+  background: none;
   font-family: var(--lp-mono);
   font-size: 10.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: rgba(21, 19, 15, 0.55);
   text-decoration: none;
+  cursor: pointer;
   transition: color 180ms ease;
 }
-.lp-footer-links a:hover {
+.lp-footer-links a:hover,
+.lp-footer-links button:hover {
   color: var(--lp-ink);
 }
 .lp-copyright {
