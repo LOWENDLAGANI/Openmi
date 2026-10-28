@@ -96,7 +96,6 @@ const TEMP_CHAT_ID = "temporary";
 const ACCOUNT_NAME_TIMEOUT_MS = 3_000;
 
 import { useMaintenance } from "@/lib/useMaintenance";
-import SplashScreen from "@/components/SplashScreen";
 
 // ── Openmi — main client orchestration: modes, streaming, chats ────────────────
 
@@ -1647,7 +1646,6 @@ export default function HomePage() {
     return (
       <>
         <MaintenanceScreen message={maintenance.message} />
-        <SplashScreen />
       </>
     );
   }
@@ -1659,7 +1657,6 @@ export default function HomePage() {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
         <Spinner variant="dew" size={30} label="Loading Openmi" className="text-[#a9d8bb]" />
-        <SplashScreen />
       </div>
     );
   }
@@ -1681,7 +1678,6 @@ export default function HomePage() {
                 : null
           }
         />
-        <SplashScreen />
       </>
     );
   }
@@ -1693,7 +1689,6 @@ export default function HomePage() {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
         <Spinner variant="dew" size={30} label="Loading Openmi" className="text-[#a9d8bb]" />
-        <SplashScreen />
       </div>
     );
   }
@@ -1704,7 +1699,6 @@ export default function HomePage() {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
         <Spinner variant="dew" size={30} label="Loading Openmi" className="text-[#a9d8bb]" />
-        <SplashScreen />
       </div>
     );
   }
@@ -2027,9 +2021,6 @@ export default function HomePage() {
         onHomeLayoutChange={handleHomeLayoutChange}
       />
 
-      {/* Branding splash — a fresh visit to the home page only, once per
-          session. It sits above the app while this page finishes loading. */}
-      <SplashScreen />
 
     </div>
   );

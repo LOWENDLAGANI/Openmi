@@ -21,14 +21,7 @@ export const metadata: Metadata = {
     siteName: "Openmi",
     title: TITLE,
     description: DESCRIPTION,
-    images: [{ url: "/openmi-splash.jpg", alt: "Openmi" }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: TITLE,
-    description: DESCRIPTION,
-    images: ["/openmi-splash.jpg"],
-  },
+},
 };
 
 export default function LandingPage() {
