@@ -23,7 +23,7 @@ import { readHourSession, type ActiveHourSession } from "@/lib/hourSession";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CODE = "code" as const;
+const FLASH = "flash" as const;
 
 interface SessionBody {
   action?: unknown;
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   return Response.json(
     {
       session: session ? sessionPayload(session) : null,
-      price: sessionPrice(CODE),
+      price: sessionPrice(FLASH),
       durationMs: HOUR_SESSION_MS,
     },
     { headers: { "Cache-Control": "no-store" } }
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "A session needs a chat." }, { status: 400 });
   }
 
-  const price = sessionPrice(CODE);
+  const price = sessionPrice(FLASH);
   if (price === null) {
     return Response.json({ error: "This model has no hour session." }, { status: 400 });
   }

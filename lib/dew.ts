@@ -92,7 +92,7 @@ export const DEW_PRECISION = 3;
  */
 export const DEW_PER_REQUEST: Record<ModeId, number> = {
   auto: 0.25,
-  code: 2,
+  code: 0.5,
   flash: 2,
 };
 
@@ -105,7 +105,6 @@ export const DEW_PER_REQUEST: Record<ModeId, number> = {
  * billed per request.
  */
 export const DEW_PER_HOUR_SESSION: Partial<Record<ModeId, number>> = {
-  code: 2,
   flash: 3,
 };
 

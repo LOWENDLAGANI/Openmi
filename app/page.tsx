@@ -14,7 +14,6 @@ import OpenmiTutorial from "@/components/OpenmiTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
 import type { ProjectSummary } from "@/lib/projects";
-import { detectDirectPushRequest } from "@/lib/pushIntent";
 import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName, saveAvatar } from "@/lib/visitorName";
@@ -1178,19 +1177,6 @@ export default function HomePage() {
       setModelNotice(null);
       setAgentActivity(null);
 
-      // ── Did they ask for this to be pushed? ──────────────────────────────
-      // Read from the sentence they typed, here, and sent as one boolean.
-      // Nothing a model produces and nothing inside the repository can switch
-      // it on: it is the person's own message or it is off. The server resolves
-      // "main" to whatever the repository's default branch really is, and it is
-      // the only destination it will push this to.
-      const directPush = detectDirectPushRequest(text) !== null;
-      if (directPush) {
-        setModelNotice(
-          `You asked for this to go straight to ${project.defaultBranch}. When the change is staged it will be pushed there — no pull request, and no review step. Stop the answer now if that is not what you meant.`
-        );
-      }
-
       const history = (await threadHistory(chatId))
         .filter((entry) => entry.role !== "system" && entry.content.trim().length > 0)
         .map((entry) => ({ role: entry.role as "user" | "assistant", content: entry.content }));
@@ -1242,7 +1228,7 @@ export default function HomePage() {
           const response = await fetch("/api/agent/step", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...(await authHeader()) },
-            body: JSON.stringify({ projectId: project.id, history, transcript, turnToken, directPush }),
+            body: JSON.stringify({ projectId: project.id, history, transcript, turnToken }),
             signal: controller.signal,
           });
 
@@ -1308,29 +1294,6 @@ export default function HomePage() {
             // The id follows the answer, so the review card survives a reload and
             // still points at the change the server signed.
             if (event.changesetWarning) setModelNotice(event.changesetWarning);
-            // What the pre-push checks found, said before anybody presses a
-            // button. Errors block a direct push; warnings never do.
-            if (event.verification) {
-              if (!event.verification.ok) {
-                setModelNotice(
-                  `This change failed its own checks, so Openmi will not push it: ${event.verification.errors.join(" ")}`
-                );
-              } else if (event.verification.warnings.length > 0) {
-                setModelNotice(`Checks passed with notes — ${event.verification.warnings.join(" ")}`);
-              }
-            }
-            // The result of a push the person asked for: the commit, or why it
-            // did not land. A push that failed is not lost work — the change is
-            // still on the card below, still reviewable.
-            if (event.directPush) {
-              if ("error" in event.directPush) {
-                setModelNotice(`The direct push did not happen. ${event.directPush.error}`);
-              } else {
-                setModelNotice(
-                  `Pushed to ${event.directPush.branch}.${event.directPush.warning ? ` ${event.directPush.warning}` : ""}`
-                );
-              }
-            }
             if (event.usage.prompt || event.usage.completion) {
               void writeUsage(assistantId, {
                 prompt: event.usage.prompt,
@@ -1500,11 +1463,7 @@ export default function HomePage() {
       // still a choice. The composed message waits here until one is picked.
       // Temporary chats have nothing to attach an hour to, so they are billed
       // per request like everything else.
-      if (
-        !temporary &&
-        (selectedMode === "code" || selectedMode === "flash") &&
-        messages.length === 0
-      ) {
+      if (!temporary && selectedMode === "flash" && messages.length === 0) {
         setPricingConflict(null);
         setPricingNotice(null);
         setPricingPrompt({ text, images, documents: documents ?? [] });
@@ -1939,9 +1898,9 @@ export default function HomePage() {
 
       {pricingPrompt && (
         <PricingDialog
-          modeLabel={getMode(selectedMode).display}
-          sessionDew={sessionPrice(selectedMode) ?? 0}
-          requestDew={DEW_PER_REQUEST[selectedMode] ?? DEW_PER_REQUEST.auto}
+          modeLabel={getMode("flash").display}
+          sessionDew={sessionPrice("flash") ?? 0}
+          requestDew={DEW_PER_REQUEST.flash}
           balance={dew.balance}
           dailyRemaining={dew.dailyRemaining}
           paid={dew.paid}

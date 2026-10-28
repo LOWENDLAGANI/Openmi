@@ -19,31 +19,6 @@ export interface AgentProposalSummary {
   removed: number;
 }
 
-/**
- * What the server reports about a change it pushed directly, when the person's
- * own message asked for that. Null on any other answer.
- *
- * Either a commit landed, or it did not and says why. The second case is not a
- * failure to hide: the change is still on the card, still reviewable, and the
- * thread has to say so rather than showing a push that never happened.
- */
-/**
- * What the static pre-push checks found, in sentences ready to show.
- *
- * Errors refuse a direct push; warnings are shown and do not. Either way the
- * reader is told what was checked — a check that runs silently is indistinguishable
- * from one that does not exist.
- */
-export interface VerificationSummary {
-  ok: boolean;
-  errors: string[];
-  warnings: string[];
-}
-
-export type DirectPushReport =
-  | { sha: string; branch: string; warning: string | null }
-  | { error: string; detail: string | null };
-
 export type AgentStreamEvent =
   | { type: "thinking" }
   | { type: "delta"; text: string }
@@ -61,8 +36,6 @@ export type AgentStreamEvent =
       proposals: AgentProposalSummary[];
       changesetId: string | null;
       changesetWarning: string | null;
-      directPush: DirectPushReport | null;
-      verification: VerificationSummary | null;
     }
   | { type: "error"; error: string; status?: number; resetAt?: number | null };
 
@@ -84,37 +57,6 @@ function cleanStep(raw: unknown): AgentStep | null {
 function cleanSteps(raw: unknown): AgentStep[] {
   if (!Array.isArray(raw)) return [];
   return raw.map(cleanStep).filter((step): step is AgentStep => step !== null);
-}
-
-/**
- * Reads the direct-push report from a done line.
- *
- * Validated like everything else here: a report that is neither a commit nor a
- * reason is null, which reads as "no push happened", and the thread stays quiet
- * rather than saying something untrue about someone's repository.
- */
-function cleanVerification(raw: unknown): VerificationSummary | null {
-  if (!raw || typeof raw !== "object") return null;
-  const value = raw as Record<string, unknown>;
-  const lines = (input: unknown): string[] =>
-    Array.isArray(input) ? input.filter((entry): entry is string => typeof entry === "string" && entry.length > 0).slice(0, 12) : [];
-  return { ok: value.ok === true, errors: lines(value.errors), warnings: lines(value.warnings) };
-}
-
-function cleanDirectPush(raw: unknown): DirectPushReport | null {
-  if (!raw || typeof raw !== "object") return null;
-  const value = raw as Record<string, unknown>;
-  if (typeof value.error === "string" && value.error) {
-    return { error: value.error, detail: typeof value.detail === "string" ? value.detail : null };
-  }
-  if (typeof value.sha === "string" && value.sha && typeof value.branch === "string" && value.branch) {
-    return {
-      sha: value.sha,
-      branch: value.branch,
-      warning: typeof value.warning === "string" ? value.warning : null,
-    };
-  }
-  return null;
 }
 
 /**
@@ -182,8 +124,6 @@ export function parseAgentEvent(line: string): AgentStreamEvent | null {
       proposals: Array.isArray(value.proposals) ? (value.proposals as AgentProposalSummary[]) : [],
       changesetId: typeof value.changesetId === "string" ? value.changesetId : null,
       changesetWarning: typeof value.changesetWarning === "string" ? value.changesetWarning : null,
-      directPush: cleanDirectPush(value.directPush),
-      verification: cleanVerification(value.verification),
     };
   }
 

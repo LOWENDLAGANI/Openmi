@@ -92,7 +92,7 @@ export const AGENT_TOOL_SCHEMAS: AgentToolSchema[] = [
     function: {
       name: "propose_edits",
       description:
-        "Stage a change for a person to review. Nothing is written to GitHub by you: the change set is committed only once someone has authorised it — by approving it, or by having asked in their own message for a direct push to their branch. You cannot authorise either. Read every file you edit first. Use whole-file content for small files; use old_string/new_string for a surgical change, with enough surrounding text that old_string matches exactly once in the file.",
+        "Stage a change for the person to review. Nothing is written to GitHub: the change set is committed only after they approve it, and you cannot approve it yourself. Read every file you edit first. Use whole-file content for small files; use old_string/new_string for a surgical change, with enough surrounding text that old_string matches exactly once in the file.",
       parameters: {
         type: "object",
         properties: {
@@ -384,7 +384,7 @@ export async function runTool(call: ParsedToolCall, context: ToolContext): Promi
         "",
         echo.join("\n"),
         "",
-        "The change is committed only once the person has authorised it — by approving it, or by having asked for a direct push in their own message. Do not say the change is made, and do not ask them to apply it by hand.",
+        "The change is committed only if the person approves it. Do not say the change is made, and do not ask them to apply it by hand.",
       ].join("\n"),
     };
   }

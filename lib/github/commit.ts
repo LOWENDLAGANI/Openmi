@@ -37,16 +37,6 @@ export interface CommitInput {
   message: string;
   files: CommitFile[];
   defaultBranch: string;
-  /**
-   * Permits `branch` to be the repository's default branch.
-   *
-   * False or absent — which is everything except lib/push.ts — means the
-   * `agent/` policy applies and any other branch is refused here, in the last
-   * module that can refuse it. True still is not a licence to name a branch:
-   * the branch also has to be exactly `defaultBranch`, so `main` being "one bug
-   * away from being a branch name" no longer cuts both ways.
-   */
-  allowDefaultBranch?: boolean;
   /** False when the caller only wants the branch and commit. */
   openPullRequest?: boolean;
   signal?: AbortSignal;
@@ -158,14 +148,7 @@ export async function commitChanges(input: CommitInput): Promise<CommitOutcome> 
 
   // The policy, enforced where it matters rather than where it is convenient.
   if (!/^agent\/[A-Za-z0-9._-]+$/.test(branch)) {
-    // The one exception, and it is fenced twice: the caller has to ask for it
-    // explicitly, and the branch has to be the repository's own default branch.
-    // A caller cannot name `feature/x` here, and cannot reach this branch of
-    // the code by renaming anything — `allowDefaultBranch` is set only by
-    // lib/push.ts, which runs only after a person asked for a direct push.
-    if (input.allowDefaultBranch !== true || branch !== input.defaultBranch) {
-      throw new GithubError(403, "Openmi only commits to agent/ branches.");
-    }
+    throw new GithubError(403, "Openmi only commits to agent/ branches.");
   }
   if (files.length === 0) {
     throw new GithubError(400, "There is nothing to commit.");
@@ -225,10 +208,6 @@ export async function commitChanges(input: CommitInput): Promise<CommitOutcome> 
 
   // The publish. Everything before this is invisible; everything after it is
   // history, which is why nothing after it is allowed to throw away the sha.
-  //
-  // A direct push creates the ref at a commit whose parent is the branch head,
-  // so it is a fast-forward: GitHub accepts it as an ordinary ref update and
-  // nothing is rewritten. A review branch is simply new.
   await request<unknown>(token, `/repos/${repoFullName}/git/refs`, {
     method: "POST",
     body: { ref: `refs/heads/${branch}`, sha: commit.sha },

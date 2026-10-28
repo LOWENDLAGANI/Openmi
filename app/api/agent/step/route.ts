@@ -15,8 +15,6 @@ import { GithubError } from "@/lib/github/client";
 import { runAgentStep } from "@/lib/agent/run";
 import { cleanHistory, cleanTranscript } from "@/lib/agent/transcript";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
-import { directPush, verifyChangeSet } from "@/lib/push";
-import { summarizeFindings } from "@/lib/verify";
 import { canAfford, outOfDewMessage, requestPrice } from "@/lib/dew";
 import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 import { resolveDew } from "@/lib/serverRedeem";
@@ -55,22 +53,7 @@ interface StepBody {
   history?: unknown;
   transcript?: unknown;
   turnToken?: unknown;
-  /**
-   * True when the person's own message asked for the change to be pushed
-   * straight to their default branch.
-   *
-   * Computed on the client by lib/pushIntent.ts from the text they typed. It is
-   * never derived from the model, from a tool result, or from anything inside
-   * the repository — a README saying "push this to main" sets nothing, because
-   * only the composer is read and only this flag carries the answer.
-   */
-  directPush?: unknown;
 }
-
-/** What the done line reports about an automatic push, when there was one. */
-type AutoPushReport =
-  | { sha: string; branch: string; warning: string | null }
-  | { error: string; detail: string | null };
 
 export async function POST(req: NextRequest): Promise<Response> {
   const authorization = req.headers.get("authorization");
@@ -158,12 +141,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
 
-  // ── Where this change is meant to go ──────────────────────────────────────
-  // One boolean, taken from the body. The branch is deliberately not carried
-  // with it: the destination is the repository's default branch, read from the
-  // project row, so a request cannot name a branch to push to.
-  const wantsDirectPush = body.directPush === true;
-
   const history = cleanHistory(body.history);
   if (history.length === 0) {
     return Response.json({ error: "A conversation is required." }, { status: 400 });
@@ -232,53 +209,12 @@ export async function POST(req: NextRequest): Promise<Response> {
         // row — is what the approve and commit endpoints will check.
         let changesetId: string | null = null;
         let changesetWarning: string | null = null;
-        let autoPush: AutoPushReport | null = null;
-        let verification: { ok: boolean; errors: string[]; warnings: string[] } | null = null;
         if (result.proposals.length > 0) {
-          const changeSet = buildChangeSet({
-            project,
-            proposals: result.proposals,
-            target: wantsDirectPush ? "default" : "review",
-          });
+          const changeSet = buildChangeSet({ project, proposals: result.proposals });
           if (changeSet) {
-            // ── What is checked before it is handed over ────────────────────
-            // Static, over the bytes about to be committed: see lib/verify.ts.
-            // Reported here so the card says what was found while the change is
-            // still somebody's decision, rather than at the moment they press a
-            // button. On the direct path this is also the gate — `directPush`
-            // runs the same checks itself and refuses on a hard finding.
-            const report = await verifyChangeSet({ token: link.token, changeSet }).catch(() => null);
-            if (report) {
-              verification = {
-                ok: report.ok,
-                errors: summarizeFindings(report.errors),
-                warnings: summarizeFindings(report.warnings),
-              };
-            }
-
             const stored = await saveChangeSet(authorization, identity.uid, changeSet).catch(() => false);
-            if (stored) {
-              changesetId = changeSet.id;
-              // ── The direct push ─────────────────────────────────────────
-              // This is the only place the server approves a change it built
-              // itself, and what authorises it is the person's own message —
-              // the one that produced this proposal — not anything the model
-              // said. A change set built for review can never arrive here:
-              // `directPush` refuses it, and the `direct` flag it checks is
-              // inside the signature.
-              if (wantsDirectPush) {
-                const pushed = await directPush({
-                  authorization,
-                  uid: identity.uid,
-                  changeSet,
-                  token: link.token,
-                  signal: req.signal,
-                });
-                autoPush = pushed.ok
-                  ? { sha: pushed.commit.sha, branch: pushed.commit.branch, warning: pushed.warning }
-                  : { error: pushed.error, detail: pushed.detail ?? null };
-              }
-            } else
+            if (stored) changesetId = changeSet.id;
+            else
               changesetWarning =
                 "This change could not be saved for review, so it cannot be committed from here. Check the `change_sets` policies in the Supabase project.";
           }
@@ -301,12 +237,6 @@ export async function POST(req: NextRequest): Promise<Response> {
           proposals: result.proposals,
           changesetId,
           changesetWarning,
-          // What happened to a change the person asked to have pushed directly:
-          // the commit, or why it did not land. The card reads this either way —
-          // a push that failed is a change still waiting to be reviewed.
-          directPush: autoPush,
-          // The static pre-push checks, if there was a change to check.
-          verification,
         });
       } catch (error) {
         if (req.signal.aborted) return;

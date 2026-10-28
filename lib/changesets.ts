@@ -56,15 +56,6 @@ export interface ChangeSet {
   hash: string;
   /** `agent/<slug>`, derived here. */
   branch: string;
-  /**
-   * True when this change goes to the repository's default branch.
-   *
-   * Built here and nowhere else, and covered by the signature: a row proposed
-   * for review cannot be relabelled as a direct push without the digest
-   * failing. Only the two server paths that recorded a person asking for one
-   * build a change set with this set.
-   */
-  direct: boolean;
   message: string;
   files: ChangeSetFile[];
   createdAt: number;
@@ -95,8 +86,6 @@ export interface CommitRecord {
   branch: string;
   /** Empty when a pull request could not be opened. Never `null` (see below). */
   prUrl: string;
-  /** True when the commit went to the default branch at the person's request. */
-  direct: boolean;
   at: number;
 }
 
@@ -156,23 +145,6 @@ export function branchFor(repoFullName: string, id: string): string {
   return `agent/${slug}-${id.slice(0, 6)}`;
 }
 
-/**
- * True when a name may be a branch this product pushes to directly.
- *
- * Deliberately strict, and deliberately not a general Git ref validator: the
- * only branch that may ever be used for a direct push has to equal the
- * repository's own default branch, so this check only has to rule out the names
- * that would be a mistake rather than a destination — another `agent/` branch,
- * a path that escapes the ref namespace, a name Git itself would refuse.
- */
-export function isDirectBranchName(value: string): boolean {
-  if (typeof value !== "string" || value.length === 0 || value.length > 120) return false;
-  if (value.startsWith("agent/")) return false;
-  if (value.startsWith("/") || value.endsWith("/") || value.endsWith(".lock")) return false;
-  if (value.includes("..") || value.includes("//") || value.includes("@{") || value.includes("\\")) return false;
-  return /^[A-Za-z0-9._/-]+$/.test(value);
-}
-
 /** The commit message, derived from the files rather than supplied by a model. */
 export function messageFor(files: Array<{ path: string }>): string {
   if (files.length === 0) return "Openmi: no files changed";
@@ -196,7 +168,6 @@ interface SignedFields {
   baseSha: string;
   hash: string;
   branch: string;
-  direct: boolean;
   message: string;
   files: ChangeSetFile[];
   createdAt: number;
@@ -222,7 +193,6 @@ function signedFields(input: SignedFields): SignedFields {
     baseSha: input.baseSha,
     hash: input.hash,
     branch: input.branch,
-    direct: input.direct,
     message: input.message,
     files: input.files.map((file) => ({
       path: file.path,
@@ -240,15 +210,6 @@ function signedFields(input: SignedFields): SignedFields {
 export interface BuildInput {
   project: { id: string; repoFullName: string; defaultBranch: string; baseSha: string };
   proposals: StagedChange[];
-  /**
-   * Where this change is meant to go.
-   *
-   * `review` (the default) is an `agent/` branch and a pull request. `default`
-   * is a direct push to the repository's default branch, and the caller may only
-   * pass it after a person asked for exactly that — see lib/pushIntent.ts and
-   * the push endpoint. It is not read from a request body anywhere.
-   */
-  target?: "review" | "default";
   now?: number;
 }
 
@@ -277,13 +238,7 @@ export function buildChangeSet(input: BuildInput): ChangeSet | null {
   const now = input.now ?? Date.now();
   const hash = changeSetHash(files);
   const id = changeSetId({ projectId: input.project.id, baseSha: input.project.baseSha, hash, createdAt: now });
-  // The destination is decided here, never taken from the request. A review
-  // change goes to its own `agent/` branch; a direct one goes to the
-  // repository's default branch from the project row and is marked direct,
-  // which is what the commit gate and the write module both require before
-  // either will push to it.
-  const direct = input.target === "default";
-  const branch = direct ? input.project.defaultBranch : branchFor(input.project.repoFullName, id);
+  const branch = branchFor(input.project.repoFullName, id);
   // The signature covers everything except `status`. Status is the lifecycle
   // label the endpoints move through (proposed → approved → committed), and
   // signing it would make every one of those writes invalidate the change. It
@@ -298,7 +253,6 @@ export function buildChangeSet(input: BuildInput): ChangeSet | null {
     baseSha: input.project.baseSha,
     hash,
     branch,
-    direct,
     message: messageFor(files),
     files,
     createdAt: now,
@@ -346,19 +300,13 @@ export function normalizeChangeSet(raw: unknown): ChangeSet | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   if (value.v !== 1) return null;
-  // A boolean, never coerced: a row that omits it, or carries a string, is not
-  // a change set this server built.
-  if (typeof value.direct !== "boolean") return null;
   if (!isChangeSetId(value.id)) return null;
   if (!isString(value.projectId, 40) || !value.projectId) return null;
   if (!isString(value.repoFullName, 140) || !value.repoFullName) return null;
   if (!isString(value.defaultBranch, 120) || !value.defaultBranch) return null;
   if (!isString(value.baseSha, 64) || !/^[0-9a-f]{40}$/i.test(value.baseSha)) return null;
   if (!isString(value.hash, 64) || !/^[0-9a-f]{64}$/i.test(value.hash)) return null;
-  // Shape only, here. Whether this branch is one this product may write to is
-  // decided below from `direct` and the repository, because a direct change
-  // names the default branch and only a direct change may.
-  if (!isString(value.branch, 120) || !value.branch) return null;
+  if (!isString(value.branch, 120) || !/^agent\/[A-Za-z0-9._-]+$/.test(value.branch)) return null;
   if (!isString(value.message, MAX_COMMIT_MESSAGE) || !value.message) return null;
   if (typeof value.createdAt !== "number" || typeof value.exp !== "number") return null;
   if (value.status !== "proposed" && value.status !== "approved" && value.status !== "committed" && value.status !== "stale") {
@@ -371,16 +319,9 @@ export function normalizeChangeSet(raw: unknown): ChangeSet | null {
   if (files.some((file) => file === null)) return null;
   const typed = files as ChangeSetFile[];
 
-  // The branch is derived, not stored authority. A change proposed for review
-  // must name exactly the branch its own id and repository produce; a direct
-  // change must name a real branch that is not one of ours, and it must be the
-  // repository's own default branch — this product pushes directly to nowhere
-  // else, whoever wrote the row.
-  if (value.direct) {
-    if (!isDirectBranchName(value.branch) || value.branch !== value.defaultBranch) return null;
-  } else if (value.branch !== branchFor(value.repoFullName, value.id)) {
-    return null;
-  }
+  // The branch is derived, not stored authority: a row that names a different
+  // branch than its own id and repository produce is refused.
+  if (value.branch !== branchFor(value.repoFullName, value.id)) return null;
   // The hash has to describe these files. This is what stops a rewrite of the
   // row's contents being approved as if the server had proposed it.
   if (value.hash !== changeSetHash(typed)) return null;
@@ -400,7 +341,6 @@ export function normalizeChangeSet(raw: unknown): ChangeSet | null {
     baseSha: value.baseSha,
     hash: value.hash,
     branch: value.branch,
-    direct: value.direct,
     message: value.message,
     files: typed,
     createdAt: value.createdAt,
@@ -452,12 +392,7 @@ export function normalizeApproval(raw: unknown): Approval | null {
   if (!isString(value.repoFullName, 140) || !value.repoFullName) return null;
   if (!isString(value.baseSha, 64) || !/^[0-9a-f]{40}$/i.test(value.baseSha)) return null;
   if (!isString(value.hash, 64) || !/^[0-9a-f]{64}$/i.test(value.hash)) return null;
-  // Shape only. An approval is not the authority for where a commit goes — the
-  // change set's signed `branch` and `direct` are — so this only has to be a
-  // plausible ref. A direct push produces an approval naming the default
-  // branch, and it has to round-trip like any other; the signature below is
-  // what binds it to exactly one change.
-  if (!isString(value.branch, 120) || !value.branch) return null;
+  if (!isString(value.branch, 120) || !/^agent\/[A-Za-z0-9._-]+$/.test(value.branch)) return null;
   if (!isString(value.message, MAX_COMMIT_MESSAGE) || !value.message) return null;
   if (typeof value.at !== "number") return null;
   if (!isString(value.sig, 4000)) return null;
@@ -490,9 +425,6 @@ export function normalizeCommit(raw: unknown): CommitRecord | null {
     branch: value.branch,
     // The database does not store nulls, so a missing PR is an empty string.
     prUrl: typeof value.prUrl === "string" ? value.prUrl.slice(0, 300) : "",
-    // A row written before the column existed reads as an agent/ branch, which
-    // is what every commit was when it was written.
-    direct: value.direct === true,
     at: value.at,
   };
 }
@@ -518,15 +450,6 @@ export function commitGate(input: {
   changeSet: ChangeSet | null;
   approval: Approval | null;
   existingCommit: CommitRecord | null;
-  /**
-   * Permits a change built for a direct push to pass this gate.
-   *
-   * False everywhere but the push endpoint, so the review path cannot be
-   * talked into committing to a default branch by a change set that merely
-   * claims to be direct. It loosens no check: a direct change still needs its
-   * signature, its expiry, its hash and an approval that matches it exactly.
-   */
-  allowDirect?: boolean;
   now?: number;
 }): GateResult {
   const { changeSet, approval, existingCommit } = input;
@@ -557,26 +480,7 @@ export function commitGate(input: {
       detail: "expired",
     };
   }
-  if (changeSet.direct) {
-    if (input.allowDirect !== true) {
-      return {
-        ok: false,
-        status: 403,
-        error: "This change is set for a direct push, which this endpoint does not perform.",
-        detail: "direct-not-allowed",
-      };
-    }
-    // Both halves have to hold and both are inside the signature: the branch is
-    // the repository's own default branch, and it is not one of ours.
-    if (!isDirectBranchName(changeSet.branch) || changeSet.branch !== changeSet.defaultBranch) {
-      return {
-        ok: false,
-        status: 403,
-        error: "Openmi only pushes directly to the repository's default branch.",
-        detail: "branch",
-      };
-    }
-  } else if (!changeSet.branch.startsWith("agent/")) {
+  if (!changeSet.branch.startsWith("agent/")) {
     return {
       ok: false,
       status: 403,
@@ -666,7 +570,6 @@ function changeSetFromRow(row: unknown): unknown {
     baseSha: value.base_sha,
     hash: value.hash,
     branch: value.branch,
-    direct: value.direct === true,
     message: value.message,
     files: value.files,
     createdAt: ms(value.created_at),
@@ -700,7 +603,6 @@ function commitFromRow(row: unknown): unknown {
     sha: value.sha,
     branch: value.branch,
     prUrl: value.pr_url,
-    direct: value.direct === true,
     at: ms(value.created_at),
   };
 }
@@ -724,7 +626,6 @@ export async function saveChangeSet(
         base_sha: changeSet.baseSha,
         hash: changeSet.hash,
         branch: changeSet.branch,
-        direct: changeSet.direct,
         message: changeSet.message,
         files: changeSet.files,
         status: changeSet.status,
@@ -868,7 +769,6 @@ export async function saveCommit(
         sha: record.sha,
         branch: record.branch,
         pr_url: record.prUrl,
-        direct: record.direct,
         created_at: iso(record.at),
       },
       { onConflict: "owner,changeset_id" }
@@ -902,45 +802,6 @@ export async function readCommit(
   }
 }
 
-/**
- * The same change, rebuilt as a direct push to the default branch.
- *
- * This is how a change a person has already reviewed becomes a push without
- * re-reading the repository: the files travel across unchanged, so the new
- * change set's hash — which covers only paths and their resulting contents — is
- * identical to the one on screen. What differs is the destination and the id,
- * and the server decides both.
- *
- * The base commit is the reviewed change's own, not the project's current pin:
- * the diff being pushed is the one that was read, and `directPush` refuses it if
- * the branch has moved since. Returns null when the change is already direct, or
- * belongs to a different repository, so this cannot move a change between repos.
- */
-export function directChangeSetFrom(
-  changeSet: ChangeSet,
-  project: { id: string; repoFullName: string; defaultBranch: string; baseSha: string },
-  now = Date.now()
-): ChangeSet | null {
-  if (changeSet.direct) return null;
-  if (changeSet.projectId !== project.id || changeSet.repoFullName !== project.repoFullName) return null;
-  return buildChangeSet({
-    project: { ...project, baseSha: changeSet.baseSha },
-    proposals: changeSet.files.map((file) => ({
-      path: file.path,
-      kind: file.kind,
-      added: file.added,
-      removed: file.removed,
-      diff: file.diff,
-      after: file.after,
-      // Carried so the value is the same shape the staging layer produces. It
-      // is not part of the change set and does not affect the hash.
-      bytes: Buffer.byteLength(file.after, "utf8"),
-    })),
-    target: "default",
-    now,
-  });
-}
-
 /** The review screen's view: diffs and counts, never the whole new file. */
 export function viewOf(changeSet: ChangeSet): ChangeSetView {
   return {
@@ -948,8 +809,6 @@ export function viewOf(changeSet: ChangeSet): ChangeSetView {
     repoFullName: changeSet.repoFullName,
     baseSha: changeSet.baseSha,
     branch: changeSet.branch,
-    direct: changeSet.direct,
-    defaultBranch: changeSet.defaultBranch,
     message: changeSet.message,
     status: changeSet.status,
     createdAt: changeSet.createdAt,
@@ -969,7 +828,6 @@ export function commitResult(record: CommitRecord, alreadyCommitted: boolean): C
     sha: record.sha,
     branch: record.branch,
     prUrl: record.prUrl || null,
-    direct: record.direct,
     at: record.at,
     alreadyCommitted,
   };
