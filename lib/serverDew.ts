@@ -256,62 +256,25 @@ export async function ensureTrialGrant(
 }
 
 /**
- * The charge doors, in the order this build prefers them.
- *
- * `dew_charge` is the only real implementation. The other two are the names
- * older deployments have, tried in turn so a project that has not applied
- * 20261028000200_charge_dew.sql is still billed instead of served for free.
- */
-const CHARGE_RPCS = ["dew_charge", "deduct_dew_split", "deduct_dew"] as const;
-
-/** The part of a PostgREST failure worth reading. */
-interface ChargeFailure {
-  code?: string;
-  message: string;
-}
-
-/**
- * The spent total and split out of a charge answer.
- *
- * `dew_charge()` answers one jsonb object, the two older doors answer one row,
- * and both are read here so the caller does not care which one answered. Null
- * means the answer cannot be billed from — an unreadable total is reported, not
- * quietly mistaken for "nothing was spent".
- */
-function readCharge(payload: unknown): { spent: number; free: number; paid: number } | null {
-  const row = Array.isArray(payload) ? payload[0] : payload;
-  if (!row || typeof row !== "object") return null;
-  const record = row as Record<string, unknown>;
-  const spent = Number(record.spent);
-  if (!Number.isFinite(spent)) return null;
-  const half = (key: string): number => {
-    const value = Number(record[key]);
-    return Number.isFinite(value) && value > 0 ? value : 0;
-  };
-  return { spent, free: half("free_charged"), paid: half("paid_charged") };
-}
-
-/**
  * Deducts the cost of one request and says how it was paid for.
  *
- * `dew_charge()` adds to the caller's own wallet in one locked statement and
- * answers the spent total plus the free/paid halves as jsonb. The uid comes from
- * the token, so the only wallet it can touch is the caller's own, and `newSpent`
+ * `deduct_dew_split()` adds to the caller's own wallet in one locked statement
+ * and answers the new paid spend as a plain number. The uid comes from the
+ * token, so the only wallet it can touch is the caller's own, and `newSpent`
  * comes back from the database rather than from the value the route computed —
  * which is what makes the caller's view of the ledger agree with the stored one
  * even when two requests overlap.
  *
- * Why jsonb: the older `deduct_dew_split()` was declared `returns table (spent
- * numeric, …)`, and a RETURNS TABLE column is a plpgsql variable. Incrementing
- * the wallet column of that same name made every charge fail with "column
- * reference spent is ambiguous", and because the routes only log a refused
- * deduction the balance simply never moved. A jsonb answer declares no OUT
- * parameter, so that mistake is not expressible in the one real door any more;
- * the two older names are wrappers that never name a wallet column.
+ * The free/paid split is arithmetic here rather than a second return shape: the
+ * wallet only moves by the paid half, so the difference between the total it
+ * answered and the total this build read before the request is what paid credit
+ * covered, and the rest of the price came out of today's free bucket.
  *
- * The oldest door answers only a total, so a charge that fell all the way back
- * to it is attributed to paid credit — the honest reading of a function that
- * never reported a split.
+ * That shape is deliberate. The function used to be `returns table (spent
+ * numeric, …)`, and a RETURNS TABLE column is a plpgsql variable: the body
+ * incremented a wallet column of the same name and every charge died with
+ * "column reference spent is ambiguous". A numeric answer declares no OUT
+ * parameter, so that mistake has nothing to attach to.
  */
 export async function deductDew(
   authorization: string | null,
@@ -324,7 +287,6 @@ export async function deductDew(
   freeCharged: number;
   paidCharged: number;
   conflict: boolean;
-  fallback?: boolean;
   reason?: string;
 }> {
   const token = bearer(authorization);
@@ -344,47 +306,34 @@ export async function deductDew(
   }
 
   const amount = roundDew(charge);
-  const missing: string[] = [];
-
-  for (const rpc of CHARGE_RPCS) {
-    let data: unknown;
-    let failure: ChargeFailure | null = null;
-    try {
-      const answer = await client.rpc(rpc, { p_amount: amount });
-      data = answer.data;
-      failure = answer.error as ChargeFailure | null;
-    } catch (cause) {
-      return refusal(cause instanceof Error ? cause.message : "threw");
-    }
-
-    if (!failure) {
-      const read = readCharge(data);
-      if (!read) return refusal(`${rpc} returned no spent total`);
-      return {
-        ok: true,
-        // The stored total, never one computed here: the database moved the
-        // wallet and only it knows the row it moved.
-        newSpent: read.spent,
-        freeCharged: rpc === "deduct_dew" ? 0 : read.free,
-        paidCharged: rpc === "deduct_dew" ? amount : read.paid,
-        conflict: false,
-        ...(rpc === "dew_charge" ? {} : { fallback: true }),
-      };
-    }
-
-    // PGRST202: this door is not in the project yet. Try the next one rather
-    // than losing the charge.
-    if (failure.code !== "PGRST202") {
+  try {
+    const answer = await client.rpc("deduct_dew_split", { p_amount: amount });
+    if (answer.error) {
+      const message = answer.error.message;
       return refusal(
-        /ambiguous/i.test(failure.message)
-          ? `${rpc}: ${failure.message} — the deployed body is the old ambiguous one; apply supabase/migrations/20261028000200_charge_dew.sql`
-          : `${rpc}: ${failure.message}`
+        /ambiguous/i.test(message)
+          ? `${message} — the deployed charge function is the old ambiguous body; run supabase/migrations/20261028000200_charge_dew.sql`
+          : message
       );
     }
-    missing.push(rpc);
-  }
 
-  return refusal(`no charge function in this project (missing: ${missing.join(", ")})`);
+    const newSpent = Number(answer.data);
+    if (!Number.isFinite(newSpent)) return refusal("the charge answered no spent total");
+
+    // The wallet only moves by the paid half, so the delta *is* that half. It is
+    // clamped to the price because an overlapping request can move the total
+    // between this build's read and this answer.
+    const paidCharged = roundDew(Math.min(Math.max(newSpent - previousSpent, 0), amount));
+    return {
+      ok: true,
+      newSpent,
+      freeCharged: roundDew(amount - paidCharged),
+      paidCharged,
+      conflict: false,
+    };
+  } catch (cause) {
+    return refusal(cause instanceof Error ? cause.message : "threw");
+  }
 }
 
 /**

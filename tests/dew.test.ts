@@ -293,19 +293,13 @@ const dewSchema = readFileSync(
   "utf8"
 );
 assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
-for (const door of ["dew_charge", "deduct_dew_split", "deduct_dew"]) {
-  assert.ok(
-    dewSource.includes(`"${door}"`),
-    `the deduction must be able to reach ${door}, not compute a total client-side`
-  );
-}
 assert.ok(
-  deductDewSource.includes("for (const rpc of CHARGE_RPCS)"),
-  "the charge must try the doors in order rather than reaching for one and giving up"
+  dewSource.includes('rpc("deduct_dew_split"'),
+  "the charge must go through the one database function, not a client-side total"
 );
 assert.ok(
-  deductDewSource.includes("readCharge("),
-  "the charge must report the split the database returned, not only a total"
+  deductDewSource.includes("paidCharged"),
+  "the charge must report which half paid credit covered"
 );
 assert.ok(
   /ambiguous/i.test(deductDewSource),
@@ -373,39 +367,12 @@ assert.ok(
   "the pass-sized bucket must live in the one locked charge function"
 );
 
-// `deduct_dew_split()` is declared `returns table (spent numeric, …)`, which
-// makes `spent` a plpgsql variable — and then incremented a column with that
-// same name. PostgreSQL refuses to guess, so every charge failed with
-// "column reference spent is ambiguous" and no balance moved.
-// 20261028000100_dew_split_ambiguous_spent.sql replaces the body; these keep
-// the replacement unambiguous and keep the shape lib/serverDew.ts reads.
-const splitFixCode = readFileSync(
-  join(process.cwd(), "supabase/migrations/20261028000100_dew_split_ambiguous_spent.sql"),
-  "utf8"
-).replace(/--.*$/gm, "");
-assert.ok(
-  /set spent = public\.dew_wallets\.spent \+ paid_amount/.test(splitFixCode),
-  "the charge must name the column it increments, or `spent` clashes with the function's own OUT parameter"
-);
-assert.ok(
-  /total := wallet\.spent \+ paid_amount/.test(splitFixCode),
-  "the new total must come from the wallet row the transaction already holds"
-);
-assert.ok(
-  !/returning\s+spent/.test(splitFixCode),
-  "a bare RETURNING spent is ambiguous for the same reason; the total is computed, not read back"
-);
-assert.ok(
-  /returns table \(spent numeric, free_charged numeric, paid_charged numeric\)/.test(splitFixCode),
-  "the charge must keep returning the split the client reads"
-);
-
-// ── One charge function that cannot be ambiguous ────────────────────────────
+// ── One charge function, with nothing for a column name to collide with ────
 //
-// 20261028000200_charge_dew.sql removes the pattern rather than the symptom. A
-// jsonb function declares no OUT parameter, so no variable can ever collide with
-// the `spent` column again, and the two older doors become wrappers that name no
-// wallet column at all.
+// The charge had been re-declared four times (`deduct_dew`, `deduct_dew_split`,
+// a patched copy of `deduct_dew_split`, and a jsonb `dew_charge`), and the
+// copies are what broke it. This migration leaves exactly one function — a price
+// in, the new paid spend out — and drops the rest.
 
 const chargeSchema = readFileSync(
   join(process.cwd(), "supabase/migrations/20261028000200_charge_dew.sql"),
@@ -413,36 +380,41 @@ const chargeSchema = readFileSync(
 );
 const chargeCode = chargeSchema.replace(/--.*$/gm, "");
 assert.ok(
-  /create or replace function public\.dew_charge\(p_amount numeric\)\s*\nreturns jsonb/.test(chargeCode),
-  "the real charge must answer jsonb: a RETURNS TABLE column is the variable that made every charge ambiguous"
+  /create function public\.deduct_dew_split\(p_amount numeric\)\s*\nreturns numeric/.test(chargeCode),
+  "the one charge must answer a plain number: a RETURNS TABLE column is the variable that made every charge ambiguous"
 );
 assert.ok(
-  !/returns table \(spent numeric/.test(chargeCode.slice(0, chargeCode.indexOf("deduct_dew_split"))),
-  "the one real charge must not declare a `spent` OUT parameter"
+  !/returns table/.test(chargeCode),
+  "no charge function may declare an OUT parameter again"
+);
+assert.ok(
+  /drop function if exists public\.deduct_dew_split\(numeric\)/.test(chargeCode),
+  "the table-returning body must be dropped, not patched: create or replace cannot change a return type"
+);
+assert.ok(
+  /drop function if exists public\.deduct_dew\(numeric\)/.test(chargeCode) &&
+    /drop function if exists public\.dew_charge\(numeric\)/.test(chargeCode),
+  "the duplicate doors must be deleted rather than left as a second way to charge"
 );
 assert.ok(
   /set spent = w\.spent \+ paid_amount/.test(chargeCode),
   "the wallet increment must name the row alias it reads"
 );
 assert.ok(
-  /total := wallet\.spent \+ paid_amount/.test(chargeCode),
-  "the new total must come from the locked row, not from a RETURNING list"
+  !/returning\s+spent/.test(chargeCode),
+  "no RETURNING spent: that is the ambiguity itself"
 );
 assert.ok(
   /for update/.test(chargeCode),
   "the wallet must still be locked while the bucket and the spend are split"
 );
 assert.ok(
-  !/returning\s+spent/.test(chargeCode),
-  "no RETURNING spent anywhere: that is the same ambiguity again"
+  /delete from public\.schema_expected/.test(chargeCode),
+  "the audit must stop looking for the functions this file removes, or the banner reports a gap nobody can close"
 );
 assert.ok(
-  (chargeCode.match(/public\.dew_charge\(p_amount\)/g) ?? []).length >= 2,
-  "the two older doors must charge through dew_charge rather than carry their own body"
-);
-assert.ok(
-  /'dew_charge\(numeric\)', 'function', '20261028000200_charge_dew'/.test(chargeSchema),
-  "the schema audit must know about the real charge, so a skipped migration is named"
+  /notify pgrst/.test(chargeCode),
+  "PostgREST caches signatures: the return type changed, so it must be told to look again"
 );
 assert.ok(
   /free_charge := least\(charged, free_left\)/.test(timezoneSchema),

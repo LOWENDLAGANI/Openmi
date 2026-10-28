@@ -26,8 +26,7 @@ carry the rules it used to hold.
 | `migrations/20261026000000_provider_keys.sql` | `provider_keys`: an account's own OpenRouter, Gemini or Groq key, sealed before it is stored and readable only by its owner. Registered in `schema_expected`. |
 | `migrations/20261027000000_provider_keys_deepseek.sql` | Adds DeepSeek to the `provider_keys.provider` list, so the DeepSeek V4.1 Flash mode can use a key the account brought. |
 | `migrations/20261028000000_pricing_sessions.sql` | `paid_passes` (read-only to its owner, granted only by `admin_grant_plan()`), the 10-free/15-paid daily bucket in `deduct_dew_split()`, and `hour_sessions` with the `start_hour_session()`/`end_hour_session()` pair that charges and enforces one live session per account. |
-| `migrations/20261028000100_dew_split_ambiguous_spent.sql` | Replaces `deduct_dew_split()` so the `spent` it increments is no longer ambiguous with the function's own OUT parameter. Every charge was failing with "column reference \"spent\" is ambiguous", so no Dew was deducted. |
-| `migrations/20261028000200_charge_dew.sql` | The one real charge: `dew_charge(numeric)` answers `{spent, free_charged, paid_charged}` as jsonb, so it declares no OUT parameter for a wallet column to collide with. `deduct_dew_split()` and `deduct_dew()` become wrappers over it. Apply this single file and the charge works whichever earlier charge migration a project has. |
+| `migrations/20261028000200_charge_dew.sql` | The only charge function: `deduct_dew_split(numeric)` answers the new paid spend as a plain number, so it declares no OUT parameter for the `spent` column to be ambiguous with. Drops `deduct_dew()` and the earlier table-returning bodies, which is what made every charge fail with "column reference \"spent\" is ambiguous". |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
@@ -103,10 +102,10 @@ in, which is why the screen does not offer it there.
   person chose on one browser are readable on another and by nobody else.
 - A Dew credit can only be written for the trial amount under `TRIAL`, or for
   exactly the amount a live code carries. `spent` only moves through
-  `deduct_dew()`, which `authenticated` can call but not bypass.
+  `deduct_dew_split()`, which `authenticated` can call but not bypass.
 - A referral is claimed only through `claim_referral()`, which writes both fixed 25-Dew credits in one transaction. The referred uid is the primary key (one invitation per account), self-referral is refused by a check constraint, and a referrer is capped at ten invitations. The browser can read its own referral rows, never insert one.
 - `dew_wallets` also carries the daily free bucket (`daily_day`, `daily_spent`).
-  `deduct_dew()` spends that bucket before paid credit and discards what is left
+  `deduct_dew_split()` spends that bucket before paid credit and discards what is left
   when the day changes at midnight in the account's own timezone
   (`profiles.timezone`, filled once by `set_profile_timezone()`; Kuala Lumpur
   when none is stored). The bucket only moves forward, so a stored day in the
