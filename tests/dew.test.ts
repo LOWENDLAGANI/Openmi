@@ -417,6 +417,10 @@ assert.ok(
   "PostgREST caches signatures: the return type changed, so it must be told to look again"
 );
 assert.ok(
+  /grant usage on schema public to anon, authenticated/.test(chargeSchema),
+  "EXECUTE without schema USAGE is still permission denied, so the charge must grant it"
+);
+assert.ok(
   /free_charge := least\(charged, free_left\)/.test(timezoneSchema),
   "free Dew must be spent before paid credit"
 );

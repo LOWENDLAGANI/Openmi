@@ -121,6 +121,13 @@ $$;
 revoke all on function public.deduct_dew_split(numeric) from public;
 grant execute on function public.deduct_dew_split(numeric) to authenticated;
 
+-- Executing a function also needs USAGE on the schema that holds it. Supabase's
+-- starter project grants that; a project created after the public-schema
+-- hardening does not, and then even a correct charge is refused with
+--   42501: permission denied for schema public
+-- Re-granting is a no-op where it already exists and changes no row policy.
+grant usage on schema public to anon, authenticated;
+
 -- The setup banner is driven by this table: it must stop looking for the
 -- functions this file removed, or it would report a gap no migration can close.
 delete from public.schema_expected
