@@ -37,9 +37,20 @@ export const metadata: Metadata = {
   // ── Share previews ─────────────────────────────────────────────────────────
   // A link pasted into WhatsApp, X, Telegram or Facebook is, for a paid
   // product, the advertisement — and without these tags it renders as a bare
-  // URL. The image is the splash artwork already shipped in /public, so the
-  // preview cannot drift from what the app looks like.
-}
+  // URL. Pick one brand image from /public so the preview matches the app.
+  openGraph: {
+    type: "website",
+    siteName: BRAND.name,
+    title: `${BRAND.name} — ${BRAND.product}`,
+    description: DESCRIPTION,
+    images: [{ url: "/openmi-logo.png", alt: BRAND.name }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${BRAND.name} — ${BRAND.product}`,
+    description: DESCRIPTION,
+    images: ["/openmi-logo.png"],
+  },
   // Without a manifest and a service worker the site is not installable, and
   // without `standalone` the installed copy opens in a browser chrome frame
   // that looks like a website rather than an app.
