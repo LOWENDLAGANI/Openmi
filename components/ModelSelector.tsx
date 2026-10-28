@@ -52,7 +52,6 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
     <div
       ref={containerRef}
       className="relative"
-      data-tutorial="model-selector"
     >
       <button
         type="button"

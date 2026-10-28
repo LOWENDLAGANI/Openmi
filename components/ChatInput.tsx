@@ -364,7 +364,6 @@ export default function ChatInput({
       className={`composer-dock sticky bottom-0 z-20 shrink-0 pb-3 ${
         focus ? "border-0 pt-0" : "border-t border-line pt-2"
       }`}
-      data-tutorial="composer"
     >
       {/* Same column and same gutter as the thread above, so the capsule's
           edges sit under the message cards rather than a few pixels off. */}
@@ -540,7 +539,6 @@ export default function ChatInput({
               <div ref={toolsRef} className="relative shrink-0">
                 <button
                   onClick={() => setShowTools((value) => !value)}
-                  data-tutorial="gallery-button"
                   className="flex h-9 w-9 items-center justify-center rounded-full text-text-mid transition-colors hover:bg-card hover:text-text-hi"
                   aria-label="Open tools menu"
                   aria-expanded={showTools}
@@ -663,7 +661,6 @@ export default function ChatInput({
           <div ref={toolsRef} className="relative shrink-0">
             <button
               onClick={() => setShowTools((value) => !value)}
-              data-tutorial="gallery-button"
               className="mb-0.5 flex h-10 w-10 items-center justify-center rounded-full text-text-mid transition-colors hover:bg-card hover:text-text-hi"
               aria-label="Open tools menu"
               aria-expanded={showTools}

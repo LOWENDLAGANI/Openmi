@@ -1,8 +1,8 @@
 // ── Preferences that follow the account ──────────────────────────────────────
 //
 // The small choices that make Openmi feel like yours — appearance, response
-// length, reasoning effort, search mode, the last model, whether the tour has
-// been seen, and the display name — are written to `user_preferences` against
+// length, reasoning effort, search mode, the last model and the display name —
+// are written to `user_preferences` against
 // the signed-in account. A second browser therefore opens with the same settings
 // instead of the defaults.
 //
@@ -35,7 +35,6 @@ import { loadSelectedMode, saveSelectedMode } from "./db";
 import { loadDisplayName, saveDisplayName, loadAvatar, saveAvatar } from "./visitorName";
 
 const SEARCH_MODE_KEY = "openmi:search-mode";
-const TUTORIAL_KEY = "openmi:tutorial-finished";
 
 export interface UserPreferences {
   displayName: string | null;
@@ -46,7 +45,6 @@ export interface UserPreferences {
   reasoningEffort: ReasoningEffort;
   searchMode: SearchMode;
   model: ModeId | null;
-  tutorialFinished: boolean;
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -58,7 +56,6 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   reasoningEffort: "low",
   searchMode: "auto",
   model: DEFAULT_MODE_ID,
-  tutorialFinished: false,
 };
 
 function readSearchMode(): SearchMode {
@@ -68,15 +65,6 @@ function readSearchMode(): SearchMode {
     return value === "always" || value === "off" ? value : "auto";
   } catch {
     return "auto";
-  }
-}
-
-function readTutorialFinished(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(TUTORIAL_KEY) === "1";
-  } catch {
-    return false;
   }
 }
 
@@ -91,7 +79,6 @@ export function loadLocalPreferences(): UserPreferences {
     reasoningEffort: loadReasoningEffort(),
     searchMode: readSearchMode(),
     model: loadSelectedMode(),
-    tutorialFinished: readTutorialFinished(),
   };
 }
 
@@ -103,7 +90,6 @@ export function saveLocalPreferences(preferences: UserPreferences): void {
   saveReasoningEffort(preferences.reasoningEffort);
   try {
     window.localStorage.setItem(SEARCH_MODE_KEY, preferences.searchMode);
-    window.localStorage.setItem(TUTORIAL_KEY, preferences.tutorialFinished ? "1" : "0");
   } catch {
     // Private mode: the preferences simply are not remembered next visit.
   }
@@ -145,7 +131,6 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
       typeof row.model === "string" && OPENMI_MODES.some((mode) => mode.id === row.model)
         ? (row.model as ModeId)
         : null,
-    tutorialFinished: row.tutorial_finished === true,
   };
 }
 
@@ -165,7 +150,7 @@ export async function loadCloudPreferences(): Promise<UserPreferences | null> {
     const { data, error } = await client
       .from("user_preferences")
       .select(
-        "display_name, avatar_url, appearance, home_layout, response_length, reasoning_effort, search_mode, model, tutorial_finished"
+        "display_name, avatar_url, appearance, home_layout, response_length, reasoning_effort, search_mode, model"
       )
       .eq("owner", user.id)
       .maybeSingle();
@@ -201,7 +186,6 @@ export async function saveCloudPreferences(preferences: UserPreferences): Promis
         reasoning_effort: preferences.reasoningEffort,
         search_mode: preferences.searchMode,
         model: preferences.model,
-        tutorial_finished: preferences.tutorialFinished,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "owner" }

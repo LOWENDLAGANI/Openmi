@@ -10,7 +10,6 @@ import AdBanner from "@/components/AdBanner";
 import ModeSelector from "@/components/ModelSelector";
 import OpenmiMark from "@/components/OpenmiMark";
 import FocusHome from "@/components/FocusHome";
-import OpenmiTutorial from "@/components/OpenmiTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import RepoPanel from "@/components/RepoPanel";
 import type { ProjectSummary } from "@/lib/projects";
@@ -91,7 +90,6 @@ const ACCOUNT_NAME_TIMEOUT_MS = 3_000;
 
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
-import InstallPrompt from "@/components/InstallPrompt";
 
 // ── Openmi — main client orchestration: modes, streaming, chats ────────────────
 
@@ -207,7 +205,6 @@ export default function HomePage() {
   const [agentActivity, setAgentActivity] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
-  const [tutorialFinished, setTutorialFinished] = useState(false);
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
@@ -328,7 +325,6 @@ export default function HomePage() {
     saveHomeLayout(local.homeLayout);
     saveAppearance(local.appearance, local.homeLayout);
     setSearchMode(local.searchMode);
-    setTutorialFinished(local.tutorialFinished);
     setDisplayName(local.displayName ?? "");
     setAvatarUrl(local.avatarUrl ?? "");
     setHydrated(true);
@@ -440,9 +436,6 @@ export default function HomePage() {
             ...cloud,
             displayName: chosen || cloud.displayName,
             avatarUrl: cloud.avatarUrl ?? current.avatarUrl ?? null,
-            // Seeing the tour once is enough on any browser. The other choices
-            // follow the account exactly.
-            tutorialFinished: cloud.tutorialFinished || current.tutorialFinished,
           }
         : { ...current, displayName: chosen };
       preferencesRef.current = merged;
@@ -451,7 +444,6 @@ export default function HomePage() {
       setResponseLength(merged.responseLength);
       setReasoningEffort(merged.reasoningEffort);
       setSearchMode(merged.searchMode);
-      setTutorialFinished(merged.tutorialFinished);
       setSelectedMode(merged.model ?? current.model ?? DEFAULT_MODE_ID);
       setAvatarUrl(merged.avatarUrl ?? "");
       saveLocalPreferences(merged);
@@ -757,12 +749,6 @@ export default function HomePage() {
     window.addEventListener("openmi:data-wiped", onWiped);
     return () => window.removeEventListener("openmi:data-wiped", onWiped);
   }, [handleNewChat]);
-
-  const openSidebar = useCallback(() => setSidebarOpen(true), []);
-  const finishTutorial = useCallback(() => {
-    setTutorialFinished(true);
-    persistPreferences({ tutorialFinished: true });
-  }, [persistPreferences]);
 
   // ── Where a message is written ─────────────────────────────────────────────
   // One set of calls for both kinds of chat, so the send path below has no
@@ -1437,11 +1423,6 @@ export default function HomePage() {
 
   const handleSend = useCallback(
     (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
-      // Someone who has sent a message has decided Openmi is worth a second
-      // look, which is the earliest the install prompt can be justified. It
-      // arrives as a custom event because the prompt decides for itself
-      // whether to ask — this page only reports what happened.
-      window.dispatchEvent(new Event("openmi:engage"));
       // With a repository attached, a plain question goes to the agent. Anything
       // carrying attachments stays in ordinary chat: the agent has no way to
       // read an image, and silently dropping one would be worse than saying so.
@@ -1669,7 +1650,6 @@ export default function HomePage() {
                 onClick={() => setSidebarOpen(true)}
                 className="lift flex h-9 w-9 items-center justify-center rounded-lg text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
                 aria-label="Open sidebar"
-                data-tutorial="mobile-menu"
               >
                 <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="4.5" width="18" height="15" rx="3.5" />
@@ -1707,7 +1687,6 @@ export default function HomePage() {
                 onClick={() => setSidebarOpen(true)}
                 className="lift flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
                 aria-label="Open menu"
-                data-tutorial="mobile-menu"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <path d="M4 7h16M4 12h16M4 17h16" />
@@ -1909,14 +1888,6 @@ export default function HomePage() {
         />
       )}
 
-      {!tutorialFinished && (
-        <OpenmiTutorial
-          sidebarOpen={sidebarOpen}
-          onOpenSidebar={openSidebar}
-          onFinished={finishTutorial}
-        />
-      )}
-
       <RepoPanel
         open={repoOpen}
         onClose={() => setRepoOpen(false)}
@@ -1947,8 +1918,6 @@ export default function HomePage() {
           session. It sits above the app while this page finishes loading. */}
       <SplashScreen />
 
-      {/* Install prompt — mobile only, and only once Openmi has been used. */}
-      <InstallPrompt />
     </div>
   );
 }
