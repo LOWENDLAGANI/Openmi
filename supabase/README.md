@@ -27,6 +27,7 @@ carry the rules it used to hold.
 | `migrations/20261027000000_provider_keys_deepseek.sql` | Adds DeepSeek to the `provider_keys.provider` list, so the DeepSeek V4.1 Flash mode can use a key the account brought. |
 | `migrations/20261028000000_pricing_sessions.sql` | `paid_passes` (read-only to its owner, granted only by `admin_grant_plan()`), the 10-free/15-paid daily bucket in `deduct_dew_split()`, and `hour_sessions` with the `start_hour_session()`/`end_hour_session()` pair that charges and enforces one live session per account. |
 | `migrations/20261028000100_dew_split_ambiguous_spent.sql` | Replaces `deduct_dew_split()` so the `spent` it increments is no longer ambiguous with the function's own OUT parameter. Every charge was failing with "column reference \"spent\" is ambiguous", so no Dew was deducted. |
+| `migrations/20261028000200_charge_dew.sql` | The one real charge: `dew_charge(numeric)` answers `{spent, free_charged, paid_charged}` as jsonb, so it declares no OUT parameter for a wallet column to collide with. `deduct_dew_split()` and `deduct_dew()` become wrappers over it. Apply this single file and the charge works whichever earlier charge migration a project has. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

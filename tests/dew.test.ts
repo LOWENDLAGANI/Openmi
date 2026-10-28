@@ -293,13 +293,23 @@ const dewSchema = readFileSync(
   "utf8"
 );
 assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
+for (const door of ["dew_charge", "deduct_dew_split", "deduct_dew"]) {
+  assert.ok(
+    dewSource.includes(`"${door}"`),
+    `the deduction must be able to reach ${door}, not compute a total client-side`
+  );
+}
 assert.ok(
-  deductDewSource.includes('rpc("deduct_dew"'),
-  "the deduction must go through the database function, not a client-side total"
+  deductDewSource.includes("for (const rpc of CHARGE_RPCS)"),
+  "the charge must try the doors in order rather than reaching for one and giving up"
 );
 assert.ok(
-  deductDewSource.includes('rpc("deduct_dew_split"'),
-  "the charge must report how much free and paid Dew paid for it, not only the total"
+  deductDewSource.includes("readCharge("),
+  "the charge must report the split the database returned, not only a total"
+);
+assert.ok(
+  /ambiguous/i.test(deductDewSource),
+  "an ambiguous-body failure must be reported with the migration that fixes it, not swallowed"
 );
 assert.ok(
   /set spent = public\.dew_wallets\.spent \+ excluded\.spent/.test(dewSchema),
@@ -388,6 +398,51 @@ assert.ok(
 assert.ok(
   /returns table \(spent numeric, free_charged numeric, paid_charged numeric\)/.test(splitFixCode),
   "the charge must keep returning the split the client reads"
+);
+
+// ── One charge function that cannot be ambiguous ────────────────────────────
+//
+// 20261028000200_charge_dew.sql removes the pattern rather than the symptom. A
+// jsonb function declares no OUT parameter, so no variable can ever collide with
+// the `spent` column again, and the two older doors become wrappers that name no
+// wallet column at all.
+
+const chargeSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000200_charge_dew.sql"),
+  "utf8"
+);
+const chargeCode = chargeSchema.replace(/--.*$/gm, "");
+assert.ok(
+  /create or replace function public\.dew_charge\(p_amount numeric\)\s*\nreturns jsonb/.test(chargeCode),
+  "the real charge must answer jsonb: a RETURNS TABLE column is the variable that made every charge ambiguous"
+);
+assert.ok(
+  !/returns table \(spent numeric/.test(chargeCode.slice(0, chargeCode.indexOf("deduct_dew_split"))),
+  "the one real charge must not declare a `spent` OUT parameter"
+);
+assert.ok(
+  /set spent = w\.spent \+ paid_amount/.test(chargeCode),
+  "the wallet increment must name the row alias it reads"
+);
+assert.ok(
+  /total := wallet\.spent \+ paid_amount/.test(chargeCode),
+  "the new total must come from the locked row, not from a RETURNING list"
+);
+assert.ok(
+  /for update/.test(chargeCode),
+  "the wallet must still be locked while the bucket and the spend are split"
+);
+assert.ok(
+  !/returning\s+spent/.test(chargeCode),
+  "no RETURNING spent anywhere: that is the same ambiguity again"
+);
+assert.ok(
+  (chargeCode.match(/public\.dew_charge\(p_amount\)/g) ?? []).length >= 2,
+  "the two older doors must charge through dew_charge rather than carry their own body"
+);
+assert.ok(
+  /'dew_charge\(numeric\)', 'function', '20261028000200_charge_dew'/.test(chargeSchema),
+  "the schema audit must know about the real charge, so a skipped migration is named"
 );
 assert.ok(
   /free_charge := least\(charged, free_left\)/.test(timezoneSchema),
