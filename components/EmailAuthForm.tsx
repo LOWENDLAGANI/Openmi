@@ -22,6 +22,7 @@ import {
   signInWithEmail,
 } from "@/lib/emailAuth";
 import { describeLinkError, type AccountView } from "@/lib/accountState";
+import { checkSignupEmail } from "@/lib/emailGuard";
 
 interface EmailAuthFormProps {
   /** The name typed into the registration form, carried onto the new account. */
@@ -51,6 +52,14 @@ export default function EmailAuthForm({ name: initialName, onSignedIn }: EmailAu
       setNotice(null);
       try {
         if (mode === "register") {
+          // A throwaway mailbox stops existing in minutes, so an account made
+          // with one could never receive a reset link. The sentence is here; the
+          // trigger on auth.users is what actually enforces it.
+          const verdict = checkSignupEmail(email);
+          if (!verdict.ok) {
+            setError(verdict.message);
+            return;
+          }
           const result = await registerWithEmail(email.trim(), password, name);
           setPassword("");
           if (result.needsVerification) {

@@ -18,7 +18,9 @@ when you say so**, on a branch of its own.
   limit.
 - Local-first history in IndexedDB (Dexie), synced to the signed-in account.
 - **An account is required.** Sign in or register with Google, GitHub, Microsoft
-  or an email address and password, all held by Supabase Auth.
+  or an email address and password, all held by Supabase Auth. Disposable email
+  domains are refused at sign-up, so an address that expires cannot become the
+  only key to somebody's chats.
 - **Dew**: one price — `3` Dew buys a one-hour session that covers every answer
   in every chat on the model it was bought for. A session started in the
   repository workspace is bound to that repository too: asking for another model
