@@ -51,6 +51,27 @@ export function dispatchTick(origin: string, token: string): Promise<unknown> {
 }
 
 /** Null for a forged, truncated, expired or foreign token — never a partial claim. */
+export type TickVerdict = "advance" | "missing" | "finished" | "claimed";
+
+/**
+ * What a tick may do with the row it names.
+ *
+ * Split out of the route because it is the decision the token exists for, and
+ * because every one of these answers costs something different: `missing` and
+ * `finished` end the chain, `claimed` is the duplicate that must spend nothing,
+ * and only `advance` is allowed to buy a model call. The order is the safety
+ * property — a token for somebody else's run is `missing`, never theirs.
+ */
+export function tickVerdict(
+  run: { owner: string; status: string; attempts: number } | null,
+  claim: TickClaim
+): TickVerdict {
+  if (!run || run.owner !== claim.uid) return "missing";
+  if (run.status !== "running") return "finished";
+  if (run.attempts !== claim.attempt) return "claimed";
+  return "advance";
+}
+
 export function verifyTick(token: string, now = Date.now()): TickClaim | null {
   const claim = verify<TickClaim>(token, turnKey());
   if (!claim) return null;

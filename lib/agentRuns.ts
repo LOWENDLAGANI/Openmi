@@ -20,6 +20,7 @@
 // ticks racing on one run means one claim wins and the other does nothing — the
 // cheap version of this feature is a run that spends its budget twice.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { seal, tokenKey, unseal } from "./github/crypto";
 import { clientForToken } from "./supabase";
 import { supabaseAdmin } from "./supabaseAdmin";
@@ -292,9 +293,26 @@ export async function activeRunFor(
  * to update and returns false without spending a model call. This is the whole
  * concurrency story, and it is one conditional write.
  */
-export async function claimRun(id: string, owner: string, attempt: number, now = Date.now()): Promise<boolean> {
-  const admin = supabaseAdmin();
+export interface ClaimOptions {
+  now?: number;
+  /**
+   * The client to write through. A parameter rather than the module's own so the
+   * conditional update can be exercised against a table that is not a database —
+   * the idempotency guard is the one line worth proving, and it should not need
+   * a deployment to do it. Defaults to the service-role client.
+   */
+  client?: SupabaseClient | null;
+}
+
+export async function claimRun(
+  id: string,
+  owner: string,
+  attempt: number,
+  options: ClaimOptions = {}
+): Promise<boolean> {
+  const admin = options.client === undefined ? supabaseAdmin() : options.client;
   if (!admin) return false;
+  const now = options.now ?? Date.now();
   try {
     const { data, error } = await admin
       .from("agent_runs")
@@ -418,3 +436,19 @@ export async function listStaleRuns(staleAfterMs: number, limit = 5): Promise<Ag
 export const RUN_STALE_MS = 90_000;
 /** The most a run may be resumed after a dropped chain before it is failed. */
 export const RUN_MAX_ATTEMPTS = 40;
+
+export type SweepAction = { action: "abandon" } | { action: "revive"; attempt: number };
+
+/**
+ * What the watchdog does with one stale run.
+ *
+ * Pure, because the two branches have different costs and the boundary between
+ * them is the only thing standing between a recovered run and one that repeats
+ * its last step for ever: below the budget it is re-dispatched with the attempt
+ * it already holds, at the budget it is closed. The route keeps the writes.
+ */
+export function sweepAction(run: Pick<AgentRunRecord, "attempts">): SweepAction {
+  return run.attempts >= RUN_MAX_ATTEMPTS
+    ? { action: "abandon" }
+    : { action: "revive", attempt: run.attempts };
+}

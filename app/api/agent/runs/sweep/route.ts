@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { RUN_MAX_ATTEMPTS, RUN_STALE_MS, finishRun, listStaleRuns } from "@/lib/agentRuns";
+import { RUN_STALE_MS, finishRun, listStaleRuns, sweepAction } from "@/lib/agentRuns";
 import { dispatchTick, signTick } from "@/lib/agentRunToken";
 
 // ── The watchdog ─────────────────────────────────────────────────────────────
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   let abandoned = 0;
 
   for (const run of stale) {
-    if (run.attempts >= RUN_MAX_ATTEMPTS) {
+    const decision = sweepAction(run);
+    if (decision.action === "abandon") {
       await finishRun({
         id: run.id,
         owner: run.owner,
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     // The attempt number it holds is the one the claim will require, so a live
     // link that beats this sweep simply wins first and this dispatch does nothing.
-    void dispatchTick(req.nextUrl.origin, signTick({ run: run.id, uid: run.owner, attempt: run.attempts }));
+    void dispatchTick(req.nextUrl.origin, signTick({ run: run.id, uid: run.owner, attempt: decision.attempt }));
     revived += 1;
   }
 

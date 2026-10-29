@@ -11,7 +11,7 @@ import {
   saveProgress,
   type AgentRunState,
 } from "@/lib/agentRuns";
-import { dispatchTick, signTick, verifyTick } from "@/lib/agentRunToken";
+import { dispatchTick, signTick, tickVerdict, verifyTick } from "@/lib/agentRunToken";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildChangeSet, changeSetRow } from "@/lib/changesets";
 import type { AgentStep } from "@/lib/types";
@@ -75,9 +75,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!claim) return Response.json({ error: "That tick is not valid." }, { status: 401 });
 
   const run = await readRun(claim.run);
-  if (!run || run.owner !== claim.uid) return Response.json({ error: "No such run." }, { status: 404 });
-  if (run.status !== "running") return Response.json({ run: "finished" }, { status: 200 });
-  if (run.attempts !== claim.attempt) return Response.json({ run: "claimed" }, { status: 200 });
+  const verdict = tickVerdict(run, claim);
+  if (verdict === "missing" || !run) return Response.json({ error: "No such run." }, { status: 404 });
+  if (verdict === "finished") return Response.json({ run: "finished" }, { status: 200 });
+  if (verdict === "claimed") return Response.json({ run: "claimed" }, { status: 200 });
 
   const claimed = await claimRun(run.id, run.owner, claim.attempt);
   if (!claimed) return Response.json({ run: "claimed" }, { status: 200 });
