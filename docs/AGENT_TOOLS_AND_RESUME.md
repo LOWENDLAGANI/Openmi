@@ -170,6 +170,83 @@ into passing. 21 of its 22 checks pass.
 
 ---
 
+## The remaining work, in phases
+
+Ordered so each phase is verifiable alone, and so the risky change (a new way for
+a run to end) lands on top of tests rather than under them.
+
+### Phase A — Prove the claim
+
+Goal: idempotency stops being a comment.
+
+- New `tests/agent-runs.test.ts`: `claimRun` wins once per attempt and refuses a
+  second tick holding the same number; a tick is refused when run, owner or
+  attempt does not match the row, when expired, or truncated; `openRunState`
+  answers null under another key; `toView` never carries `state`; the sweep fails
+  a run at `RUN_MAX_ATTEMPTS` and re-dispatches the attempt it holds below it.
+- No network: fake the admin client the way `tests/repo-agent.test.ts` fakes
+  fetch. If the module-scope client blocks that, add the smallest seam — a
+  parameter defaulted to `supabaseAdmin()` — not a container.
+- Add the file to the hand-maintained list in `package.json`.
+
+Exit: the new test passes, `typecheck` is clean, the rest of the suite unchanged.
+
+### Phase B — Stop means stop
+
+Goal: pressing Stop ends the run, not just the polling.
+
+- `POST /api/agent/runs/[id]/cancel`: caller's JWT, same-origin, the `agent`
+  rate-limit scope. Ownership is proved with the caller's token (`readOwnRun`);
+  only then is the row closed with the service key — `cancelled`, `state: ''`.
+  Cancelling a finished run returns the run, not an error.
+- `finishRun` accepts `cancelled`. The status is already in the type and the
+  check constraint, and nothing writes it.
+- The composer calls it before aborting; a refused cancel must never block the
+  abort. The poll renders `cancelled` as an ending, not a failure.
+- Tests: another account cannot cancel this one; a late tick claims nothing.
+
+Exit: Stop, then close the tab, leaves `cancelled` and no further heartbeat.
+
+### Phase C — Make it operable
+
+Goal: a fresh deployment can turn both features on from the docs alone.
+
+- `.env.example`: "Never put the service_role key here or in any server route:
+  nothing in this app needs it" is now false. Replace it, and list
+  `SUPABASE_SERVICE_ROLE_KEY` (server only, optional, what it enables and what
+  stops without it) and `AGENT_SWEEP_SECRET`.
+- `supabase/README.md`: add `20261029000000_agent_runs.sql`; the table stops at
+  `20261028000400_email_guard.sql`.
+- A follow-up migration registering `agent_runs` in `schema_expected`, as the
+  `provider_keys` migrations do, so `/api/setup` names the missing table instead
+  of the run route answering 503 after the fact.
+- The schedule: `pg_cron` + `pg_net` SQL with header, cadence and the secret, in
+  the README rather than only in the route's comment. Until it exists the
+  watchdog is code nobody calls.
+
+Exit: no variable required by the code is absent from the documentation.
+
+### Phase D — Say what is true
+
+The header claims "shipped and verified" while background execution sits under
+"What is still open"; split the two claims. Record the deliberate exceptions —
+`tick` and `sweep` are gated by a signed claim and a shared secret and are
+neither origin-checked nor rate-limited, and `GET /api/agent/runs/[id]` is not
+rate-limited — where the cross-cutting rule is stated, or the rule is wrong by
+omission.
+
+### Phase E — The live pass
+
+The three unverified paths plus the two new endings (cancelled, swept). Needs an
+account, a live hour and a test repository. It also settles the pre-existing
+`chat-sync` failure: fix it, or record it as known-failing where a reader looks.
+
+Not in any phase: the approval gate, a write tool, code execution, or the BYOK
+and AdSense items in `docs/ROADMAP.md`. Nothing here moves the boundary in
+`docs/AGENT_CAPABILITIES.md`.
+
+---
+
 ## Adding a tool: the registration checklist
 
 A tool is not one function. Miss a step and it fails in a specific way.
