@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   linkSignInMethod,
   listSignInMethods,
@@ -22,16 +22,15 @@ import {
   type AccountView,
   type SignInMethod,
 } from "@/lib/accountState";
-import { compressFiles } from "@/lib/imageUtils";
-import { nameInitial } from "@/lib/visitorName";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import AuthDiagnostics from "./AuthDiagnostics";
 
 interface AccountSectionProps {
   displayName: string;
   /** Saves the name here, in `profiles`, in the account preferences and metadata. */
   onDisplayNameChange: (name: string) => void;
-  avatarUrl?: string;
-  onAvatarChange?: (avatarUrl: string) => void;
+  /** The account id the generated picture is derived from. */
+  avatarSeed?: string | null;
 }
 
 /**
@@ -43,14 +42,12 @@ interface AccountSectionProps {
  * Supabase project. Signing in here grants a token; only row-level security
  * decides what a token is worth, and it grants one verified admin and no others.
  */
-export default function AccountSection({ displayName, onDisplayNameChange, avatarUrl, onAvatarChange }: AccountSectionProps) {
+export default function AccountSection({ displayName, onDisplayNameChange, avatarSeed }: AccountSectionProps) {
   const [view, setView] = useState<AccountView | null>(null);
   const [name, setName] = useState(displayName);
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => watchAccount(setView), []);
 
@@ -74,33 +71,6 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
     onDisplayNameChange(trimmed);
     setNotice("Name saved to this account.");
   }, [name, onDisplayNameChange]);
-
-  const handleAvatarUpload = useCallback(
-    async (file: File) => {
-      if (!onAvatarChange) return;
-      setUploading(true);
-      setError(null);
-      try {
-        const { results, errors } = await compressFiles([file]);
-        if (errors.length || results.length === 0) {
-          setError(errors[0] || "Could not process image.");
-          return;
-        }
-        const dataUrl = results[0].dataUrl;
-        if (dataUrl.length > 500000) {
-          setError("Image is too large. Try a smaller image.");
-          return;
-        }
-        onAvatarChange(dataUrl);
-        setNotice("Profile picture updated.");
-      } catch {
-        setError("Failed to upload image.");
-      } finally {
-        setUploading(false);
-      }
-    },
-    [onAvatarChange]
-  );
 
   const signOut = useCallback(async () => {
     setBusy(true);
@@ -174,65 +144,15 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
 
         {signedIn && (
           <div className="mt-3 space-y-2">
-            {onAvatarChange && (
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => avatarInputRef.current?.click()}
-                  disabled={uploading}
-                  className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.05]"
-                  aria-label="Change profile picture"
-                >
-                  {avatarUrl ? (
-                    <img src={avatarUrl} alt="Profile" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#ffb59f] via-[#f55036] to-[#a82e18] text-sm font-bold text-black">
-                      {nameInitial(displayName || name || "U")}
-                    </div>
-                  )}
-                  {uploading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                      <Spinner size={16} className="text-white" />
-                    </div>
-                  )}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12px] text-white/80">Profile picture</p>
-                  <button
-                    type="button"
-                    onClick={() => avatarInputRef.current?.click()}
-                    disabled={uploading}
-                    className="mt-1 text-[11px] text-white/45 transition-colors hover:text-white/70"
-                  >
-                    {uploading ? "Uploading..." : avatarUrl ? "Change" : "Upload"}
-                  </button>
-                  {avatarUrl && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onAvatarChange("");
-                        setNotice("Profile picture removed.");
-                      }}
-                      disabled={uploading}
-                      className="ml-2 mt-1 text-[11px] text-white/45 transition-colors hover:text-red-300/70"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <input
-                  ref={avatarInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void handleAvatarUpload(file);
-                    e.target.value = "";
-                  }}
-                />
+            <div className="flex items-center gap-3">
+              <ProfileAvatar name={name || displayName || "Openmi user"} seed={avatarSeed} size={56} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] text-white/80">Profile picture</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-white/35">
+                  Generated from this account — no upload needed.
+                </p>
               </div>
-            )}
+            </div>
             <label className="block">
               <span className="mb-1 block text-[10.5px] text-white/35">Display name</span>
               <div className="flex gap-1.5">

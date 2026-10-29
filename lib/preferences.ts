@@ -32,13 +32,12 @@ import {
 import { DEFAULT_MODE_ID, OPENMI_MODES, type ModeId } from "./models";
 import type { SearchMode } from "./types";
 import { loadSelectedMode, saveSelectedMode } from "./db";
-import { loadDisplayName, saveDisplayName, loadAvatar, saveAvatar } from "./visitorName";
+import { loadDisplayName, saveDisplayName } from "./visitorName";
 
 const SEARCH_MODE_KEY = "openmi:search-mode";
 
 export interface UserPreferences {
   displayName: string | null;
-  avatarUrl: string | null;
   appearance: Appearance;
   homeLayout: HomeLayout;
   responseLength: ResponseLength;
@@ -49,7 +48,6 @@ export interface UserPreferences {
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   displayName: null,
-  avatarUrl: null,
   appearance: DEFAULT_APPEARANCE,
   homeLayout: DEFAULT_HOME_LAYOUT,
   responseLength: "balanced",
@@ -72,7 +70,6 @@ function readSearchMode(): SearchMode {
 export function loadLocalPreferences(): UserPreferences {
   return {
     displayName: loadDisplayName() || null,
-    avatarUrl: loadAvatar() || null,
     appearance: loadAppearance(),
     homeLayout: loadHomeLayout(),
     responseLength: loadResponseLength(),
@@ -95,7 +92,6 @@ export function saveLocalPreferences(preferences: UserPreferences): void {
   }
   saveSelectedMode(preferences.model ?? DEFAULT_MODE_ID);
   saveDisplayName(preferences.displayName ?? "");
-  saveAvatar(preferences.avatarUrl ?? "");
 }
 
 /** The row shape read from `user_preferences`. */
@@ -112,16 +108,11 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
       : "low";
   const searchMode: SearchMode =
     row.search_mode === "always" || row.search_mode === "off" ? row.search_mode : "auto";
-  const avatarUrl =
-    (typeof row.avatar_url === "string" && row.avatar_url.trim()) ||
-    (typeof row.avatarUrl === "string" && row.avatarUrl.trim()) ||
-    null;
   return {
     displayName:
       typeof row.display_name === "string" && row.display_name.trim()
         ? row.display_name.trim().slice(0, 40)
         : null,
-    avatarUrl,
     appearance,
     homeLayout,
     responseLength,
@@ -150,7 +141,7 @@ export async function loadCloudPreferences(): Promise<UserPreferences | null> {
     const { data, error } = await client
       .from("user_preferences")
       .select(
-        "display_name, avatar_url, appearance, home_layout, response_length, reasoning_effort, search_mode, model"
+        "display_name, appearance, home_layout, response_length, reasoning_effort, search_mode, model"
       )
       .eq("owner", user.id)
       .maybeSingle();
@@ -179,7 +170,6 @@ export async function saveCloudPreferences(preferences: UserPreferences): Promis
       {
         owner: user.id,
         display_name: preferences.displayName,
-        avatar_url: preferences.avatarUrl,
         appearance: preferences.appearance,
         home_layout: preferences.homeLayout,
         response_length: preferences.responseLength,

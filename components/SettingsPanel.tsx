@@ -11,8 +11,8 @@ interface SettingsPanelProps {
   onClose: () => void;
   displayName: string;
   onDisplayNameChange: (name: string) => void;
-  avatarUrl?: string;
-  onAvatarChange?: (avatarUrl: string) => void;
+  /** The account id the generated profile picture is derived from. */
+  avatarSeed?: string | null;
   searchMode: SearchMode;
   onSearchModeChange: (mode: SearchMode) => void;
   searchAvailable: boolean;
@@ -117,8 +117,7 @@ export default function SettingsPanel({
   onClose,
   displayName,
   onDisplayNameChange,
-  avatarUrl,
-  onAvatarChange,
+  avatarSeed,
   searchMode,
   onSearchModeChange,
   searchAvailable,
@@ -172,7 +171,7 @@ export default function SettingsPanel({
         </header>
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 stagger-children">
-          <AccountSection displayName={displayName} onDisplayNameChange={onDisplayNameChange} avatarUrl={avatarUrl} onAvatarChange={onAvatarChange} />
+          <AccountSection displayName={displayName} onDisplayNameChange={onDisplayNameChange} avatarSeed={avatarSeed} />
           <div className="grid grid-cols-1 gap-4" style={{ ['--stagger' as string]: 3 }}>
             <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 4 }}>
               <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">

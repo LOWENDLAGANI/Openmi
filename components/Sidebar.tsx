@@ -26,7 +26,7 @@ import {
 } from "@/lib/cloudHistory";
 import { markFolderDeleted } from "@/lib/deletedFolders";
 import { localStorageOrNull } from "@/lib/deletedChats";
-import { nameInitial } from "@/lib/visitorName";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import OpenmiMark from "@/components/OpenmiMark";
 import SearchOverlay from "@/components/SearchOverlay";
@@ -44,7 +44,8 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenRepo: () => void;
   displayName: string;
-  avatarUrl?: string;
+  /** The account id the generated profile picture is derived from. */
+  avatarSeed?: string | null;
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -153,7 +154,7 @@ export default function Sidebar({
   onOpenSettings,
   onOpenRepo,
   displayName,
-  avatarUrl,
+  avatarSeed,
 }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
@@ -872,15 +873,7 @@ export default function Sidebar({
               className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               aria-label="Open settings"
             >
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={displayName || "You"}
-                  className="h-8 w-8 shrink-0 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#ffb59f] via-[#f55036] to-[#a82e18] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
-              )}
+              <ProfileAvatar name={displayName || "You"} seed={avatarSeed} size={32} />
               <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "You"}</span>
             </button>
             <span className="flex shrink-0 items-center gap-1">

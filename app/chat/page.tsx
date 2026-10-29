@@ -22,7 +22,7 @@ import Spinner from "@/components/Spinner";
 import type { ProjectSummary } from "@/lib/projects";
 import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
-import { loadDisplayName, saveDisplayName, saveAvatar } from "@/lib/visitorName";
+import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
 import {
   loadChatsFromAccount,
   syncVisitorProfile,
@@ -328,7 +328,6 @@ export default function HomePage() {
   // about the agent is active until a project is chosen.
   const [project, setProject] = useState<ProjectSummary | null>(null);
   const [displayName, setDisplayName] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
   const [hydrated, setHydrated] = useState(false);
   // Null while the first identity read is still in flight. `signedIn: false`
   // after that is a real answer: the sign-in screen is the interface.
@@ -479,7 +478,6 @@ export default function HomePage() {
     saveAppearance(local.appearance, local.homeLayout);
     setSearchMode(local.searchMode);
     setDisplayName(local.displayName ?? "");
-    setAvatarUrl(local.avatarUrl ?? "");
     setHydrated(true);
   }, []);
 
@@ -509,8 +507,7 @@ export default function HomePage() {
     if (account?.signedIn !== false) return;
     saveDisplayName("");
     setDisplayName("");
-    saveAvatar("");
-    setAvatarUrl("");      endDraft();
+    endDraft();
     setActiveChatId(null);
     setProject(null);
   }, [account?.signedIn, endDraft]);
@@ -581,7 +578,6 @@ export default function HomePage() {
       setReasoningEffort(merged.reasoningEffort);
       setSearchMode(merged.searchMode);
       setSelectedMode(merged.model ?? DEFAULT_MODE_ID);
-      setAvatarUrl(merged.avatarUrl ?? "");
       saveLocalPreferences(merged);
 
       // The sidebar is part of the account too. Decisions taken while offline
@@ -650,14 +646,6 @@ export default function HomePage() {
     void syncVisitorProfile(saved).catch((error: unknown) => {
       console.error("[Openmi] Could not log the visitor name", error);
     });
-  }, []);
-
-  const handleSaveAvatar = useCallback((avatar: string) => {
-    saveAvatar(avatar);
-    setAvatarUrl(avatar);
-    const next = { ...preferencesRef.current, avatarUrl: avatar || null };
-    preferencesRef.current = next;
-    saveLocalPreferences(next);
   }, []);
 
   /**
@@ -2013,7 +2001,7 @@ export default function HomePage() {
           setSidebarOpen(false);
         }}
         displayName={displayName}
-        avatarUrl={avatarUrl}
+        avatarSeed={account?.id ?? displayName}
         onOpenRepo={() => {
           setRepoOpen(true);
           setSidebarOpen(false);
@@ -2302,8 +2290,7 @@ export default function HomePage() {
         onClose={() => setSettingsOpen(false)}
         displayName={displayName}
         onDisplayNameChange={handleSaveName}
-        avatarUrl={avatarUrl}
-        onAvatarChange={handleSaveAvatar}
+        avatarSeed={account?.id ?? displayName}
         searchMode={searchMode}
         onSearchModeChange={handleSearchModeChange}
         searchAvailable={searchAvailable}
