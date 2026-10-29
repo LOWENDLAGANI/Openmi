@@ -657,5 +657,25 @@ assert.equal(formatPlanPrice(8, "en-US"), "$8");
 const malaysian = localPrice(8, "en-MY");
 assert.equal(malaysian.currency, "MYR");
 assert.equal(malaysian.approximate, true);
-assert.ok(malaysian.amount >= 30 && malaysian.amount <= 40, "eight dollars is about RM 35");
+assert.equal(malaysian.amount, 35, "the converted figure matches the ringgit price");
+assert.equal(localPrice(4, "en-MY").amount, 18);
 assert.ok(malaysian.formatted.includes("RM"));
+
+// Rounding is a property of the currency, not of its rate. Japan used one rule
+// for both plans — ￥600 and ￥1,200 both became ￥1,000 — so the shorter pass
+// looked exactly as expensive as the longer one.
+assert.equal(currencyForLocale("ja-JP"), "JPY");
+assert.equal(localPrice(4, "ja-JP").amount, 600);
+assert.equal(localPrice(8, "ja-JP").amount, 1_200);
+assert.equal(currencyForLocale("ko-KR"), "KRW");
+assert.equal(localPrice(4, "ko-KR").amount, 5_500);
+assert.equal(localPrice(4, "id-ID").amount, 64_000, "rupiah still rounds to the thousand");
+assert.equal(localPrice(8, "id-ID").amount, 128_000);
+
+// A region with no rate is answered in dollars, never in its own symbol at the
+// dollar's magnitude: the mapping and the rate table are two lists.
+assert.equal(currencyForLocale("hu-HU"), "USD");
+const hungarian = localPrice(4, "hu-HU");
+assert.equal(hungarian.currency, "USD");
+assert.equal(hungarian.amount, 4);
+assert.equal(hungarian.approximate, false);

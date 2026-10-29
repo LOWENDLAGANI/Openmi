@@ -15,6 +15,7 @@ import {
   PAID_BENEFITS,
   PAID_PLANS,
   browserLocale,
+  currencyForLocale,
   formatPlanPrice,
   type PaidPlan,
 } from "@/lib/pricing";
@@ -348,19 +349,26 @@ function PlansPanel({ onChoose }: { onChoose: (plan: PaidPlan) => void }) {
             onClick={() => onChoose(plan)}
             className="group flex flex-col items-start gap-1 rounded-[18px] border border-white/[0.09] bg-white/[0.03] px-4 py-3.5 text-left transition-colors hover:border-[#a9d8bb]/40 hover:bg-[#a9d8bb]/[0.06]"
           >
+            {/* The ringgit figure is the price: it is what a DuitNow transfer
+                takes. A converted number is a courtesy for readers who do not
+                think in ringgit, never the amount that is charged. */}
             <span className="text-[19px] font-semibold leading-none text-white">
-              {/* Before the locale is known the planning price is printed, so
-                  the server render and the first client render agree. */}
-              {locale ? formatPlanPrice(plan.usd, locale) : `$${plan.usd}`}
+              {formatRinggit(plan.ringgit)}
             </span>
+            {locale && currencyForLocale(locale) !== "MYR" && (
+              <span className="text-[10.5px] leading-snug text-white/35">
+                {formatPlanPrice(plan.usd, locale)}
+              </span>
+            )}
             <span className="text-[12px] font-medium text-white/70">{plan.label}</span>
             <span className="text-[10.5px] leading-snug text-white/35">{plan.note}</span>
           </button>
         ))}
       </div>
       <p className="mt-2 text-[10.5px] leading-relaxed text-white/35">
-        Prices are shown in your country&apos;s currency; the DuitNow transfer is in ringgit. A pass
-        activates after the payment lands, and its 15 Dew a day starts then.
+        The price is in ringgit, because that is what the DuitNow transfer takes. A second figure,
+        when shown, follows the language this browser is set to — not where you are — and is
+        approximate. A pass activates after the payment lands, and its 15 Dew a day starts then.
       </p>
     </section>
   );

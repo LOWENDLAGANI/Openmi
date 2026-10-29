@@ -106,6 +106,23 @@ const RATES: Record<string, number> = {
   EUR: 0.92,
 };
 
+/**
+ * How coarsely a currency is rounded on a price card.
+ *
+ * The step belongs to the currency, not to its rate. Yen and won are worth
+ * fractions of a dollar and are still counted in whole units a person
+ * recognises, so they round to 100; rupiah and dong are worth almost nothing,
+ * so they round to 1,000. A single "rate >= 100" rule for both made the two
+ * plans print the same number in Japan — ￥600 and ￥1,200 both became ￥1,000 —
+ * which is a price card nobody can trust.
+ */
+const ROUNDING_STEP: Record<string, number> = {
+  IDR: 1_000,
+  VND: 1_000,
+  JPY: 100,
+  KRW: 100,
+};
+
 const REGION_CURRENCY: Record<string, string> = {
   US: "USD",
   MY: "MYR",
@@ -192,15 +209,15 @@ export interface LocalPrice {
  * currency, because it is.
  */
 export function localPrice(usd: number, locale: string = browserLocale()): LocalPrice {
-  const currency = currencyForLocale(locale);
+  // A region can be mapped before its rate exists, and showing eight dollars as
+  // "8 KWD" is worse than showing it as dollars. The fallback is therefore the
+  // currency itself, not a rate of 1.
+  const requested = currencyForLocale(locale);
+  const currency = RATES[requested] === undefined ? "USD" : requested;
   const rate = RATES[currency] ?? 1;
   const converted = usd * rate;
-  const amount =
-    rate >= 100
-      ? Math.round(converted / 1_000) * 1_000
-      : rate >= 1
-        ? Math.round(converted)
-        : Math.round(converted * 100) / 100;
+  const step = ROUNDING_STEP[currency] ?? (rate < 1 ? 0.01 : 1);
+  const amount = Math.round(converted / step) * step;
   let formatted: string;
   try {
     formatted = new Intl.NumberFormat(locale, {

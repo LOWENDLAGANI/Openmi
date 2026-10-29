@@ -33,9 +33,10 @@ when you say so**, on a branch of its own.
   the  free bucket rather than paid credit. Invitations on `/plus` give both
   people 25 Dew, with one claim per account and a ten-invite cap per inviter.
   Token counts are still recorded and shown; they no longer price the request.
-- **Paid passes**: $4 for 15 days or $8 for 30 days, shown in the reader's
-  country currency and activated by the owner after the existing manual
-  DuitNow transfer. A pass raises the daily bucket to **15 Dew** and adds
+- **Paid passes**: RM 18 for 15 days or RM 35 for 30 days, activated by the
+  owner after the existing manual DuitNow transfer. The card also prints an
+  approximate figure in the currency of the browser's regional language — a
+  courtesy for readers who do not think in ringgit, never the amount charged. A pass raises the daily bucket to **15 Dew** and adds
   priority support, more usage and everything in Free. The hour session is
   server-owned: one live session per account, charged atomically when it starts,
   bound to one model and one repository, and a second start for a different
