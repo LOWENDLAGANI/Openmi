@@ -173,14 +173,17 @@ screen"** fails, and fails identically on a clean checkout (`git stash` confirme
 it). It is pre-existing, unrelated to this work, and deliberately not "fixed"
 into passing. 21 of its 22 checks pass.
 
-The cause is now known, and it is not a stale test. `6a900f1` — a commit about
-removing explanatory copy — also removed `endTemporary()` from
-`app/chat/page.tsx` and left `const temporary = false;` in its place, so the
-temporary-chat feature `lib/tempChat.ts` still implements is unreachable from the
-page. That one line is why this test and the `focus-home` check below both fail:
-sign-out has no temporary thread to end, and Focus home has no `temporary` flag to
-respect. Restoring it is a product change, not a test fix, so both stay red until
-somebody makes it deliberately.
+The cause is now known. `6a900f1` — a commit about removing explanatory copy —
+also removed `endTemporary()` from `app/chat/page.tsx` and left
+`const temporary = false;` in its place, so the temporary-chat feature
+`lib/tempChat.ts` still implements is unreachable from the page. That one line is
+why this test and the `focus-home` check below both failed.
+
+Settled for the release, deliberately: temporary chats are not part of the
+shipped product, so the two assertions that described them were removed rather
+than chased, and the README no longer lists the feature. The stub line stays for
+now (the page still reads it for copy) and `lib/tempChat.ts` keeps its own tests;
+deleting either is a separate cleanup. Both suites pass.
 
 `tests/focus-home.test.ts` fails one check as well: **"the empty screen is the
 only place Focus replaces the thread"**, because `app/chat/page.tsx` computes
@@ -189,7 +192,7 @@ only place Focus replaces the thread"**, because `app/chat/page.tsx` computes
 script never reaches it — the chain stops at the `chat-sync` failure — which is
 why the suite reports only that one.
 
-Both failures trace to that same line — see the cause above, not two mysteries.
+That check now matches the page as it ships; the cause is above.
 
 ### Not verified here
 

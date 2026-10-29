@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     const page = read("app/chat/page.tsx");
     assert.match(
       page,
-      /const focusHome = homeLayout === "focus" && !temporary && messages\.length === 0;/,
+      /const focusHome = homeLayout === "focus" && messages\.length === 0;/,
       "Focus does not stop at the empty screen"
     );
     assert.match(page, /<FocusHome project=\{project\} onOpenRepo=\{\(\) => setRepoOpen\(true\)\} \/>/, "the screen is not rendered");

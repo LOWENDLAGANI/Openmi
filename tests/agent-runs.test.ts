@@ -22,6 +22,7 @@ import {
   openRunState,
   sealRunState,
   sweepAction,
+  sweepSecretMatches,
   toView,
   type AgentRunState,
 } from "../lib/agentRuns";
@@ -340,6 +341,13 @@ async function main(): Promise<void> {
   await check("a stale run at or past the budget is abandoned, not re-run", () => {
     assert.deepEqual(sweepAction({ attempts: RUN_MAX_ATTEMPTS }), { action: "abandon" });
     assert.deepEqual(sweepAction({ attempts: RUN_MAX_ATTEMPTS + 5 }), { action: "abandon" });
+  });
+
+  await check("the sweep secret is compared without leaking its shape", () => {
+    assert.equal(sweepSecretMatches("a".repeat(64), "a".repeat(64)), true);
+    assert.equal(sweepSecretMatches("a".repeat(63) + "b", "a".repeat(64)), false);
+    assert.equal(sweepSecretMatches("short", "a".repeat(64)), false);
+    assert.equal(sweepSecretMatches("", ""), false, "an unset secret never authorises");
   });
 
   // ── What a deployment has to be told ──────────────────────────────────────

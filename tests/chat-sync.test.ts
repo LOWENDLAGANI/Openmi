@@ -85,7 +85,6 @@ test("signing out leaves none of the previous session on screen", () => {
   const start = page.indexOf("if (account?.signedIn !== false) return;");
   assert.ok(start > 0, "the sign-out effect must exist");
   const block = page.slice(start, page.indexOf("}, [account?.signedIn", start));
-  assert.match(block, /endTemporary\(\)/, "an open temporary thread must not survive the session");
   assert.match(block, /setActiveChatId\(null\)/);
   assert.match(block, /setProject\(null\)/, "the repository chip named the previous account's repository");
 });

@@ -20,6 +20,7 @@
 // ticks racing on one run means one claim wins and the other does nothing — the
 // cheap version of this feature is a run that spends its budget twice.
 
+import { timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { seal, tokenKey, unseal } from "./github/crypto";
 import { clientForToken } from "./supabase";
@@ -490,4 +491,22 @@ export function sweepAction(run: Pick<AgentRunRecord, "attempts">): SweepAction 
   return run.attempts >= RUN_MAX_ATTEMPTS
     ? { action: "abandon" }
     : { action: "revive", attempt: run.attempts };
+}
+
+/**
+ * True when a sweeper presented the deployment's secret.
+ *
+ * Compared byte by byte rather than with `===`: this is the only thing between a
+ * stranger and a route that advances other people's runs, and a comparison that
+ * returns on the first wrong byte leaks the secret one byte at a time. An empty
+ * secret never matches, which is also how the route reports "the watchdog is not
+ * configured" rather than running unauthenticated.
+ */
+export function sweepSecretMatches(given: string, secret: string): boolean {
+  if (!secret || given.length !== secret.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(given, "utf8"), Buffer.from(secret, "utf8"));
+  } catch {
+    return false;
+  }
 }

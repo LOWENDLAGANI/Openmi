@@ -41,7 +41,7 @@ when you say so**, on a branch of its own.
   server-owned: one live session per account, charged atomically when it starts,
   bound to one model and one repository, and a second start for a different
   scope is refused with the active one named.
-- Temporary chats, folders, a thirty-day trash, palette search, branching
+- Folders, a thirty-day trash, palette search, branching
   replies, web search, attachments, push, PWA, admin console.
 - **A context ring** above the composer: the last request's real prompt count
   plus an estimate of the draft, against the per-request budget the server

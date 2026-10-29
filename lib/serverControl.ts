@@ -362,11 +362,24 @@ export interface RateLimit {
   scope: RateLimitScope;
 }
 
-/** Reads the client address from the headers a proxy sets. */
+/**
+ * The address a rate-limit bucket is keyed on.
+ *
+ * A caller can send their own `x-forwarded-for`, so the leftmost value — the one
+ * every proxy copies through unchanged — is a bucket name they choose. Honouring
+ * it would let one client mint a new bucket per request and spend the
+ * deployment's quota under a thousand invented addresses. The platform's own
+ * header is set by the edge and cannot be forged from the browser, so it is
+ * preferred; a signed-in caller is keyed by uid and never reaches this.
+ */
 function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): string {
   if (identity) return `uid:${identity.uid}`;
   const forwarded = req.headers.get("x-forwarded-for") ?? "";
-  const address = forwarded.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
+  const address =
+    req.headers.get("cf-connecting-ip")?.trim() ||
+    req.headers.get("x-real-ip")?.trim() ||
+    forwarded.split(",")[0]?.trim() ||
+    "unknown";
   return `ip:${address}`;
 }
 

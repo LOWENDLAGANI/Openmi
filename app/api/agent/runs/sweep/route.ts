@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { RUN_STALE_MS, finishRun, listStaleRuns, sweepAction } from "@/lib/agentRuns";
+import { RUN_STALE_MS, finishRun, listStaleRuns, sweepAction, sweepSecretMatches } from "@/lib/agentRuns";
 import { dispatchTick, signTick } from "@/lib/agentRunToken";
 
 // ── The watchdog ─────────────────────────────────────────────────────────────
@@ -35,8 +35,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
   const given = req.headers.get("x-openmi-sweep") ?? "";
-  // Length check first so the comparison is not the thing that leaks the secret's shape.
-  if (given.length !== secret.length || given !== secret) {
+  if (!sweepSecretMatches(given, secret)) {
     return Response.json({ error: "Not allowed." }, { status: 403 });
   }
 
