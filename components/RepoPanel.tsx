@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authHeader, supabaseConfigured } from "@/lib/supabase";
 import { linkGithubAccount } from "@/lib/githubLink";
+import { signInWithProvider } from "@/lib/account";
+import { describeLinkError, isDismissed } from "@/lib/accountState";
 import { parseScopes, recoveryFor, type PatRecovery } from "@/lib/github/pat";
 import type { ProjectSummary } from "@/lib/projects";
 import Spinner from "@/components/Spinner";
@@ -185,6 +187,15 @@ interface PickerRow {
   branch: string;
   project: ProjectSummary | null;
   repo: RepoItem | null;
+}
+
+/** The GitHub mark, for the OAuth buttons that sign in or re-authorise. */
+function GitHubMark({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2.2A9.8 9.8 0 0 0 2.2 12c0 4.3 2.8 8 6.7 9.3.5.1.7-.2.7-.5v-1.7c-2.7.6-3.3-1.3-3.3-1.3-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.3-1.1.6-1.4-2.2-.3-4.4-1.1-4.4-4.8 0-1.1.4-1.9 1-2.6-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.5 1 2.6 0 3.7-2.2 4.5-4.4 4.8.3.3.6.9.6 1.9v2.8c0 .3.2.6.7.5a9.8 9.8 0 0 0 6.7-9.3A9.8 9.8 0 0 0 12 2.2Z" />
+    </svg>
+  );
 }
 
 /** The mark used for a repository, at two sizes. */
@@ -438,6 +449,31 @@ export default function RepoPanel({ open, onClose, project, onSelectProject, loc
       if (next?.connected) await loadRepos();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not start the GitHub connection.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Signs this browser in with GitHub.
+   *
+   * The panel can be open for an account the server will not verify — an
+   * expired session, or a browser that lost its token — and until now the only
+   * control there was "Check again", which cannot produce an account. This is
+   * the OAuth door itself: GitHub authorises the browser, the account service
+   * turns the return into a session, and the page reloads into a working
+   * connection check. It is also the door for someone who has no repository at
+   * all yet, because a connection needs a signed-in account first.
+   */
+  const signInWithGithub = async () => {
+    if (busy) return;
+    setBusy("signin");
+    setError(null);
+    setNotice(null);
+    try {
+      await signInWithProvider("github");
+    } catch (cause) {
+      if (!isDismissed(cause)) setError(describeLinkError(cause));
     } finally {
       setBusy(null);
     }
@@ -807,6 +843,18 @@ export default function RepoPanel({ open, onClose, project, onSelectProject, loc
                   values and redeploy.
                 </div>
               )}
+              {supabaseConfigured && (
+                <button
+                  type="button"
+                  onClick={() => void signInWithGithub()}
+                  disabled={busy === "signin"}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[13.5px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-50"
+                  style={{ background: "linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 58%, #000) 100%)" }}
+                >
+                  <GitHubMark />
+                  {busy === "signin" ? "Opening GitHub…" : "Continue with GitHub"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void refresh()}
@@ -1175,13 +1223,31 @@ export default function RepoPanel({ open, onClose, project, onSelectProject, loc
               </div>
 
               {filteredRows.length === 0 ? (
-                <div className="flex items-center gap-2.5 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-[13px] text-white/35">
-                  {reposLoading && rows.length === 0 && <Spinner size={15} className="text-[#a9d8bb]" />}
-                  {reposLoading && rows.length === 0
-                    ? "Reading your repositories…"
-                    : query.trim()
-                      ? "No repositories match."
-                      : "No repositories to show."}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2.5 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-[13px] text-white/35">
+                    {reposLoading && rows.length === 0 && <Spinner size={15} className="text-[#a9d8bb]" />}
+                    {reposLoading && rows.length === 0
+                      ? "Reading your repositories…"
+                      : query.trim()
+                        ? "No repositories match."
+                        : "No repositories to show."}
+                  </div>
+                  {!reposLoading && !query.trim() && statusState.status.oauth && (
+                    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3.5">
+                      <p className="text-[12.5px] leading-relaxed text-white/40">
+                        No repository came back, so the connection may not have access to any yet.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void connect()}
+                        disabled={busy === "connect"}
+                        className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.10] px-3 py-2.5 text-[13px] font-semibold text-white/85 transition-colors hover:bg-white/[0.07] disabled:opacity-50"
+                      >
+                        <GitHubMark size={15} />
+                        {busy === "connect" ? "Waiting for GitHub…" : "Continue with GitHub"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-1.5">

@@ -1937,6 +1937,18 @@ test("the repository panel cannot stay on a bare \"checking\" forever", () => {
   assert.match(source, /Reading your repositories/);
 });
 
+test("the repository panel offers GitHub sign-in when no repository is set", () => {
+  const source = read("components/RepoPanel.tsx");
+  // An account the server will not verify has no repository and no way to get
+  // one from here: "Check again" cannot produce a session, so the panel has to
+  // offer the OAuth door itself.
+  assert.match(source, /signInWithProvider\("github"\)/, "the panel cannot sign in with GitHub");
+  assert.match(source, /Continue with GitHub/, "the sign-in button has no label");
+  // And an empty repository list is recoverable without closing the panel.
+  assert.match(source, /No repository came back/, "an empty list still dead-ends");
+  assert.match(source, /onClick=\{\(\) => void connect\(\)\}/, "the empty list cannot re-authorise");
+});
+
 test("the OAuth start route requires a verified account", () => {
   const source = read("app/api/github/oauth/start/route.ts");
   assert.match(source, /isSameOriginRequest/);
