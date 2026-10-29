@@ -478,6 +478,13 @@ rejects the root.
   create and advance a turn with no caller attached.
 - Every new route is same-origin checked, identity-gated where it touches
   user data, and rate-limited.
+- The exception is the run chain: `POST /api/agent/tick` and
+  `POST /api/agent/runs/sweep` are called by the server and by a scheduler, so
+  they have no browser origin to check and no user to key a bucket on. The tick
+  is authorised by a signed claim naming one run, owner and attempt; the sweep by
+  a shared secret. `GET /api/agent/runs/[id]` is RLS-gated but not rate-limited,
+  because polling is how a chat renders a run it is already allowed to read. See
+  `docs/AGENT_TOOLS_AND_RESUME.md` → "Deliberate exceptions".
 - Every phase ends with `bun run typecheck`, `bun run test`, `bun run lint`,
   and one manual pass on the path the phase changes.
 

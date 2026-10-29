@@ -1,9 +1,10 @@
 # The agent's tools, its input contract, and a turn that outlives its tab
 
-Status: **shipped and verified, except where marked otherwise.** This is the one
-file to read before changing the repository agent. It records what was built,
-what was actually checked, what is still open, and the conventions a new tool has
-to follow so it does not half-register.
+Status: **the read/propose surface is shipped and verified; background execution
+is built and covered by tests, with its live pass still open (Phase E).** This is
+the one file to read before changing the repository agent. It records what was
+built, what was actually checked, what is still open, and the conventions a new
+tool has to follow so it does not half-register.
 
 Commits:
 
@@ -152,6 +153,19 @@ limit with nobody watching.
 `propose_edits` stages; committing requires a human approval signature
 (`lib/changesets.ts`). That gate is the product, not a limitation to remove.
 
+### Deliberate exceptions
+
+Two run routes are neither same-origin checked nor rate-limited, and that is a
+decision rather than an oversight: `POST /api/agent/tick` is called by the
+server's own chain and `POST /api/agent/runs/sweep` by a scheduler, so neither
+has a browser origin to check and neither has a user to key a bucket on. The
+origin rule would refuse the only caller each route has. They are authorised
+another way — a signed claim naming one run, owner and attempt for the tick, and
+a shared secret for the sweep — and `GET /api/agent/runs/[id]` is identity-gated
+by RLS but deliberately not limited, because polling a run is how the chat
+renders one and a limit would break long turns for the person watching them.
+`docs/ROADMAP.md` states the exception where the cross-cutting rule lives.
+
 ### Known test state
 
 `tests/chat-sync.test.ts` → **"signing out leaves none of the previous session on
@@ -182,8 +196,10 @@ why the suite reports only that one.
 Ordered so each phase is verifiable alone, and so the risky change (a new way for
 a run to end) lands on top of tests rather than under them.
 
-Delivered: **A** (`tests/agent-runs.test.ts`, 31 checks) and **B**
-(`POST /api/agent/runs/[id]/cancel`). C, D and E are open.
+Delivered: **A** (`tests/agent-runs.test.ts`), **B**
+(`POST /api/agent/runs/[id]/cancel`), **C** (the environment, schedule and
+schema-health documentation) and **D** (the exceptions below). **E** — the live
+pass — is open.
 
 ### Phase A — Prove the claim
 
