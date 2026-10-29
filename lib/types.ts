@@ -46,7 +46,7 @@ export interface DocumentAttachment {
  */
 export interface AgentStep {
   /** `propose_edits` is a proposal, not a write: the label says what was staged. */
-  tool: "list_files" | "read_file" | "search_code" | "propose_edits";
+  tool: "list_files" | "read_file" | "search_code" | "read_issue" | "propose_edits";
   label: string;
   ok: boolean;
   /**

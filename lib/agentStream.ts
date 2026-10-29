@@ -40,7 +40,7 @@ export type AgentStreamEvent =
     }
   | { type: "error"; error: string; status?: number; resetAt?: number | null };
 
-const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "propose_edits"]);
+const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "read_issue", "propose_edits"]);
 
 function cleanStep(raw: unknown): AgentStep | null {
   if (!raw || typeof raw !== "object") return null;

@@ -52,6 +52,36 @@ export const OPENMI_MODES: ModeOption[] = [
 
 export const DEFAULT_MODE_ID: ModeId = "auto";
 
+/**
+ * What a mode's model accepts as input besides text.
+ *
+ * Declared in this catalog rather than beside the provider config because the
+ * composer has to answer "may I attach this?" before a request exists, and this
+ * module is the only model catalog the browser is allowed to import.
+ *
+ * Auto routes to a multimodal model first, so it keeps image input. Code and
+ * Flash are pinned to text-only models: an image offered to them is either
+ * rejected upstream or silently ignored, and both are worse than refusing it
+ * with a reason the person can read.
+ */
+export interface ModeCapabilities {
+  /** Image input, i.e. vision. */
+  images: boolean;
+  /** Text and code files, extracted to text in the browser. */
+  documents: boolean;
+}
+
+export const MODE_CAPABILITIES: Record<ModeId, ModeCapabilities> = {
+  auto: { images: true, documents: true },
+  code: { images: false, documents: true },
+  flash: { images: false, documents: true },
+};
+
+/** The attachment contract for a mode id, defaulting to Auto's. */
+export function modeCapabilities(id: string): ModeCapabilities {
+  return MODE_CAPABILITIES[getMode(id).id];
+}
+
 export function getMode(id: string): ModeOption {
   return OPENMI_MODES.find((m) => m.id === id) ?? OPENMI_MODES[0];
 }

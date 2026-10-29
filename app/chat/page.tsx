@@ -49,7 +49,7 @@ import {
   maybeAutoTitle,
   saveSelectedMode,
 } from "@/lib/db";
-import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
+import { DEFAULT_MODE_ID, getMode, modeCapabilities, type ModeId } from "@/lib/models";
 import { readAgentStream } from "@/lib/agentStream";
 import { refreshDew, useDew } from "@/lib/useDew";
 import { DEW_PER_HOUR } from "@/lib/dew";
@@ -1184,7 +1184,10 @@ export default function HomePage() {
   // second charge. The client drives the loop so Stop cancels the request in
   // flight, and each read is written into the message as it happens.
   const sendAgentMessage = useCallback(
-    async (text: string, options?: { regenerateAssistantId?: string; editMessageId?: string }) => {
+    async (
+      text: string,
+      options?: { regenerateAssistantId?: string; editMessageId?: string; documents?: DocumentAttachment[] }
+    ) => {
       if (!project || streamingId) return;
       let chatId: string | null = draftId ?? (activeChatId ?? DRAFT_CHAT_ID);
       let assistantId: string;
@@ -1262,6 +1265,14 @@ export default function HomePage() {
       // while the work is happening instead of appearing all at once at the end.
       const steps: AgentStep[] = [];
 
+      // Attached files become this turn's context. Sent on every step because the
+      // server keeps it out of the transcript: it is context for the question,
+      // not something the person said in an earlier turn.
+      const attachContext = (options?.documents ?? [])
+        .map((document) => `Attachment ${document.name}:\n${document.text}`)
+        .join("\n\n")
+        .slice(0, 12_000);
+
       // ── Live writes ────────────────────────────────────────────────────────
       // A delta can arrive many times a second. Writing every one of them to
       // IndexedDB — and from there to the account — would cost more than the
@@ -1297,7 +1308,13 @@ export default function HomePage() {
           const response = await fetch("/api/agent/step", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...(await authHeader()) },
-            body: JSON.stringify({ projectId: project.id, history, transcript, turnToken }),
+            body: JSON.stringify({
+              projectId: project.id,
+              history,
+              transcript,
+              turnToken,
+              ...(attachContext ? { context: attachContext } : {}),
+            }),
             signal: controller.signal,
           });
 
@@ -1454,7 +1471,7 @@ export default function HomePage() {
           setHourSession(started.session);
           setPricingPrompt(null);
           void refreshDew();
-          if (payload.agent) void sendAgentMessage(payload.text);
+          if (payload.agent) void sendAgentMessage(payload.text, { documents: payload.documents });
           else void sendMessage(payload.text, payload.images, payload.documents);
           return;
         }
@@ -1464,7 +1481,7 @@ export default function HomePage() {
           setHourSession(started.session);
           setPricingPrompt(null);
           void refreshDew();
-          if (payload.agent) void sendAgentMessage(payload.text);
+          if (payload.agent) void sendAgentMessage(payload.text, { documents: payload.documents });
           else void sendMessage(payload.text, payload.images, payload.documents);
           return;
         }
@@ -1512,10 +1529,11 @@ export default function HomePage() {
 
   const handleSend = useCallback(
     (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
-      // With a repository attached, a plain question goes to the agent. Anything
-      // carrying attachments stays in ordinary chat: the agent has no way to
-      // read an image, and silently dropping one would be worse than saying so.
-      const agentTurn = Boolean(project) && images.length === 0 && (!documents || documents.length === 0);
+      // With a repository attached, a plain question goes to the agent — and so
+      // does one carrying text files, whose contents now travel with the turn as
+      // its context. Images still fall back to ordinary chat, because the Code
+      // model has no vision; the composer refuses one before it can get here.
+      const agentTurn = Boolean(project) && images.length === 0;
       // The hour decides which model and repository may answer, so the send is
       // matched against what was actually bought: Code and this repository for
       // the agent, the selected mode for chat. A live hour for something else is
@@ -1540,7 +1558,7 @@ export default function HomePage() {
         });
         return;
       }
-      if (agentTurn) void sendAgentMessage(text);
+      if (agentTurn) void sendAgentMessage(text, { documents });
       else void sendMessage(text, images, documents);
     },
     [hourSession, project, selectedMode, sendAgentMessage, sendMessage, draftId]
@@ -1958,6 +1976,7 @@ export default function HomePage() {
               rateLimitUntil={rateLimitUntil}
               contextUsed={contextUsed}
               contextBudget={contextBudget ?? undefined}
+              capabilities={modeCapabilities(selectedMode)}
               streaming={isStreaming}
               onNewChat={handleNewChat}
               focusMode={

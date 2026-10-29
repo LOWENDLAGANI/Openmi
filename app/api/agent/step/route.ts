@@ -52,7 +52,12 @@ interface StepBody {
   history?: unknown;
   transcript?: unknown;
   turnToken?: unknown;
+  /** Text the person attached for this turn, already extracted in the browser. */
+  context?: unknown;
 }
+
+/** One turn's attached text may not exceed this, on top of the transcript caps. */
+const MAX_ATTACHMENT_CHARS = 12_000;
 
 export async function POST(req: NextRequest): Promise<Response> {
   const authorization = req.headers.get("authorization");
@@ -159,6 +164,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "A conversation is required." }, { status: 400 });
   }
 
+  // Capped here rather than trusted from the body: this text is concatenated
+  // into the prompt, so an unbounded value would be a way to buy a huge
+  // request on the flat turn price.
+  const attachedContext = typeof body.context === "string" ? body.context.slice(0, MAX_ATTACHMENT_CHARS) : "";
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -180,6 +190,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           token: link.token,
           accountKeys,
           history,
+          context: attachedContext,
           transcript: cleanTranscript(body.transcript),
           turnToken: typeof body.turnToken === "string" ? body.turnToken : undefined,
           signal: req.signal,

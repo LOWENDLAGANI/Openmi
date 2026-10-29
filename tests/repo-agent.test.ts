@@ -339,10 +339,10 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 test("the agent can read and propose, and no tool can write", () => {
-  assert.deepEqual([...READ_ONLY_TOOLS], ["list_files", "read_file", "search_code"]);
+  assert.deepEqual([...READ_ONLY_TOOLS], ["list_files", "read_file", "search_code", "read_issue"]);
   assert.deepEqual(
     AGENT_TOOL_SCHEMAS.map((schema) => schema.function.name),
-    ["list_files", "read_file", "search_code", "propose_edits"]
+    ["list_files", "read_file", "search_code", "read_issue", "propose_edits"]
   );
   for (const forbidden of ["write_file", "commit", "delete_file", "run_command", "merge_pull_request", "create_pull_request"]) {
     assert.equal(
@@ -779,7 +779,7 @@ later("a step runs the proposal the model asked for and returns it for review", 
     assert.equal(result.transcript.at(-1)?.name, "propose_edits");
     assert.deepEqual(
       modelBodies[0]?.tools?.map((tool) => tool.function?.name),
-      ["list_files", "read_file", "search_code", "propose_edits"]
+      ["list_files", "read_file", "search_code", "read_issue", "propose_edits"]
     );
     assert.equal(modelBodies[0]?.stream, true, "a step streams, so the reader sees it work");
     // The step's usage is what the model reported, plus the review's own call:

@@ -52,7 +52,7 @@ export function planHandover(input: {
 }
 
 /** The tools a stored step may name. Anything else is not one of ours. */
-const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "propose_edits"]);
+const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "read_issue", "propose_edits"]);
 /** A change-set id, as lib/changesets.ts mints it — checked without importing
  *  that server module into a client bundle. */
 const CHANGESET_ID = /^[0-9a-f]{20}$/;

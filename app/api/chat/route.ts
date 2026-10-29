@@ -8,6 +8,7 @@ import { toOpenmiName } from "@/lib/modelEngines";
 import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
+import { modeCapabilities } from "@/lib/models";
 import {
   checkRateLimit,
   identityGate,
@@ -450,6 +451,25 @@ export async function POST(req: NextRequest): Promise<Response> {
   ].join("\n\n");
 
   const isCodeMode = requested === "code";
+
+  // ── The model's input contract ────────────────────────────────────────────
+  // A model that cannot read an image must refuse one, not receive it. The
+  // composer disables the attach button for these modes; this is the check that
+  // survives a caller editing the bundle, and it names the way out.
+  if (!modeCapabilities(requested).images) {
+    const carriesImage = messages.some((message) => {
+      const content = message.content as unknown;
+      return (
+        Array.isArray(content) &&
+        content.some((part) => (part as { type?: string } | null)?.type === "image_url")
+      );
+    });
+    if (carriesImage) {
+      return errorStream(
+        "**This model cannot read images.** Switch to Openmi Auto to send one, or remove the image and ask again in words."
+      );
+    }
+  }
 
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
   const latestUserText = typeof latestUserMessage?.content === "string" ? latestUserMessage.content : "";

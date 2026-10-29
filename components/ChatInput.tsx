@@ -1,6 +1,7 @@
 "use client";
 
 import type { DocumentAttachment, ImageAttachment } from "@/lib/types";
+import type { ModeCapabilities } from "@/lib/models";
 import { secondsRemaining } from "@/lib/rateLimit";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
 import type { ResponseLength } from "@/lib/settings";
@@ -31,7 +32,16 @@ interface ChatInputProps {
   /** The escape hatch at the top of the budget. */
   onNewChat?: () => void;
   canStartNewChat?: boolean;
+  /**
+   * What the selected model can accept. Read from the model catalog rather than
+   * probed, so the attach affordances are disabled before a request is made
+   * instead of failing after one.
+   */
+  capabilities?: ModeCapabilities;
 }
+
+/** Everything, for callers that predate the capability gate. */
+const ALL_CAPABILITIES: ModeCapabilities = { images: true, documents: true };
 
 const LENGTH_LABELS: Record<ResponseLength, string> = {
   short: "Short",
@@ -67,6 +77,8 @@ function ToolsMenu({
   onVoice,
   listening,
   onClose,
+  canAttachImages = true,
+  canAttachDocuments = true,
 }: {
   onCamera: () => void;
   onGallery: () => void;
@@ -74,13 +86,17 @@ function ToolsMenu({
   onVoice: () => void;
   listening: boolean;
   onClose: () => void;
+  canAttachImages?: boolean;
+  canAttachDocuments?: boolean;
 }) {
   return (
     <div className="animate-pop absolute bottom-14 right-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-xl backdrop-blur-xl">
       <button
         type="button"
         onClick={onCamera}
-        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
+        disabled={!canAttachImages}
+        title={canAttachImages ? "Take a photo" : "This model cannot read images"}
+        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
       >
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -93,7 +109,9 @@ function ToolsMenu({
       <button
         type="button"
         onClick={onGallery}
-        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
+        disabled={!canAttachImages}
+        title={canAttachImages ? "Choose an image" : "This model cannot read images"}
+        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
       >
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -105,7 +123,9 @@ function ToolsMenu({
       <button
         type="button"
         onClick={onFiles}
-        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line"
+        disabled={!canAttachDocuments}
+        title={canAttachDocuments ? "Attach a text or code file" : "This model cannot read file attachments"}
+        className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-hover active:bg-line disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
       >
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-hover text-text-hi">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -152,6 +172,7 @@ export default function ChatInput({
   streaming = false,
   onNewChat,
   canStartNewChat = true,
+  capabilities = ALL_CAPABILITIES,
 }: ChatInputProps) {
   const focus = Boolean(focusMode);
   const [text, setText] = useState("");
@@ -209,6 +230,13 @@ export default function ChatInput({
   const addFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
+    // Refused here, in the composer's own words: the selected model cannot read
+    // an image, and letting one through would either fail upstream or be
+    // silently dropped by the provider.
+    if (!capabilities.images) {
+      setErrors(["This model cannot read images. Switch to Auto to attach one."]);
+      return;
+    }
 
     const room = MAX_IMAGES - attachments.length;
     if (room <= 0) {
@@ -233,6 +261,10 @@ export default function ChatInput({
   };
 
   const addDocuments = async (files: File[]) => {
+    if (!capabilities.documents) {
+      setErrors(["This model cannot read file attachments."]);
+      return;
+    }
     const supported = files.filter((file) => DOCUMENT_TYPES.has(file.type) || /\.(txt|md|csv|json|js|jsx|ts|tsx|py|html|css|sql)$/i.test(file.name));
     if (supported.length === 0) {
       setErrors(["Text and code files are supported (up to 100 KB each)"]);
@@ -566,6 +598,8 @@ export default function ChatInput({
                     }}
                     onVoice={toggleVoice}
                     listening={isListening}
+                    canAttachImages={capabilities.images}
+                    canAttachDocuments={capabilities.documents}
                     onClose={() => setShowTools(false)}
                   />
                 )}
@@ -618,10 +652,11 @@ export default function ChatInput({
           {/* Camera / attachment — the first thing on the left of the capsule */}
           <button
             onClick={() => cameraInputRef.current?.click()}
-            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-mid transition-colors hover:bg-card hover:text-text-hi"
+            disabled={!capabilities.images}
+            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-mid transition-colors hover:bg-card hover:text-text-hi disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-mid"
             aria-label="Take a photo or add an image"
             type="button"
-            title="Camera"
+            title={capabilities.images ? "Camera" : "This model cannot read images"}
           >
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3.5 8.5A2 2 0 0 1 5.5 6.5h1.7l1.2-2h7.2l1.2 2h1.7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
