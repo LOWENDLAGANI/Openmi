@@ -50,6 +50,58 @@ export const OPENMI_MODES: ModeOption[] = [
   },
 ];
 
+// ── The picker's categories ───────────────────────────────────────────────────
+//
+// The menu no longer leads with three model names. A person choosing a model is
+// really choosing how much they want spent on an answer, so the menu asks that
+// question first: Efficient, Balanced, Advanced. Each category holds exactly one
+// model today, and picking the category reveals it rather than applying it —
+// the model is still the thing that runs, and it stays visible so the choice is
+// never a label with an unnamed engine behind it.
+//
+// The mapping lives here, next to the models themselves, because it is product
+// copy and pricing shaped as data: the composer, the menu and the tests all read
+// one list instead of three that can drift.
+
+export type ModeCategoryId = "efficient" | "balanced" | "advanced";
+
+export interface ModeCategory {
+  id: ModeCategoryId;
+  /** The word the menu shows first. */
+  label: string;
+  /** One line saying what the category buys. */
+  blurb: string;
+  /** The one model this category offers. */
+  mode: ModeId;
+}
+
+export const MODE_CATEGORIES: ModeCategory[] = [
+  {
+    id: "efficient",
+    label: "Efficient",
+    blurb: "Quick answers at the lowest spend",
+    mode: "auto",
+  },
+  {
+    id: "balanced",
+    label: "Balanced",
+    blurb: "Strong everyday answers for chat and code",
+    mode: "code",
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    blurb: "The heaviest reasoning for long, hard work",
+    mode: "flash",
+  },
+];
+
+/** The category a model belongs to, so the menu can open on the current one. */
+export function categoryOfMode(id: string): ModeCategory {
+  const mode = getMode(id).id;
+  return MODE_CATEGORIES.find((category) => category.mode === mode) ?? MODE_CATEGORIES[0];
+}
+
 export const DEFAULT_MODE_ID: ModeId = "auto";
 
 /**
