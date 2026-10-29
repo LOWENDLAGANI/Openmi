@@ -1949,6 +1949,23 @@ test("the repository panel offers GitHub sign-in when no repository is set", () 
   assert.match(source, /onClick=\{\(\) => void connect\(\)\}/, "the empty list cannot re-authorise");
 });
 
+test("the panel says why the one-click GitHub door is not there", () => {
+  const source = read("components/RepoPanel.tsx");
+  // The OAuth button only exists when the deployment has the app
+  // (`githubOAuthConfigured()`: both client values and the sealing key). Without
+  // it the panel used to fall straight through to the token form, so the missing
+  // button read as "Openmi cannot do this" instead of "this deployment has not
+  // created the app" — and the only way to learn which was to read the source.
+  assert.match(source, /status\?\.oauth \?/, "the panel no longer branches on the OAuth flag");
+  assert.ok(source.includes("GITHUB_CLIENT_ID"), "the missing client id is not named");
+  assert.ok(source.includes("GITHUB_CLIENT_SECRET"), "the missing client secret is not named");
+  assert.ok(source.includes("GITHUB_TOKEN_KEY"), "the sealing key is not named");
+  assert.ok(
+    source.includes("A pasted token works without any of them"),
+    "the token door is not offered as the way through"
+  );
+});
+
 test("the OAuth start route requires a verified account", () => {
   const source = read("app/api/github/oauth/start/route.ts");
   assert.match(source, /isSameOriginRequest/);
