@@ -173,12 +173,23 @@ screen"** fails, and fails identically on a clean checkout (`git stash` confirme
 it). It is pre-existing, unrelated to this work, and deliberately not "fixed"
 into passing. 21 of its 22 checks pass.
 
+The cause is now known, and it is not a stale test. `6a900f1` — a commit about
+removing explanatory copy — also removed `endTemporary()` from
+`app/chat/page.tsx` and left `const temporary = false;` in its place, so the
+temporary-chat feature `lib/tempChat.ts` still implements is unreachable from the
+page. That one line is why this test and the `focus-home` check below both fail:
+sign-out has no temporary thread to end, and Focus home has no `temporary` flag to
+respect. Restoring it is a product change, not a test fix, so both stay red until
+somebody makes it deliberately.
+
 `tests/focus-home.test.ts` fails one check as well: **"the empty screen is the
 only place Focus replaces the thread"**, because `app/chat/page.tsx` computes
 `focusHome` without the `!temporary` the test expects. It fails identically at
 `9070330` and before it, so it is pre-existing too. The full `bun run test`
 script never reaches it — the chain stops at the `chat-sync` failure — which is
 why the suite reports only that one.
+
+Both failures trace to that same line — see the cause above, not two mysteries.
 
 ### Not verified here
 
@@ -198,8 +209,8 @@ a run to end) lands on top of tests rather than under them.
 
 Delivered: **A** (`tests/agent-runs.test.ts`), **B**
 (`POST /api/agent/runs/[id]/cancel`), **C** (the environment, schedule and
-schema-health documentation) and **D** (the exceptions below). **E** — the live
-pass — is open.
+schema-health documentation), **D** (the exceptions below) and the account-free
+half of **E** (the route gates). The live run is what remains.
 
 ### Phase A — Prove the claim
 
@@ -264,8 +275,17 @@ omission.
 ### Phase E — The live pass
 
 The three unverified paths plus the two new endings (cancelled, swept). Needs an
-account, a live hour and a test repository. It also settles the pre-existing
-`chat-sync` failure: fix it, or record it as known-failing where a reader looks.
+account, a live hour and a test repository.
+
+Done without one: every run route was exercised against a local server and
+answers its gate — `POST /api/agent/runs` and its cancel sibling 401 unsigned and
+403 from a foreign origin, `GET /api/agent/runs/[id]` 401, `POST /api/agent/tick`
+401 on a forged token, and the sweep 503 `sweep-unconfigured` with no secret. The
+`chat-sync` failure was settled by finding its cause (under "Known test state")
+rather than by weakening the test.
+
+Still open: the account pass — a real run advanced with the tab closed, stopped by
+Stop, and recovered by one sweep.
 
 Not in any phase: the approval gate, a write tool, code execution, or the BYOK
 and AdSense items in `docs/ROADMAP.md`. Nothing here moves the boundary in
