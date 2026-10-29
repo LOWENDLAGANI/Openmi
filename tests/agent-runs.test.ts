@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   RUN_MAX_ATTEMPTS,
+  cancelRun,
   claimRun,
   normalizeRun,
   openRunState,
@@ -148,6 +149,49 @@ async function main(): Promise<void> {
 
   await check("no client means no claim, rather than a crash", async () => {
     assert.equal(await claimRun("run-1", "user-a", 0, { client: null }), false);
+  });
+
+  // ── The ending ────────────────────────────────────────────────────────────
+
+  await check("cancelling a running run closes it and drops the sealed state", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 4, state: "v1.sealed" }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), true);
+    assert.equal(rows[0]!.status, "cancelled");
+    assert.equal(rows[0]!.state, "", "nothing may resume a cancelled run");
+  });
+
+  await check("cancelling twice closes the run once", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), true);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), false);
+  });
+
+  await check("another account cannot cancel this run", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-b", { client }), false);
+    assert.equal(rows[0]!.status, "running");
+  });
+
+  await check("a finished run is not rewritten as cancelled", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "done", attempts: 9 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), false);
+    assert.equal(rows[0]!.status, "done");
+  });
+
+  await check("a tick that arrives after the cancel claims nothing", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 3 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), true);
+    assert.equal(await claimRun("run-1", "user-a", 3, { client }), false, "the ending wins, not the next step");
+    assert.equal(rows[0]!.attempts, 3, "the refused tick did not advance the attempt");
+  });
+
+  await check("no client means no cancel, rather than a crash", async () => {
+    assert.equal(await cancelRun("run-1", "user-a", { client: null }), false);
   });
 
   // ── The verdict ───────────────────────────────────────────────────────────

@@ -159,6 +159,13 @@ screen"** fails, and fails identically on a clean checkout (`git stash` confirme
 it). It is pre-existing, unrelated to this work, and deliberately not "fixed"
 into passing. 21 of its 22 checks pass.
 
+`tests/focus-home.test.ts` fails one check as well: **"the empty screen is the
+only place Focus replaces the thread"**, because `app/chat/page.tsx` computes
+`focusHome` without the `!temporary` the test expects. It fails identically at
+`9070330` and before it, so it is pre-existing too. The full `bun run test`
+script never reaches it — the chain stops at the `chat-sync` failure — which is
+why the suite reports only that one.
+
 ### Not verified here
 
 - `getIssue` against live GitHub — no token available in the environment it was
@@ -174,6 +181,9 @@ into passing. 21 of its 22 checks pass.
 
 Ordered so each phase is verifiable alone, and so the risky change (a new way for
 a run to end) lands on top of tests rather than under them.
+
+Delivered: **A** (`tests/agent-runs.test.ts`, 31 checks) and **B**
+(`POST /api/agent/runs/[id]/cancel`). C, D and E are open.
 
 ### Phase A — Prove the claim
 

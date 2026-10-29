@@ -406,6 +406,45 @@ export async function finishRun(input: FinishRunInput): Promise<boolean> {
   }
 }
 
+export interface CancelOptions {
+  /** Same reason as `ClaimOptions.client`: the conditional update is the testable part. */
+  client?: SupabaseClient | null;
+}
+
+/**
+ * Ends a running run because the person asked it to stop.
+ *
+ * The condition is the same one the tick's claim uses — `status='running'` and
+ * this owner — so a cancel and a tick cannot both win, and a cancel that loses
+ * the race to a run that just finished answers false rather than rewriting a
+ * finished row. The sealed state is dropped with it: a cancelled run is over,
+ * and nothing may resume it from the credentials left inside.
+ *
+ * False is not a failure the caller has to handle loudly: the chat re-reads the
+ * run and shows whatever it now is.
+ */
+export async function cancelRun(
+  id: string,
+  owner: string,
+  options: CancelOptions = {}
+): Promise<boolean> {
+  const admin = options.client === undefined ? supabaseAdmin() : options.client;
+  if (!admin) return false;
+  const now = new Date().toISOString();
+  try {
+    const { data, error } = await admin
+      .from("agent_runs")
+      .update({ status: "cancelled", state: "", error: null, heartbeat_at: now, updated_at: now })
+      .eq("id", id)
+      .eq("owner", owner)
+      .eq("status", "running")
+      .select("id");
+    return !error && Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Runs whose chain stopped beating.
  *

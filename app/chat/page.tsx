@@ -335,6 +335,9 @@ export default function HomePage() {
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const maintenance = useMaintenance();
   const abortRef = useRef<AbortController | null>(null);
+  // The server-side run this tab is following, so Stop can end it as well as
+  // leave it. Empty for a chat turn and for the in-tab agent loop.
+  const agentRunRef = useRef<string | null>(null);
   // ── Temporary chat ─────────────────────────────────────────────────────────
   // A conversation that is never written down: not to IndexedDB, and therefore
   // not to the account either, since everything uploaded to the account starts as
@@ -831,6 +834,27 @@ export default function HomePage() {
   }, [hourSession]);
 
   const stopStreaming = useCallback(() => {
+    // A stopped run has to be stopped on the server too. Aborting this tab's poll
+    // alone would leave the tick chain buying model calls for an answer nobody
+    // is reading, which is the failure the background feature introduced.
+    // Sent without the turn's own signal — the abort below would cancel it.
+    const runId = agentRunRef.current;
+    agentRunRef.current = null;
+    if (runId) {
+      void (async () => {
+        try {
+          await fetch(`/api/agent/runs/${runId}/cancel`, {
+            method: "POST",
+            headers: await authHeader(),
+            cache: "no-store",
+          });
+        } catch {
+          // The run still ends at its own bounds, and the watchdog closes a chain
+          // that dropped. A failed cancel request is not a reason to keep the tab
+          // attached or to show an error over an answer being stopped.
+        }
+      })();
+    }
     abortRef.current?.abort();
   }, []);
 
@@ -1540,6 +1564,9 @@ export default function HomePage() {
           return;
         }
 
+        // From here the run is the server's, so Stop has something to end.
+        agentRunRef.current = runId;
+
         // ── Follow it ────────────────────────────────────────────────────────
         // Polling rather than streaming, because the answer is being written by
         // the server either way: this loop only renders it.
@@ -1570,6 +1597,9 @@ export default function HomePage() {
                 });
               }
               if (run.status !== "running") {
+                // A run the person stopped is finished, not broken: it must not
+                // be reported as an answer that never arrived.
+                const stopped = run.status === "cancelled";
                 await flushPatches();
                 if (run.error) {
                   await markError(assistantId, run.error);
@@ -1583,7 +1613,7 @@ export default function HomePage() {
                   });
                 }
                 if (run.truncated) await patchMessage(assistantId, { truncated: true });
-                if (!content.trim() && steps.length === 0) {
+                if (!stopped && !content.trim() && steps.length === 0) {
                   await markError(assistantId, "The agent did not return an answer. Try asking again.");
                 }
                 return;
@@ -1617,6 +1647,7 @@ export default function HomePage() {
         // The turn is over, however it ended: a finished answer, an error or a
         // deliberate stop must not be resumed later. A tab that is simply closed
         // never reaches this — and that is exactly the case worth resuming.
+        agentRunRef.current = null;
         await clearAgentRun(assistantId);
         setAgentActivity(null);
         setStreamingId(null);
