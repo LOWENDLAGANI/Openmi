@@ -1,24 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DEW_QR, DEW_QR_CAPTION } from "@/lib/dew";
+import { PAYMENT_HOST, PAYMENT_LINK_LABEL, PAYMENT_URL } from "@/lib/dew";
 import { formatPlanPrice, localPrice, type PaidPlan } from "@/lib/pricing";
 
 // ── Pay for a pass ──────────────────────────────────────────────────────────
-// The manual door every Openmi payment already uses: pick a plan, transfer the
-// ringgit amount against the shared DuitNow QR, and the owner activates the
-// pass from the console. The dialog is explicit about the two currencies —
-// the card price is shown in the reader's currency, while the transfer is the
-// ringgit figure the QR actually takes.
+// A paid pass is still settled by hand — the owner activates it from the console
+// after the payment lands — but the payment itself is no longer a QR drawn here.
+// The link below is the project's payment page, and the price card stays on
+// screen because that page cannot know which plan was picked in this tab.
+//
+// The second currency is a courtesy: the card price follows the browser's
+// language, while the ringgit figure is what the payment page charges.
 
-export default function PassQrDialog({
+export default function PassPayDialog({
   plan,
   onClose,
+  onSendReceipt,
 }: {
   plan: PaidPlan;
   onClose: () => void;
+  /** Moves the page to the receipt form; the dialog closes first. */
+  onSendReceipt?: () => void;
 }) {
-  const [qrBroken, setQrBroken] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -87,61 +91,60 @@ export default function PassQrDialog({
         </div>
         {local.approximate && (
           <p className="mt-1 text-[11.5px] text-white/35">
-            About {local.formatted} in your currency — the transfer itself is in ringgit.
+            About {local.formatted} in your currency — the payment page charges in ringgit.
           </p>
         )}
 
-        {qrBroken ? (
-          <div className="mt-5 rounded-2xl border border-dashed border-white/[0.14] px-5 py-9 text-center">
-            <p className="text-[15px] font-medium text-white/85">QR not added yet</p>
-            <p className="mx-auto mt-2 max-w-xs text-[13px] leading-relaxed text-white/45">
-              Put your DuitNow QR in <code className="text-white/70">public/</code> named{" "}
-              <code className="text-white/70">{DEW_QR.replace("/", "")}</code>.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="mx-auto mt-5 w-fit rounded-2xl bg-white p-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={DEW_QR}
-                alt="Payment QR code for an Openmi paid pass"
-                onError={() => setQrBroken(true)}
-                width={208}
-                height={208}
-                className="h-[164px] w-[164px] object-contain sm:h-[208px] sm:w-[208px]"
-              />
-            </div>
-            <p className="mt-3 text-center text-[13px] text-white/45">{DEW_QR_CAPTION}</p>
-          </>
-        )}
+        <a
+          href={PAYMENT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="lift mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform"
+        >
+          {PAYMENT_LINK_LABEL}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6M20 4 10 14M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+          </svg>
+        </a>
+        <p className="mt-2 text-center text-[11.5px] leading-relaxed text-white/35">
+          Opens {PAYMENT_HOST} in a new tab. Pay {payable} there, then come back here.
+        </p>
 
         <ol className="mt-5 space-y-2.5 border-t border-white/[0.07] pt-4 text-left text-[13.5px] leading-snug text-white/60">
           <li className="flex gap-2.5">
             <span className="shrink-0 font-semibold text-[#2f6b48]">1</span>
-            <span>Scan the code with your banking app.</span>
+            <span>
+              Open the payment page and send <span className="font-medium text-white">{payable}</span>.
+            </span>
           </li>
           <li className="flex gap-2.5">
             <span className="shrink-0 font-semibold text-[#2f6b48]">2</span>
-            <span>
-              Enter <span className="font-medium text-white">{payable}</span> and confirm the payment.
-            </span>
+            <span>Keep the confirmation screenshot or PDF the provider gives you.</span>
           </li>
           <li className="flex gap-2.5">
             <span className="shrink-0 font-semibold text-[#2f6b48]">3</span>
             <span>
-              The pass is activated once the payment lands. Your daily Dew becomes 15 for {plan.days}{" "}
-              days.
+              Send it below with your name. The 15 Dew a day starts once the owner checks it.
             </span>
           </li>
         </ol>
 
-        <button
-          onClick={onClose}
-          className="lift mt-6 w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform"
-        >
-          Done
-        </button>
+        <div className="mt-6 flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-full border border-white/[0.12] py-3.5 text-[14px] font-medium text-white/65 transition-colors hover:border-white/25 hover:text-white"
+          >
+            Done
+          </button>
+          {onSendReceipt && (
+            <button
+              onClick={onSendReceipt}
+              className="flex-1 rounded-full bg-[#2f6b48] py-3.5 text-[14px] font-semibold text-white transition-colors hover:bg-[#3a8359]"
+            >
+              Send receipt
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -66,9 +66,17 @@ export const DEW_PACKS: readonly DewPack[] = [
   { id: "500", dew: 500, ringgit: 20 },
   { id: "1000", dew: 1000, ringgit: 35 },
 ] as const;
-/** Same DuitNow QR the rest of the product already uses. */
-export const DEW_QR = "/openmi-donate-qr.png";
-export const DEW_QR_CAPTION = "Scan with your banking app · DuitNow";
+/**
+ * Where a payment is actually made.
+ *
+ * Payment used to be a DuitNow QR printed inside the app. It is now a link to
+ * the project's payment page, which is the only place the amount and the
+ * provider's own instructions are correct; nothing here pretends to be a
+ * checkout, and the buyer returns to send a receipt from the top-up page.
+ */
+export const PAYMENT_URL = "https://sociabuzz.com/minetallestmc/tribe";
+export const PAYMENT_HOST = "sociabuzz.com";
+export const PAYMENT_LINK_LABEL = "Open the payment page";
 /** Rounding: three decimals is the finest a Dew figure is ever kept. */
 export const DEW_PRECISION = 3;
 

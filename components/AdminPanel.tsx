@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AdminControls from "./AdminControls";
+import AdminReceipts from "./AdminReceipts";
 import Spinner from "./Spinner";
 import ModelHealthSection from "./ModelHealth";
 import { fetchVisitorRegistry, type VisitorProfile } from "@/lib/cloudHistory";
@@ -9,6 +10,7 @@ import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import {
   appendAdminAudit,
   createRedeemCode,
+  deductDew,
   deleteRedeemCode,
   getChat,
   grantDew,
@@ -61,6 +63,7 @@ interface AdminMessage {
 type View =
   | { name: "users" }
   | { name: "codes" }
+  | { name: "receipts" }
   | { name: "chats"; uid: string; label: string }
   | { name: "chat"; uid: string; chatId: string; title: string };
 
@@ -112,6 +115,8 @@ export default function AdminPanel({
   const [topUpNote, setTopUpNote] = useState("");
   const [topUpError, setTopUpError] = useState<string | null>(null);
   const [topUpDone, setTopUpDone] = useState<string | null>(null);
+  /** Credit adds Dew; deduct takes back paid Dew the owner over-granted. */
+  const [topUpMode, setTopUpMode] = useState<"credit" | "deduct">("credit");
   // A paid pass is activated by hand after a manual payment, exactly like a Dew
   // top-up. The grant goes through `admin_grant_plan()`, which checks the admin
   // grant in the database rather than trusting this screen.
@@ -303,25 +308,32 @@ export default function AdminPanel({
     setTopUpError(null);
     setTopUpDone(null);
     try {
-      const grant = await grantDew(topUp.uid, topUpAmount);
+      const grant =
+        topUpMode === "deduct"
+          ? await deductDew(topUp.uid, topUpAmount)
+          : await grantDew(topUp.uid, topUpAmount);
       await logAudit({
         at: Date.now(),
-        action: "grantDew",
+        action: topUpMode === "deduct" ? "deductDew" : "grantDew",
         uid: grant.uid,
         dew: grant.dew,
         ...(topUpNote.trim() ? { note: topUpNote.trim().slice(0, 120) } : {}),
       });
       setDewBalances((current) => ({ ...(current ?? {}), [grant.uid]: grant.balance }));
-      setTopUpDone(`${grant.dew} Dew credited to ${topUp.label} — balance ${formatDew(grant.balance)}`);
+      setTopUpDone(
+        topUpMode === "deduct"
+          ? `${grant.dew} Dew deducted from ${topUp.label} — balance ${formatDew(grant.balance)}`
+          : `${grant.dew} Dew credited to ${topUp.label} — balance ${formatDew(grant.balance)}`
+      );
       setTopUpNote("");
       setTopUp(null);
     } catch (e: unknown) {
-      console.error("[openmi] Top-up failed", e);
-      setTopUpError(e instanceof Error ? e.message : "The top-up did not go through.");
+      console.error("[openmi] Dew adjustment failed", e);
+      setTopUpError(e instanceof Error ? e.message : "The adjustment did not go through.");
     } finally {
       setBusy(false);
     }
-  }, [topUp, topUpAmount, topUpNote, logAudit]);
+  }, [topUp, topUpAmount, topUpMode, topUpNote, logAudit]);
 
   /** Activates one pass for the visitor id in the form above. */
   const runGrantPlan = useCallback(
@@ -389,7 +401,9 @@ export default function AdminPanel({
                 ? "Openmi console"
                 : view.name === "codes"
                   ? "Dew codes"
-                  : view.name === "chats"
+                  : view.name === "receipts"
+                    ? "Payment receipts"
+                    : view.name === "chats"
                     ? view.label
                     : view.title}
             </h2>
@@ -443,14 +457,31 @@ export default function AdminPanel({
                   </span>
                 </button>
 
+                {/* Proof of a payment a buyer sent from the top-up page. The
+                    list is the owner's inbox: one decision per receipt, and
+                    the file is wiped thirty days after that decision. */}
+                <button
+                  type="button"
+                  onClick={() => setView({ name: "receipts" })}
+                  className="mt-2 w-full rounded-[14px] border border-[#2f6b48]/25 bg-[#2f6b48]/10 px-3.5 py-3 text-left transition-colors hover:bg-[#2f6b48]/15"
+                >
+                  <span className="block text-[12px] font-semibold text-[#a9d8bb]">
+                    Payment receipts
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-relaxed text-white/40">
+                    Proof a buyer sent with their name and the pass they paid for. Saving one marks
+                    it saved and starts its 30-day wipe.
+                  </span>
+                </button>
+
                 {/* The direct transfer. When a buyer has paid and you are holding
                     their visitor id, a code is a detour: credit the wallet here
                     and the balance on their screen moves on the next refresh. */}
                 <div className="mt-2 rounded-[14px] border border-[#2f6b48]/25 bg-[#2f6b48]/[0.07] p-3.5">
-                  <h3 className="text-[12px] font-semibold text-[#a9d8bb]">Top up a visitor directly</h3>
+                  <h3 className="text-[12px] font-semibold text-[#a9d8bb]">Adjust a visitor&apos;s Dew</h3>
                   <p className="mt-0.5 text-[10px] leading-relaxed text-white/40">
-                    Credit a wallet straight from here. Every person in the list below also has a
-                    Top up button on their row.
+                    Credit or deduct straight from here. Every person in the list below also has an
+                    Adjust button on their row.
                   </p>
                   <input
                     value={topUpFromUid}
@@ -592,13 +623,14 @@ export default function AdminPanel({
                               type="button"
                               onClick={() => {
                                 setTopUp({ uid: user.uid, label: user.name ?? "Unnamed visitor" });
+                                setTopUpMode("credit");
                                 setTopUpDone(null);
                                 setTopUpError(null);
                               }}
                               className="rounded-[10px] bg-[#2f6b48]/15 px-2.5 py-2 text-[10px] font-medium text-[#a9d8bb] transition hover:bg-[#2f6b48]/25"
-                              aria-label={`Top up Dew for ${user.name ?? "this visitor"}`}
+                              aria-label={`Adjust Dew for ${user.name ?? "this visitor"}`}
                             >
-                              Top up
+                              Adjust
                             </button>
                             <button
                               type="button"
@@ -681,6 +713,8 @@ export default function AdminPanel({
               <AuditSection entries={audit} broken={auditBroken} />
             </div>
           )}
+
+          {view.name === "receipts" && <AdminReceipts onError={setError} />}
 
           {view.name === "chats" && (
             <>
@@ -771,8 +805,33 @@ export default function AdminPanel({
 
         {topUp && (
           <div className="border-t border-white/[0.07] bg-black/30 px-5 py-3.5">
-            <p className="text-[12px] font-semibold text-white/90">Top up {topUp.label}</p>
+            <p className="text-[12px] font-semibold text-white/90">Adjust Dew for {topUp.label}</p>
             <p className="mt-0.5 font-mono text-[10px] text-white/35">{topUp.uid}</p>
+            <div className="mt-2 flex gap-1.5">
+              {([
+                { id: "credit", label: "Top up" },
+                { id: "deduct", label: "Deduct" },
+              ] as const).map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => {
+                    setTopUpMode(mode.id);
+                    setTopUpError(null);
+                  }}
+                  aria-pressed={topUpMode === mode.id}
+                  className={`flex-1 rounded-[9px] px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                    topUpMode === mode.id
+                      ? mode.id === "deduct"
+                        ? "bg-red-500/25 text-red-100"
+                        : "bg-[#2f6b48]/40 text-[#d7f0e1]"
+                      : "bg-white/[0.04] text-white/50 hover:bg-white/[0.09]"
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {[25, 100, 500, 1000].map((amount) => (
                 <button
@@ -804,6 +863,12 @@ export default function AdminPanel({
               placeholder="Note for the ledger (optional)"
               className="mt-2 w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 text-[12px] text-white placeholder:text-white/25"
             />
+            {topUpMode === "deduct" && (
+              <p className="mt-1.5 text-[10px] leading-relaxed text-white/35">
+                Only paid Dew can be taken back — today&apos;s free Dew is not a wallet balance. The
+                amount is clamped to what is left, so a balance never goes negative.
+              </p>
+            )}
             {topUpError && <p className="mt-1.5 text-[11px] text-red-200/90">{topUpError}</p>}
             <div className="mt-2.5 flex gap-2">
               <button
@@ -820,9 +885,19 @@ export default function AdminPanel({
                 type="button"
                 onClick={() => void runTopUp()}
                 disabled={busy || !(topUpAmount > 0 && topUpAmount <= 100000)}
-                className="flex-1 rounded-[10px] bg-[#2f6b48] px-3 py-2 text-[11px] font-semibold text-white transition hover:bg-[#3a8359] disabled:opacity-50"
+                className={`flex-1 rounded-[10px] px-3 py-2 text-[11px] font-semibold text-white transition disabled:opacity-50 ${
+                  topUpMode === "deduct"
+                    ? "bg-red-500/80 hover:bg-red-500"
+                    : "bg-[#2f6b48] hover:bg-[#3a8359]"
+                }`}
               >
-                {busy ? "Crediting…" : `Credit ${topUpAmount} Dew`}
+                {busy
+                  ? topUpMode === "deduct"
+                    ? "Deducting…"
+                    : "Crediting…"
+                  : topUpMode === "deduct"
+                    ? `Deduct ${topUpAmount} Dew`
+                    : `Credit ${topUpAmount} Dew`}
               </button>
             </div>
           </div>

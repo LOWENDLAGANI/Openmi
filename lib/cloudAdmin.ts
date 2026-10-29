@@ -26,6 +26,7 @@ import {
   roundDew,
 } from "./dew";
 import type { AppConfig } from "./appConfig";
+import { RECEIPT_BUCKET, RECEIPT_RETENTION_MS, type PaymentReceipt } from "./receipts";
 import {
   isValidCode,
   normalizeCode,
@@ -537,6 +538,44 @@ export async function grantDew(uid: string, dew: number): Promise<DewGrant> {
   return { uid: visitor, dew: amount, balance };
 }
 
+export interface DewDeduct {
+  uid: string;
+  /** The Dew actually taken, which may be less than asked when little is left. */
+  dew: number;
+  balance: number;
+}
+
+/**
+ * Takes Dew back from a wallet.
+ *
+ * The write goes through `admin_deduct_dew()`, which re-checks `is_admin()` in
+ * the database and clamps the amount to the paid balance: this function cannot
+ * subtract on its own, and a mistyped figure cannot eat a later top-up. Only
+ * paid Dew is reachable — the free daily bucket is not a wallet balance.
+ */
+export async function deductDew(uid: string, dew: number): Promise<DewDeduct> {
+  const client = requireClient();
+  const visitor = uid.replace(/[^A-Za-z0-9-]/g, "");
+  if (!visitor) throw new Error("Enter the visitor id first.");
+
+  const amount = roundDew(dew);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) {
+    throw new Error("A deduction needs a positive amount of at most 100,000 Dew.");
+  }
+
+  const before = await readDewBalance(visitor);
+  const { error } = await client.rpc("admin_deduct_dew", {
+    p_uid: visitor,
+    p_dew: amount,
+  });
+  if (error) rethrow(error);
+
+  const balance = await readDewBalance(visitor);
+  // The database clamps the deduction to what is actually left, so report what
+  // was taken rather than what was typed.
+  return { uid: visitor, dew: roundDew(Math.max(0, before - balance)), balance };
+}
+
 export interface PlanGrant {
   uid: string;
   /** Epoch ms the pass now ends. */
@@ -767,7 +806,15 @@ export async function saveAppConfig(config: AppConfig): Promise<void> {
 export interface AdminAuditEntry {
   id: string;
   at: number;
-  action: "createCode" | "deleteCode" | "toggleCode" | "grantDew" | "grantPlan";
+  action:
+    | "createCode"
+    | "deleteCode"
+    | "toggleCode"
+    | "grantDew"
+    | "grantPlan"
+    | "deductDew"
+    | "saveReceipt"
+    | "deleteReceipt";
   /** The word the entry is about. */
   code?: string;
   /** The Dew the code carried, when it carried any. */
@@ -799,6 +846,133 @@ export async function appendAdminAudit(
   });
   if (error) rethrow(error);
   return { ...entry, id };
+}
+
+// ── Payment receipts ────────────────────────────────────────────────────────
+// The owner's end of the receipt form on the top-up page. Files live in the
+// private bucket under the buyer's uid; the row is what the console sorts and
+// decides on. A saved receipt is wiped thirty days after it is marked, and the
+// sweep runs here — on the list the owner actually opens — so the retention
+// promise needs no scheduler and no background job to keep it.
+
+function receiptFromRow(row: Record<string, unknown>): PaymentReceipt | null {
+  if (typeof row.id !== "string" || typeof row.storage_path !== "string") return null;
+  const status = row.status === "saved" ? "saved" : "new";
+  return {
+    id: row.id,
+    owner: typeof row.owner === "string" ? row.owner : "",
+    name: typeof row.name === "string" ? row.name : "Unnamed",
+    plan: typeof row.plan === "string" ? row.plan : "other",
+    planLabel: typeof row.plan_label === "string" ? row.plan_label : "",
+    amount: Number(row.amount) || 0,
+    reference: typeof row.reference === "string" ? row.reference : "",
+    note: typeof row.note === "string" ? row.note : "",
+    storagePath: row.storage_path,
+    fileName: typeof row.file_name === "string" ? row.file_name : "",
+    mimeType: typeof row.mime_type === "string" ? row.mime_type : "",
+    status,
+    createdAt: ms(row.created_at),
+    savedAt: row.saved_at ? ms(row.saved_at) : null,
+    previewUrl: null,
+  };
+}
+
+/**
+ * Removes saved receipts past their month: the file first, then the row.
+ *
+ * Best effort on purpose. A storage policy that refuses the delete must not take
+ * the list down with it — the next open tries again — but a file removed while
+ * its row survives would be a row that cannot be opened, which is why the row
+ * goes only after the object delete has been attempted.
+ */
+async function purgeExpiredReceipts(client: ReturnType<typeof requireClient>): Promise<void> {
+  const cutoff = iso(Date.now() - RECEIPT_RETENTION_MS);
+  const { data } = await client
+    .from("payment_receipts")
+    .select("id, storage_path")
+    .eq("status", "saved")
+    .not("saved_at", "is", null)
+    .lt("saved_at", cutoff)
+    .limit(500);
+  const stale = (data ?? []) as Array<{ id?: unknown; storage_path?: unknown }>;
+  if (stale.length === 0) return;
+
+  const paths = stale
+    .map((row) => (typeof row.storage_path === "string" ? row.storage_path : ""))
+    .filter((path) => path.length > 0);
+  if (paths.length > 0) {
+    await client.storage.from(RECEIPT_BUCKET).remove(paths).catch(() => undefined);
+  }
+  const ids = stale.map((row) => String(row.id ?? "")).filter((id) => id.length > 0);
+  if (ids.length > 0) {
+    await client.from("payment_receipts").delete().in("id", ids);
+  }
+}
+
+/** Newest first, with short-lived preview links for a private bucket. */
+export async function listPaymentReceipts(): Promise<PaymentReceipt[]> {
+  const client = requireClient();
+  await purgeExpiredReceipts(client);
+
+  const { data, error } = await client
+    .from("payment_receipts")
+    .select(
+      "id, owner, name, plan, plan_label, amount, reference, note, storage_path, file_name, mime_type, status, created_at, saved_at"
+    )
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) rethrow(error);
+
+  const receipts = ((data ?? []) as Record<string, unknown>[])
+    .map(receiptFromRow)
+    .filter((row): row is PaymentReceipt => row !== null);
+  if (receipts.length === 0) return receipts;
+
+  // One request for every preview. An hour is long enough for the owner to open
+  // one, and short enough that a copied URL stops working.
+  try {
+    const { data: signed } = await client
+      .storage.from(RECEIPT_BUCKET)
+      .createSignedUrls(
+        receipts.map((receipt) => receipt.storagePath),
+        60 * 60
+      );
+    const urls = new Map<string, string>();
+    for (const entry of signed ?? []) {
+      if (entry.path && entry.signedUrl) urls.set(entry.path, entry.signedUrl);
+    }
+    for (const receipt of receipts) {
+      receipt.previewUrl = urls.get(receipt.storagePath) ?? null;
+    }
+  } catch {
+    // No preview is a readable row without a picture, never a failed list.
+  }
+  return receipts;
+}
+
+/** Marks a receipt saved: the pass is active, and the wipe clock starts. */
+export async function savePaymentReceipt(id: string): Promise<void> {
+  const client = requireClient();
+  const uid = await currentUid();
+  const { error } = await client
+    .from("payment_receipts")
+    .update({ status: "saved", saved_at: iso(Date.now()), saved_by: uid })
+    .eq("id", id);
+  if (error) rethrow(error);
+}
+
+/** Deletes the file and then its row, so no orphan is left in the bucket. */
+export async function deletePaymentReceipt(id: string, storagePath: string): Promise<void> {
+  const client = requireClient();
+  if (storagePath) {
+    const { error: storageError } = await client.storage.from(RECEIPT_BUCKET).remove([storagePath]);
+    // A missing object is already the outcome the row delete wants.
+    if (storageError && !/not found|does not exist/i.test(storageError.message)) {
+      rethrow(storageError);
+    }
+  }
+  const { error } = await client.from("payment_receipts").delete().eq("id", id);
+  if (error) rethrow(error);
 }
 
 /** Newest first, capped: the console shows the recent ledger, not all of it. */

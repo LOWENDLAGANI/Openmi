@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import MaintenanceGate from "@/components/MaintenanceGate";
 import RedeemCodeBox from "@/components/RedeemCodeBox";
-import DewQrDialog from "@/components/DewQrDialog";
-import PassQrDialog from "@/components/PassQrDialog";
+import DewPayDialog from "@/components/DewPayDialog";
+import PassPayDialog from "@/components/PassPayDialog";
+import ReceiptUpload from "@/components/ReceiptUpload";
 import { watchAccount } from "@/lib/account";
 import type { AccountView } from "@/lib/accountState";
 import { authHeader, getSupabase } from "@/lib/supabase";
@@ -398,6 +399,16 @@ export default function OpenmiPlusPage() {
 
   const canShowWallet = account?.status === "signed-in";
 
+  // The dialogs end by pointing at the receipt form rather than at "Done".
+  // Closing first lets the page scroll while the body is no longer locked.
+  const focusReceipt = () => {
+    setDewTopUp(null);
+    setPassPlan(null);
+    window.setTimeout(() => {
+      document.getElementById("send-receipt")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+
   return (
     <MaintenanceGate>
       <main className="min-h-dvh bg-[#0b1310] px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
@@ -476,7 +487,7 @@ export default function OpenmiPlusPage() {
             </section>
           )}
 
-
+          {canShowWallet && <ReceiptUpload defaultName={account?.name ?? null} />}
 
           {canShowWallet && (
             <div className="mt-5">
@@ -486,8 +497,22 @@ export default function OpenmiPlusPage() {
         </div>
       </main>
 
-      {dewTopUp && <DewQrDialog key={dewTopUp.id} pack={dewTopUp} onClose={() => setDewTopUp(null)} />}
-      {passPlan && <PassQrDialog key={passPlan.id} plan={passPlan} onClose={() => setPassPlan(null)} />}
+      {dewTopUp && (
+        <DewPayDialog
+          key={dewTopUp.id}
+          pack={dewTopUp}
+          onClose={() => setDewTopUp(null)}
+          onSendReceipt={focusReceipt}
+        />
+      )}
+      {passPlan && (
+        <PassPayDialog
+          key={passPlan.id}
+          plan={passPlan}
+          onClose={() => setPassPlan(null)}
+          onSendReceipt={focusReceipt}
+        />
+      )}
     </MaintenanceGate>
   );
 }
