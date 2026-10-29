@@ -20,7 +20,12 @@ import {
 import { rateLimitMessage } from "@/lib/rateLimitPolicy";
 import { resolveDew } from "@/lib/serverRedeem";
 import { readUserKeys } from "@/lib/providerKeys";
-import { hourModelRefusal, readHourSession } from "@/lib/hourSession";
+import {
+  hourModelRefusal,
+  markHourSessionActivity,
+  readHourSession,
+  refundHourSession,
+} from "@/lib/hourSession";
 import { estimateTokenUsage, outOfDewMessage } from "@/lib/dew";
 
 // ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
@@ -406,6 +411,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     return errorStream(hourModelRefusal(hourSession, requested));
   }
 
+  // The hour's first prompt is recorded before a model is called, so an hour
+  // that never reaches a provider is still distinguishable from one that was
+  // never used. Best effort: the write cannot change the outcome of the answer.
+  if (!isCallerAdmin && coveredBySession) {
+    await markHourSessionActivity(authorization, "prompt");
+  }
+
   const reasoningEffort: ReasoningEffort | null =
     body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
       ? body.reasoningEffort
@@ -417,6 +429,12 @@ export async function POST(req: NextRequest): Promise<Response> {
   const providers = getProviders(requested, accountKeys);
 
   if (providers.length === 0) {
+    // No model ran, so nothing was bought with this hour: give it back before
+    // saying why. The refund is refused once an earlier reply exists, so a
+    // missing key later in the hour does not refund a used one.
+    if (!isCallerAdmin && coveredBySession) {
+      await refundHourSession(authorization, "no-model");
+    }
     // No vendor and no environment variable name here. Both are things only the
     // person deploying the product needs, and this text is rendered in the chat
     // as an assistant message — a visitor has no business reading a provider's
@@ -531,6 +549,12 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   if (!upstream || !activeProvider) {
+    // Every model refused before writing a word. The hour bought nothing, so it
+    // is given back; the guard inside refund_hour_session stops this from
+    // refunding an hour that already answered earlier.
+    if (!isCallerAdmin && coveredBySession) {
+      await refundHourSession(authorization, "provider-failed");
+    }
     return errorStream(
       failures.map((failure) => explainProviderError(failure)).join(" ")
     );
@@ -721,6 +745,16 @@ export async function POST(req: NextRequest): Promise<Response> {
             model: getModelDisplayName(toOpenmiName(next.model)),
           })
         );
+      }
+
+      // ── Did the hour produce anything? ──────────────────────────────────
+      // A non-empty answer makes the hour used for good. An empty one — every
+      // model interrupted, or nothing streamed at all — is the exact case the
+      // refund exists for, and it is settled here rather than left to a client
+      // that may already have closed the tab.
+      if (!isCallerAdmin && coveredBySession) {
+        if (answer.trim()) void markHourSessionActivity(authorization, "reply");
+        else void refundHourSession(authorization, "empty-answer");
       }
 
       // The count is reported once the answer is whole, so a continuation does

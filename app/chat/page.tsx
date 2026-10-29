@@ -280,6 +280,30 @@ async function requestHourSession(
   }
 }
 
+/**
+ * Gives an hour back when nothing was produced on it.
+ *
+ * The server rails catch everything it can see; this catches what it cannot —
+ * a request that never arrived, or a stream that dropped. The database refuses
+ * the refund once the hour has a reply, so a duplicate or a late call cannot
+ * pay twice. A failed call here is ignored: the next session read retries the
+ * abandoned case, and a broken refund must not break the chat.
+ */
+async function requestHourRefund(reason: string): Promise<void> {
+  try {
+    await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ action: "refund", reason }),
+    });
+  } catch {
+    // Nothing to report: the balance is re-read after the attempt either way.
+  }
+  // Every chip re-reads whether or not the refund landed, so the number on
+  // screen is never the pre-refund one after a failed answer.
+  void refreshDew();
+}
+
 async function requestEndHourSession(): Promise<void> {
   try {
     await fetch("/api/session", {
@@ -1216,11 +1240,19 @@ export default function HomePage() {
           for (const line of lines) await flushLine(line);
         }
         if (buffer.trim()) await flushLine(buffer);
-        if (!full.trim() && !sawError) await markError(assistantMsg.id, "Openmi returned an empty response. Try again.");
+        if (!full.trim() && !sawError) {
+          await markError(assistantMsg.id, "Openmi returned an empty response. Try again.");
+          // No answer and no error: the hour bought nothing, so ask for it back.
+          void requestHourRefund("empty-answer");
+        }
 
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === "AbortError";
         if (!aborted) await markError(assistantMsg.id, err instanceof Error ? err.message : "Something went wrong");
+        // A request that failed before an answer was written is refundable. The
+        // server refuses if the hour already answered, and a deliberate stop
+        // is not a failure, so it is excluded.
+        if (!aborted) void requestHourRefund("send-failed");
         if (aborted) {
           // A cancelled answer that never wrote a word leaves an empty bubble
           // behind, so it is taken out of whichever store holds it.
@@ -1628,6 +1660,9 @@ export default function HomePage() {
         const aborted = error instanceof DOMException && error.name === "AbortError";
         if (!aborted) {
           await markError(assistantId, error instanceof Error ? error.message : "The agent request failed.");
+          // The step failed before producing anything; the server refunds its
+          // own failures and this covers a request that never reached it.
+          void requestHourRefund("agent-failed");
         }
         if (aborted) {
           const row = await readMessage(assistantId);

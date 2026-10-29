@@ -118,6 +118,103 @@ export function hourModelRefusal(session: ActiveHourSession, requested: ModeId |
  * An hour started without a repository does not cover the agent at all, so that
  * case is said plainly rather than as "a different repository".
  */
+// ── Giving an hour back ─────────────────────────────────────────────────────
+//
+// The database owns the decision; these are only the calls. An hour is refunded
+// when it produced no answer, once, within a day of starting — see
+// 20261029000300_hour_refunds.sql for why each of those is a rail and not a
+// preference. Nothing here can decide that an hour was unused, which is the
+// point: the browser asks, and the database judges.
+
+export interface HourRefund {
+  /** What was actually restored: the free and paid halves together. */
+  refunded: number;
+  /** Paid Dew returned to the wallet. */
+  paid: number;
+  /** Free Dew returned to today's bucket; zero when the charge was another day. */
+  free: number;
+  reason: string;
+}
+
+function refundFrom(value: unknown): HourRefund | null {
+  const row = (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | null;
+  if (!row || row.ok !== true) return null;
+  const refunded = Number(row.refunded);
+  if (!Number.isFinite(refunded) || refunded <= 0) return null;
+  return {
+    refunded,
+    paid: Math.max(0, Number(row.paid) || 0),
+    free: Math.max(0, Number(row.free) || 0),
+    reason: typeof row.reason === "string" ? row.reason : "failed",
+  };
+}
+
+/**
+ * Asks the database to refund the caller's hour.
+ *
+ * Returns null when there is nothing to give back — used, already refunded,
+ * too old, or no hour at all. A failed call is also null: a refund that could
+ * not be requested has not happened, and reporting otherwise would show a
+ * balance the wallet does not have.
+ */
+export async function refundHourSession(
+  authorization: string | null,
+  reason: string
+): Promise<HourRefund | null> {
+  const token = authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  const client = token ? clientForToken(token) : null;
+  if (!client) return null;
+  try {
+    const { data, error } = await client.rpc("refund_hour_session", {
+      p_reason: reason.slice(0, 60),
+    });
+    if (error) return null;
+    return refundFrom(data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The abandoned-hour rail: refunds only when no prompt was ever sent.
+ *
+ * Safe to call on every session read. The database refuses anything with a
+ * prompt, an answer, or less than ten minutes on the clock.
+ */
+export async function autoRefundIdleHour(authorization: string | null): Promise<HourRefund | null> {
+  const token = authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  const client = token ? clientForToken(token) : null;
+  if (!client) return null;
+  try {
+    const { data, error } = await client.rpc("auto_refund_idle_hour");
+    if (error) return null;
+    return refundFrom(data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Records that the hour produced a prompt or an answer.
+ *
+ * Best effort: a route whose activity write fails must still answer the person,
+ * because the money was settled when the hour started. A failure only makes the
+ * hour slightly more refundable, never less usable.
+ */
+export async function markHourSessionActivity(
+  authorization: string | null,
+  kind: "prompt" | "reply"
+): Promise<void> {
+  const token = authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  const client = token ? clientForToken(token) : null;
+  if (!client) return;
+  try {
+    await client.rpc("mark_hour_session_activity", { p_kind: kind });
+  } catch {
+    // Nothing to undo: the refund rail is conservative without this row.
+  }
+}
+
 export function hourRepoRefusal(session: ActiveHourSession, requestedRepo: string): string {
   if (!session.projectId) {
     return `**Your hour is not for the repository agent.** This hour was started without a repository, so it cannot cover work on ${requestedRepo}. Continue in ordinary chat, or end the hour session and start a new one with ${requestedRepo} attached.`;

@@ -4,10 +4,12 @@ import { clientForToken } from "@/lib/supabase";
 import { DEW_PER_HOUR, HOUR_SESSION_MS, outOfDewMessage } from "@/lib/dew";
 import { readProject, isProjectId } from "@/lib/projects";
 import {
+  autoRefundIdleHour,
   hourModelRefusal,
   hourRepoRefusal,
   normalizeHourModel,
   readHourSession,
+  refundHourSession,
   type ActiveHourSession,
 } from "@/lib/hourSession";
 import { DEFAULT_MODE_ID, type ModeId } from "@/lib/models";
@@ -50,6 +52,8 @@ interface SessionBody {
   model?: unknown;
   /** The repository the hour is bought for; absent for ordinary chat. */
   projectId?: unknown;
+  /** For `refund`: why the hour is being given back. Kept short and logged. */
+  reason?: unknown;
 }
 
 function sessionPayload(session: ActiveHourSession) {
@@ -101,12 +105,18 @@ export async function GET(req: NextRequest): Promise<Response> {
     return rateLimitRefusal(limit, "Too many session checks. Try again shortly.");
   }
 
+  // An hour that was bought and then never used is given back here, on the read
+  // that a returning browser makes first. The database refuses anything with a
+  // prompt or an answer, so this is the abandoned-tab rail and nothing more.
+  const refund = await autoRefundIdleHour(authorization);
+
   const session = await readHourSession(authorization, identity.uid);
   return Response.json(
     {
       session: session ? sessionPayload(session) : null,
       price: DEW_PER_HOUR,
       durationMs: HOUR_SESSION_MS,
+      refund,
     },
     { headers: { "Cache-Control": "no-store" } }
   );
@@ -139,6 +149,23 @@ export async function POST(req: NextRequest): Promise<Response> {
   const client = token ? clientForToken(token) : null;
   if (!client) {
     return Response.json({ error: "Sign in to start a session." }, { status: 401 });
+  }
+
+  // ── Giving an hour back ───────────────────────────────────────────────────
+  // The chat and agent routes call this themselves when they fail before an
+  // answer exists. The browser calls it too, for the failures the server never
+  // sees — a request that never arrived, a stream that dropped. The database
+  // refuses anything that produced a reply, so a duplicate or a late call is a
+  // no-op rather than a second refund.
+  if (body.action === "refund") {
+    const refund = await refundHourSession(
+      authorization,
+      typeof body.reason === "string" ? body.reason : "request-failed"
+    );
+    return Response.json(
+      { refunded: refund?.refunded ?? 0, refund },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   }
 
   if (body.action === "end") {

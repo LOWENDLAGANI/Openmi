@@ -16,7 +16,13 @@ import { runAgentStep } from "@/lib/agent/run";
 import { cleanHistory, cleanTranscript } from "@/lib/agent/transcript";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
 import { outOfDewMessage } from "@/lib/dew";
-import { hourModelRefusal, hourRepoRefusal, readHourSession } from "@/lib/hourSession";
+import {
+  hourModelRefusal,
+  hourRepoRefusal,
+  markHourSessionActivity,
+  readHourSession,
+  refundHourSession,
+} from "@/lib/hourSession";
 
 // ── One agent step, streamed ─────────────────────────────────────────────────
 //
@@ -159,6 +165,12 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
 
+  // Recorded before the model runs, exactly like /api/chat: an hour that never
+  // reached the agent is a different thing from one that failed inside it.
+  if (!isCallerAdmin) {
+    await markHourSessionActivity(authorization, "prompt");
+  }
+
   const history = cleanHistory(body.history);
   if (history.length === 0) {
     return Response.json({ error: "A conversation is required." }, { status: 400 });
@@ -196,6 +208,17 @@ export async function POST(req: NextRequest): Promise<Response> {
           signal: req.signal,
           onEvent: send,
         });
+
+        // The step produced something, so the hour has done its job. An empty
+        // step — no words and no proposal — is the failure the refund exists
+        // for, and it is settled server-side so a closed tab cannot lose it.
+        if (!isCallerAdmin) {
+          if (result.content.trim() || result.proposals.length > 0) {
+            void markHourSessionActivity(authorization, "reply");
+          } else {
+            void refundHourSession(authorization, "empty-step");
+          }
+        }
 
         // The step was covered by the account's hour, so nothing is charged per
         // turn: `result.usage` is recorded with the transcript, not billed.
@@ -242,6 +265,12 @@ export async function POST(req: NextRequest): Promise<Response> {
         });
       } catch (error) {
         if (req.signal.aborted) return;
+        // A failed step that never produced an answer gives the hour back. The
+        // database refuses this once the hour has a reply, so a later failure
+        // inside a working hour is not refunded.
+        if (!isCallerAdmin) {
+          await refundHourSession(authorization, "agent-failed");
+        }
         if (error instanceof GithubError) {
           send({ type: "error", error: error.message, status: error.status, resetAt: error.resetAt ?? null });
         } else {
