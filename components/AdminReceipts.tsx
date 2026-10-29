@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Spinner from "./Spinner";
 import {
+  appendAdminAudit,
   deletePaymentReceipt,
+  grantPlan,
   listPaymentReceipts,
   savePaymentReceipt,
 } from "@/lib/cloudAdmin";
@@ -12,17 +14,23 @@ import {
   receiptDaysLeft,
   type PaymentReceipt,
 } from "@/lib/receipts";
+import { PAID_PLANS } from "@/lib/pricing";
 
 // ── Receipts waiting on the owner ────────────────────────────────────────────
 // A buyer sends proof of a transfer from the top-up page, and this is the other
 // end of it: the name the payment was made under, the pass it was for, the
 // amount, and the file itself through a short-lived signed link.
 //
-// "Saved" is the one decision. It means the pass has been activated and the
-// receipt is no longer waiting; the row is labelled saved and the file is
-// scheduled to be wiped thirty days from that moment. The sweep runs when this
-// list is read, so the promise holds without a scheduler — a saved receipt past
-// its month is gone by the time the console next opens.
+// "Saved" is the one decision. It means the receipt is no longer waiting; the
+// row is labelled saved and the file is scheduled to be wiped thirty days from
+// that moment. The sweep runs when this list is read, so the promise holds
+// without a scheduler — a saved receipt past its month is gone by the time the
+// console next opens.
+//
+// Activating the pass is the other half, and it happens on the same row: the
+// receipt already names the pass and the buyer, so making the owner copy a uid
+// into another form was the step where a payment got lost. Activation grants the
+// days, then marks the receipt saved — one decision, one click, one wipe clock.
 //
 // "Wipe" is for the other case: a receipt that should never have been kept —
 // wrong person, wrong file, a payment that was never made. It deletes the file
@@ -79,6 +87,49 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
     }
   };
 
+  /**
+   * Turns a receipt into an active pass, then closes the receipt.
+   *
+   * The grant goes through `admin_grant_plan()` and the save through the same
+   * update the Saved button uses, so this is exactly the two steps the owner
+   * took by hand — only without copying a visitor id between two forms. A
+   * refusal from either leaves the receipt untouched and says why.
+   */
+  const activate = async (receipt: PaymentReceipt, days: number) => {
+    if (busy) return;
+    setBusy(`pass:${receipt.id}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const grant = await grantPlan(receipt.owner, days);
+      await savePaymentReceipt(receipt.id);
+      // Best effort: a policy that refuses the ledger must not undo the pass.
+      await appendAdminAudit({
+        at: Date.now(),
+        action: "grantPlan",
+        uid: receipt.owner,
+        note: `${days}-day pass from receipt ${receipt.id}`,
+      }).catch(() => undefined);
+      await appendAdminAudit({
+        at: Date.now(),
+        action: "saveReceipt",
+        uid: receipt.owner,
+        note: receipt.name,
+      }).catch(() => undefined);
+      await load();
+      setNotice(
+        `${receipt.name}: ${days}-day pass active until ${new Date(grant.until).toLocaleDateString()}. Receipt marked saved — wiped in ${RECEIPT_RETENTION_DAYS} days.`
+      );
+    } catch (cause) {
+      console.error("[openmi] Failed to activate pass from receipt", cause);
+      const message = cause instanceof Error ? cause.message : "The pass was not activated.";
+      setError(message);
+      onError?.(message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const wipe = async (receipt: PaymentReceipt) => {
     if (busy) return;
     setBusy(`wipe:${receipt.id}`);
@@ -102,8 +153,8 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
   return (
     <div className="space-y-3">
       <p className="text-[10px] leading-relaxed text-white/35">
-        Proof of a payment sent from the top-up page. Saving one means the pass is active; its file
-        is wiped {RECEIPT_RETENTION_DAYS} days later.
+        Proof of a payment sent from the top-up page. Activating a pass marks the receipt saved as
+        well; its file is wiped {RECEIPT_RETENTION_DAYS} days after that.
       </p>
 
       {error && (
@@ -133,6 +184,7 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
             const left = receiptDaysLeft(receipt.savedAt);
             const isImage = receipt.mimeType.startsWith("image/");
             const expanded = openId === receipt.id;
+            const plan = PAID_PLANS.find((entry) => entry.id === receipt.plan);
             return (
               <li
                 key={receipt.id}
@@ -229,11 +281,36 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
                 )}
 
                 <div className="mt-2 flex items-center gap-1.5">
+                  {plan ? (
+                    <button
+                      type="button"
+                      onClick={() => void activate(receipt, plan.days)}
+                      disabled={busy !== null}
+                      className="flex-1 rounded-[9px] bg-white/[0.10] px-2.5 py-1.5 text-[10.5px] font-semibold text-white transition-colors hover:bg-white/[0.16] disabled:opacity-40"
+                    >
+                      {busy === `pass:${receipt.id}` ? "Activating…" : `Activate ${plan.days}-day pass`}
+                    </button>
+                  ) : (
+                    <span className="flex flex-1 items-center gap-1">
+                      <span className="text-[10px] text-white/35">Activate</span>
+                      {PAID_PLANS.map((entry) => (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          onClick={() => void activate(receipt, entry.days)}
+                          disabled={busy !== null}
+                          className="rounded-[8px] bg-white/[0.08] px-2 py-1 text-[10px] font-semibold text-white/80 transition-colors hover:bg-white/[0.14] disabled:opacity-40"
+                        >
+                          {entry.days}d
+                        </button>
+                      ))}
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => void markSaved(receipt)}
                     disabled={saved || busy !== null}
-                    className="flex-1 rounded-[9px] bg-[#2f6b48]/30 px-2.5 py-1.5 text-[10.5px] font-semibold text-[#d7f0e1] transition-colors hover:bg-[#2f6b48]/45 disabled:opacity-40"
+                    className="rounded-[9px] bg-[#2f6b48]/30 px-2.5 py-1.5 text-[10.5px] font-semibold text-[#d7f0e1] transition-colors hover:bg-[#2f6b48]/45 disabled:opacity-40"
                   >
                     {busy === `save:${receipt.id}` ? "Saving…" : "Saved"}
                   </button>

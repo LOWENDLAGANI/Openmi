@@ -67,7 +67,7 @@ test("a buyer can send a receipt with their name from the top-up page", () => {
   assert.ok(form.includes("plan_label"), "the receipt does not name the pass it was for");
   assert.match(form, /trimmedName/, "the receipt does not carry a name");
   assert.ok(
-    form.includes("nothing is activated until then"),
+    form.includes("the pass is not active yet"),
     "the form must not imply the pass activates on send"
   );
 });
@@ -117,6 +117,26 @@ test("the owner can deduct Dew, through a function that checks the grant", () =>
   assert.ok(panel.includes("deductDew"), "the console cannot deduct");
   assert.ok(panel.includes('{ id: "deduct", label: "Deduct" }'), "the sheet has no deduct mode");
   assert.ok(panel.includes("<AdminReceipts"), "the console cannot review receipts");
+});
+
+test("the buyer follows the receipt, and the owner activates the pass from it", () => {
+  const form = read("components/ReceiptUpload.tsx");
+  assert.ok(form.includes("listMyReceipts"), "the form never reads the buyer's own receipts");
+  assert.ok(form.includes("Pending review"), "the buyer cannot see that a receipt is waiting");
+  assert.ok(form.includes("Your receipts"), "there is no status list");
+
+  const mine = read("lib/myReceipts.ts");
+  assert.match(mine, /\.from\("payment_receipts"\)/, "the buyer list reads no receipts");
+  assert.ok(!mine.includes("createSignedUrl"), "the status list must not hand out a private file");
+
+  const panel = read("components/AdminReceipts.tsx");
+  assert.ok(panel.includes("grantPlan"), "the owner cannot activate the pass from a receipt");
+  assert.ok(panel.includes("Activate"), "there is no activation control");
+  assert.match(
+    panel,
+    /await grantPlan\(receipt\.owner, days\);\s*await savePaymentReceipt\(receipt\.id\);/,
+    "activation must grant the pass and then close the receipt"
+  );
 });
 
 console.log(`\n${passes} passed, ${failures} failed`);

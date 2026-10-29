@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Spinner from "./Spinner";
 import { PAYMENT_HOST, PAYMENT_LINK_LABEL, PAYMENT_URL } from "@/lib/dew";
 import { PAID_PLANS } from "@/lib/pricing";
 import {
   RECEIPT_BUCKET,
   RECEIPT_MAX_BYTES,
+  receiptDaysLeft,
   receiptExtension,
   validateReceiptFile,
 } from "@/lib/receipts";
+import { listMyReceipts, type BuyerReceipt } from "@/lib/myReceipts";
 import { currentUser, getSupabase, supabaseConfigured } from "@/lib/supabase";
 
 // ── Send a receipt ───────────────────────────────────────────────────────────
@@ -45,8 +47,32 @@ export default function ReceiptUpload({ defaultName = null }: { defaultName?: st
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
+  // The buyer's own receipts, so a sent confirmation is followed rather than
+  // forgotten. Null while the first read is in flight.
+  const [mine, setMine] = useState<BuyerReceipt[] | null>(null);
 
   const plan = useMemo(() => PLAN_OPTIONS.find((option) => option.id === planId) ?? PLAN_OPTIONS[0], [planId]);
+
+  /** Re-reads the status list after a send, so the new row appears at once. */
+  const loadMine = () => {
+    void listMyReceipts()
+      .then(setMine)
+      .catch(() => setMine([]));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void listMyReceipts()
+      .then((rows) => {
+        if (!cancelled) setMine(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setMine([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const pickPlan = (id: string) => {
     setPlanId(id);
@@ -133,8 +159,9 @@ export default function ReceiptUpload({ defaultName = null }: { defaultName?: st
       }
 
       setSent(
-        `Receipt sent for ${trimmedName}. The owner checks it and turns the pass on — nothing is activated until then.`
+        `Receipt sent for ${trimmedName}. It shows as pending below until the owner reviews it — the pass is not active yet.`
       );
+      loadMine();
       setName(trimmedName);
       setReference("");
       setNote("");
@@ -289,6 +316,66 @@ export default function ReceiptUpload({ defaultName = null }: { defaultName?: st
           {busy ? "Sending…" : "Send receipt"}
         </button>
       </form>
+
+      {/* ── What happened to it ───────────────────────────────────────────
+          A receipt that is sent and then invisible reads as lost. This list is
+          the buyer's side of the owner's decision: pending, saved, and when a
+          saved file is due to be wiped. */}
+      <div className="mt-4 border-t border-white/[0.06] pt-3">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+          Your receipts
+        </h3>
+        {mine === null ? (
+          <p className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-white/35">
+            <Spinner size={12} className="text-[#a9d8bb]" />
+            Reading your receipts…
+          </p>
+        ) : mine.length === 0 ? (
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-white/35">
+            Nothing sent yet. After you pay, send the confirmation above and it appears here.
+          </p>
+        ) : (
+          <ul className="mt-1.5 space-y-1.5">
+            {mine.map((receipt) => {
+              const saved = receipt.status === "saved";
+              const left = receiptDaysLeft(receipt.savedAt);
+              return (
+                <li
+                  key={receipt.id}
+                  className="flex items-start gap-2 rounded-xl border border-white/[0.06] bg-black/20 px-2.5 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12px] font-medium text-white/80">
+                      {receipt.planLabel || receipt.plan} · RM {receipt.amount.toFixed(2)}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-white/30">
+                      Sent {receipt.createdAt ? new Date(receipt.createdAt).toLocaleDateString() : "—"}
+                      {saved && left !== null
+                        ? left > 0
+                          ? ` · file wipes in ${left} day${left === 1 ? "" : "s"}`
+                          : " · file wiped"
+                        : ""}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide ${
+                      saved
+                        ? "bg-[#a9d8bb]/15 text-[#a9d8bb]"
+                        : "bg-amber-400/15 text-amber-100/90"
+                    }`}
+                  >
+                    {saved ? "Saved" : "Pending review"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="mt-1.5 text-[10px] leading-relaxed text-white/25">
+          Only you and the owner can see a receipt, and a saved one is wiped thirty days after it is
+          saved.
+        </p>
+      </div>
     </section>
   );
 }
