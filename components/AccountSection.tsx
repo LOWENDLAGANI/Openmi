@@ -11,6 +11,7 @@ import {
   type OAuthProvider,
 } from "@/lib/account";
 import { changePassword } from "@/lib/emailAuth";
+import { pendingEmailChange, requestEmailChange } from "@/lib/emailChange";
 import Spinner from "@/components/Spinner";
 import {
   accountExplanation,
@@ -174,6 +175,8 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
               </div>
             </label>
 
+            <ChangeEmail current={view.email} />
+
             {view.provider === "email" && <PasswordForm />}
 
             <SignInMethods email={view.email} />
@@ -207,6 +210,136 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
       {/* Collapsed by default: it is a diagnostic, not part of the account row. */}
       <AuthDiagnostics />
     </section>
+  );
+}
+
+/**
+ * The address this account signs in with, and the way to move it.
+ *
+ * Supabase does the moving, not this screen: it mails a link to the new address
+ * — and, when the project has secure email change on, to the old one as well —
+ * and the account changes only when they are opened. So success here means
+ * "confirmation sent" and the row keeps showing the current address until a
+ * refreshed session reports the new one. Saying "changed" early would leave
+ * somebody believing they had moved an account they can still only reach with
+ * the old address.
+ */
+function ChangeEmail({ current }: { current: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+
+  // A confirmation started in another tab or on another device is still one
+  // change, so the pending address is read from the session rather than stored
+  // here.
+  useEffect(() => {
+    let cancelled = false;
+    void pendingEmailChange().then((address) => {
+      if (!cancelled) setPending(address);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const change = await requestEmailChange(next);
+      setPending(change.to);
+      setNext("");
+      setOpen(false);
+      setNotice(`Confirmation sent to ${change.to}. The address changes once the link is opened.`);
+    } catch (cause) {
+      setError(describeLinkError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!current) return null;
+
+  return (
+    <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-medium text-white/80">Sign-in address</p>
+          <p className="mt-0.5 break-all text-[11px] text-white/45">{current}</p>
+          {pending && (
+            <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
+              Waiting for confirmation of {pending}. Open the link sent there — and the one sent to{" "}
+              {current}, if your project asks both addresses to approve it.
+            </p>
+          )}
+        </div>
+        {!open && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(true);
+              setError(null);
+              setNotice(null);
+            }}
+            disabled={busy}
+            className="shrink-0 rounded-lg border border-white/[0.12] px-2.5 py-1 text-[10.5px] font-medium text-white/70 transition hover:bg-white/[0.06] disabled:opacity-40"
+          >
+            Change
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <form onSubmit={submit} className="mt-2 space-y-1.5">
+          <label className="block">
+            <span className="mb-1 block text-[10.5px] text-white/35">New address</span>
+            <input
+              type="email"
+              value={next}
+              onChange={(event) => setNext(event.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              spellCheck={false}
+              required
+              className="w-full rounded-lg border border-white/[0.09] bg-black/25 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+            />
+          </label>
+          <div className="flex gap-1.5">
+            <button
+              type="submit"
+              disabled={busy || !next.trim()}
+              className="rounded-lg border border-white/[0.12] px-3 py-2 text-[11.5px] font-medium text-white/75 transition hover:bg-white/[0.06] disabled:opacity-40"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                {busy && <Spinner size={11} />}
+                {busy ? "Sending…" : "Send confirmation"}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setNext("");
+                setError(null);
+              }}
+              disabled={busy}
+              className="rounded-lg px-2 py-1 text-[10.5px] text-white/45 transition hover:bg-white/[0.06] disabled:opacity-40"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {error && <p className="mt-2 text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}
+      {notice && <p className="mt-2 text-[10.5px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}
+    </div>
   );
 }
 

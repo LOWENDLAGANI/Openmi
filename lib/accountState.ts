@@ -314,6 +314,27 @@ export function isDismissed(cause: unknown): boolean {
   return /access_denied|user (cancelled|denied)|cancelled/i.test(error?.message ?? "");
 }
 
+// ── The address ──────────────────────────────────────────────────────────────
+
+/**
+ * Why this address cannot be requested, or null when it can.
+ *
+ * Deliberately the shape of the form's question rather than a validator library:
+ * the only two mistakes worth catching before a mail is sent are "that is not an
+ * address" and "that is the address I already have". Everything else — an
+ * address on another account, a project that refuses the domain — is the
+ * provider's answer, and it arrives with a code `describeLinkError` can name.
+ */
+export function emailChangeProblem(currentEmail: string | null, nextEmail: string): string | null {
+  const address = nextEmail.trim();
+  if (!address) return "Enter the address you want to sign in with.";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) return "That is not a valid email address.";
+  if (currentEmail && address.toLowerCase() === currentEmail.trim().toLowerCase()) {
+    return "That is already the address on this account.";
+  }
+  return null;
+}
+
 // ── The name ─────────────────────────────────────────────────────────────────
 
 /** Matches the 40-character limit the database enforces on a stored name. */
