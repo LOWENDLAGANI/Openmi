@@ -176,7 +176,7 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
 
             {view.provider === "email" && <PasswordForm />}
 
-            <SignInMethods />
+            <SignInMethods email={view.email} />
 
             <button
               type="button"
@@ -224,12 +224,15 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
  * prevented on screen — the control is not offered — and still refused by the
  * server if it is reached some other way.
  */
-function SignInMethods() {
+function SignInMethods({ email }: { email: string | null }) {
   const [methods, setMethods] = useState<SignInMethod[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The password being added to an account that signed in through a provider.
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [password, setPassword] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -283,6 +286,41 @@ function SignInMethods() {
       setBusy(null);
     }
   }, [load]);
+
+
+  /**
+   * Adds the email credential to this account.
+   *
+   * An account that signed in with Google has no password, and the only way to
+   * get one used to be a second account — which loses the chats attached to the
+   * first. Supabase adds an `email` identity when a password is set on a user
+   * whose address is already confirmed, so `changePassword` is the whole write:
+   * the address is the one the account already has, nothing is re-addressed, and
+   * no second confirmation mail is involved.
+   */
+  const addPassword = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      if (busy || password.length < 6) return;
+      setBusy("email");
+      setError(null);
+      setNotice(null);
+      try {
+        await changePassword(password);
+        setPassword("");
+        setPasswordOpen(false);
+        // Supabase created the identity slightly after the call returned, so the
+        // list is read back rather than patched with a guess.
+        await load();
+        setNotice(`${email ?? "Your address"} can now sign in with this password too.`);
+      } catch (cause) {
+        setError(describeLinkError(cause));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [busy, email, load, password]
+  );
 
   const missing = linkableProviders((methods ?? []).map((method) => method.provider));
 
@@ -367,6 +405,66 @@ function SignInMethods() {
       )}
 
 
+
+      {/* An OAuth account has no password at all. Setting one is what turns the
+          address it already owns into a second door, so the same account keeps
+          its chats and can still sign in without the provider. Offered only
+          while that credential is missing, and only when there is an address to
+          attach it to. */}
+      {methods && email && !methods.some((method) => method.provider === "email") && (
+        <div className="mt-2 border-t border-white/[0.06] pt-2">
+          {passwordOpen ? (
+            <form onSubmit={addPassword} className="space-y-1.5">
+              <p className="text-[10.5px] leading-relaxed text-white/40">
+                A password for <span className="break-all text-white/70">{email}</span> — the address this
+                account already has. Nothing is re-addressed and nothing is emailed.
+              </p>
+              <div className="flex gap-1.5">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="6+ characters"
+                  autoComplete="new-password"
+                  minLength={6}
+                  required
+                  className="min-w-0 flex-1 rounded-lg border border-white/[0.09] bg-black/25 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+                />
+                <button
+                  type="submit"
+                  disabled={busy !== null || password.length < 6}
+                  className="shrink-0 rounded-lg border border-white/[0.12] px-3 py-2 text-[11.5px] font-medium text-white/75 transition hover:bg-white/[0.06] disabled:opacity-40"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    {busy === "email" && <Spinner size={11} />}
+                    {busy === "email" ? "Adding…" : "Add"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasswordOpen(false);
+                    setPassword("");
+                  }}
+                  disabled={busy !== null}
+                  className="shrink-0 rounded-lg px-2 py-1 text-[10.5px] text-white/45 transition hover:bg-white/[0.06] disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setPasswordOpen(true)}
+              disabled={busy !== null}
+              className="text-[11px] text-white/45 transition-colors hover:text-white/75 disabled:opacity-40"
+            >
+              Add email and password
+            </button>
+          )}
+        </div>
+      )}
 
       {error && <p className="mt-2 text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}
       {notice && <p className="mt-2 text-[10.5px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}

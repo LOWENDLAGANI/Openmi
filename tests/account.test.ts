@@ -322,6 +322,29 @@ test("each email failure names the next step", () => {
   assert.match(describeLinkError({ code: "user_not_found" }), /Create one instead/);
 });
 
+test("an OAuth account can add an email password without changing its address", () => {
+  // Signed in with Google, Settings offered only the three providers to attach,
+  // so "use email instead" meant creating a second account and losing the chats
+  // on the first. A password set on the confirmed address Supabase already holds
+  // becomes an `email` identity — no re-addressing, and no second confirmation.
+  const section = code("components/AccountSection.tsx");
+  assert.ok(
+    section.includes("SignInMethods email={view.email}"),
+    "the account section does not hand the address to the methods list"
+  );
+  assert.ok(section.includes("Add email and password"), "an OAuth account cannot add a password");
+  assert.match(section, /await changePassword\(password\)/, "the password is not written through the credential call");
+  assert.match(
+    section,
+    /methods\.some\(\(method\) => method\.provider === "email"\)/,
+    "the form is offered to an account that already has an email credential"
+  );
+  // The guard below still stands: adding a credential must not rewrite the
+  // address, which is the write that needs a confirmation mail and can be used
+  // to take over an account.
+  assert.doesNotMatch(section, /updateUser\(/, "the account section writes the auth user directly");
+});
+
 console.log("\nthe auth path has no anonymous door and the four providers are wired");
 
 test("no auth module mints an anonymous identity", () => {
