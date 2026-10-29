@@ -70,8 +70,39 @@ function unauthorized(): Error & { code?: string } {
   return error;
 }
 
+/**
+ * A sentence for a failure, including the ones Supabase does not throw as an `Error`.
+ *
+ * PostgREST and Storage reject with a plain `{ message, code, details, hint }`
+ * object, so `cause instanceof Error ? cause.message : "…"` printed a generic
+ * sentence for every database refusal — a missing function, a policy, a
+ * constraint — and the owner was left with "The adjustment did not go through."
+ * and nothing to act on. This reads either shape and keeps the code, which is
+ * the part that names the fix.
+ */
+export function failureMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof Error && cause.message) {
+    const code = codeOf(cause);
+    return code ? `${cause.message} (${code})` : cause.message;
+  }
+  if (cause && typeof cause === "object") {
+    const record = cause as { message?: unknown; code?: unknown };
+    const message = typeof record.message === "string" ? record.message.trim() : "";
+    const code = typeof record.code === "string" ? record.code : "";
+    if (message) return code ? `${message} (${code})` : message;
+    if (code) return `${fallback} (${code})`;
+  }
+  if (typeof cause === "string" && cause.trim()) return cause.trim();
+  return fallback;
+}
+
 function rethrow(cause: unknown): never {
   if (isPermissionDenied(cause)) throw unauthorized();
+  // Anything else is wrapped: the caller gets a real message, and an error the
+  // console can show, instead of an object it can only render as a default.
+  if (!(cause instanceof Error)) {
+    throw new Error(failureMessage(cause, "The database refused the request."));
+  }
   throw cause;
 }
 
@@ -520,6 +551,12 @@ export async function grantDew(uid: string, dew: number): Promise<DewGrant> {
   const client = requireClient();
   const visitor = uid.replace(/[^A-Za-z0-9-]/g, "");
   if (!visitor) throw new Error("Enter the visitor id first.");
+  // The wallet keys on a real account. A mistyped id used to reach the insert
+  // and come back as a foreign-key error, which reads as "the database is
+  // broken" rather than "that is not a visitor id".
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(visitor)) {
+    throw new Error("That is not a visitor id.");
+  }
 
   const amount = roundDew(dew);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) {

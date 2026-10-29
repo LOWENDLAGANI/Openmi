@@ -11,6 +11,7 @@ import {
   appendAdminAudit,
   createRedeemCode,
   deductDew,
+  failureMessage,
   deleteRedeemCode,
   getChat,
   grantDew,
@@ -329,7 +330,10 @@ export default function AdminPanel({
       setTopUp(null);
     } catch (e: unknown) {
       console.error("[openmi] Dew adjustment failed", e);
-      setTopUpError(e instanceof Error ? e.message : "The adjustment did not go through.");
+      // The database's own sentence, not a generic one: a missing function and a
+      // refused policy both arrive as plain objects, and the code is the only
+      // thing that tells the owner which lever to pull.
+      setTopUpError(failureMessage(e, "The adjustment did not go through."));
     } finally {
       setBusy(false);
     }
@@ -355,8 +359,8 @@ export default function AdminPanel({
           `${days}-day pass active for ${grant.uid} until ${new Date(grant.until).toLocaleString()}`
         );
       } catch (e: unknown) {
-        console.error("[openmi] Pass activation failed", e);
-        setPlanError(e instanceof Error ? e.message : "The pass was not activated.");
+      console.error("[openmi] Pass activation failed", e);
+      setPlanError(failureMessage(e, "The pass was not activated."));
       } finally {
         setPlanBusy(false);
       }

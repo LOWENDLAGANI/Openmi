@@ -119,6 +119,37 @@ test("the owner can deduct Dew, through a function that checks the grant", () =>
   assert.ok(panel.includes("<AdminReceipts"), "the console cannot review receipts");
 });
 
+test("a deduction lands on a wallet that has never spent, and a refusal says why", () => {
+  // The bug this guards: `select coalesce(spent, 0) ... into charged` covers a
+  // NULL column but not a missing row, so a topped-up buyer who had never bought
+  // an hour — no wallet row at all — made `credited - charged` NULL, collapsed
+  // the clamp to zero, and was refused the one deduction that was easiest to
+  // take back.
+  const fix = read("supabase/migrations/20261029000400_deduct_wallet_fix.sql");
+  assert.match(
+    fix,
+    /insert into public\.dew_wallets \(owner, spent, updated_at\)[\s\S]*?on conflict \(owner\) do nothing/,
+    "the wallet row is not created before the spend is read"
+  );
+  assert.match(fix, /select spent into charged/, "the spend is not read from a row that exists");
+  assert.match(
+    fix,
+    /removed := least\(requested, greatest\(credited - charged, 0\)\)/,
+    "the deduction is no longer clamped to the paid balance"
+  );
+
+  // PostgREST refusals are plain objects, so the console used to print one
+  // generic sentence for a missing function, a policy and a constraint alike.
+  const admin = read("lib/cloudAdmin.ts");
+  assert.match(admin, /export function failureMessage/, "a refused database call has no sentence");
+  const panel = read("components/AdminPanel.tsx");
+  assert.ok(
+    !panel.includes('e instanceof Error ? e.message : "The adjustment did not go through."'),
+    "the console is back to a generic sentence for every refusal"
+  );
+  assert.ok(panel.includes("failureMessage(e, \"The adjustment did not go through.\")"), "the adjustment does not report the database's reason");
+});
+
 test("the buyer follows the receipt, and the owner activates the pass from it", () => {
   const form = read("components/ReceiptUpload.tsx");
   assert.ok(form.includes("listMyReceipts"), "the form never reads the buyer's own receipts");

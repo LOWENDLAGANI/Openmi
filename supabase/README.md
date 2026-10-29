@@ -31,6 +31,9 @@ carry the rules it used to hold.
 | `migrations/20261028000400_email_guard.sql` | `blocked_email_domains`, the `email_domain_is_blocked()` check, and the `reject_disposable_signup` trigger on `auth.users`: a disposable address cannot create an account, even from a modified client, while an existing account on one can still sign in. The list mirrors `lib/emailGuard.ts`; both are compared by the tests. |
 | `migrations/20261029000000_agent_runs.sql` | `agent_runs`: one row per repository turn. `authenticated` is granted SELECT on its own rows and no write at all — a run is created and advanced through the service key, because it has no caller by design. |
 | `migrations/20261029000100_agent_runs_health.sql` | Registers `agent_runs` in `schema_expected`, so a deployment that skipped the migration is named by `/api/setup` instead of failing at the first run. |
+| `migrations/20261029000200_receipts_and_deduct.sql` | `payment_receipts`, the private `receipts` bucket behind the top-up page's receipt form, and `admin_deduct_dew()`, the owner-side deduction. Without this file a receipt cannot be sent or listed, and the console cannot take Dew back. |
+| `migrations/20261029000300_hour_refunds.sql` | The charge split on `hour_sessions` (`free_charged`, `paid_charged`, `charge_day`), `refund_hour_session()`, `auto_refund_idle_hour()` and `mark_hour_session_activity()`: an hour that produced nothing is given back, once, and only while it was unused. |
+| `migrations/20261029000400_deduct_wallet_fix.sql` | Recreates `admin_deduct_dew()` so a deduction works on an account that has credit but no wallet row yet — the state every freshly topped-up buyer is in — and gives the owner a sentence instead of an empty failure. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
