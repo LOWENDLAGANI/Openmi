@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PAYMENTS_MIGRATION, paymentsSchemaGap } from "../lib/paymentsSetup";
 
 let failures = 0;
 let passes = 0;
@@ -148,6 +149,50 @@ test("a deduction lands on a wallet that has never spent, and a refusal says why
     "the console is back to a generic sentence for every refusal"
   );
   assert.ok(panel.includes("failureMessage(e, \"The adjustment did not go through.\")"), "the adjustment does not report the database's reason");
+});
+
+test("a deployment without the payments migration says so before anyone pays", () => {
+  // The schema audit cannot name this migration: its own `schema_expected` rows
+  // arrive with it, so a project that never ran it has nothing to report. The
+  // check therefore asks the table itself, and only a genuinely absent table is
+  // a gap — a policy refusal means the table exists.
+  assert.equal(PAYMENTS_MIGRATION, "20261029000200_receipts_and_deduct");
+  assert.equal(
+    paymentsSchemaGap({
+      code: "PGRST205",
+      message: "Could not find the table 'public.payment_receipts' in the schema cache",
+    }),
+    true,
+    "a missing receipts table is not recognised"
+  );
+  assert.equal(paymentsSchemaGap({ code: "42P01" }), true, "a missing relation is not recognised");
+  assert.equal(
+    paymentsSchemaGap({
+      message: "Could not find the table 'public.payment_receipts' in the schema cache",
+    }),
+    true,
+    "a missing table reported without a code is not recognised"
+  );
+  assert.equal(
+    paymentsSchemaGap({ code: "42501", message: "permission denied for table payment_receipts" }),
+    false,
+    "a refused read is being reported as a missing migration"
+  );
+  assert.equal(paymentsSchemaGap(null), false, "no error is being reported as a gap");
+
+  const notice = read("components/PaymentsSetupNotice.tsx");
+  assert.ok(notice.includes('from("payment_receipts")'), "the notice never probes the receipts table");
+  assert.ok(notice.includes("PAYMENTS_MIGRATION"), "the notice does not name the migration");
+  assert.ok(notice.includes("if (!checked || !pending) return null;"), "the notice is shown when nothing is missing");
+
+  assert.ok(
+    read("app/plus/page.tsx").includes("<PaymentsSetupNotice"),
+    "the top-up page does not warn before a payment"
+  );
+  assert.ok(
+    read("components/AdminPanel.tsx").includes("<PaymentsSetupNotice"),
+    "the console does not warn before a deduction"
+  );
 });
 
 test("the buyer follows the receipt, and the owner activates the pass from it", () => {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import AdminControls from "./AdminControls";
 import AdminReceipts from "./AdminReceipts";
+import PaymentsSetupNotice from "./PaymentsSetupNotice";
 import Spinner from "./Spinner";
 import ModelHealthSection from "./ModelHealth";
 import { fetchVisitorRegistry, type VisitorProfile } from "@/lib/cloudHistory";
@@ -460,6 +461,11 @@ export default function AdminPanel({
                     switched off or read back.
                   </span>
                 </button>
+
+                {/* The migration both controls below depend on. A console that
+                    offers a deduction which does not exist wastes the one visit
+                    it gets, so the gap is named before either is pressed. */}
+                <PaymentsSetupNotice className="mb-2" />
 
                 {/* Proof of a payment a buyer sent from the top-up page. The
                     list is the owner's inbox: one decision per receipt, and
