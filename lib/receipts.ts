@@ -38,7 +38,28 @@ export const RECEIPT_MIME_TYPES = [
   "application/pdf",
 ] as const;
 
-export type ReceiptStatus = "new" | "saved";
+/**
+ * What the owner has decided about a receipt.
+ *
+ * Three states, because a receipt can be three things: sent and not looked at
+ * yet (`pending`), checked and confirmed (`approved`), checked and refused
+ * (`rejected`). The first version of this table knew only two, so a refusal and
+ * a receipt nobody had opened shared the word `new` — the buyer's list said
+ * "pending review" about a payment that had already been answered.
+ */
+export type ReceiptStatus = "pending" | "approved" | "rejected";
+
+/** The words a buyer and the owner both read for a state. */
+export const RECEIPT_STATUS_LABELS: Record<ReceiptStatus, string> = {
+  pending: "Pending review",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+/** True once the owner has answered, either way. */
+export function receiptDecided(status: ReceiptStatus): boolean {
+  return status !== "pending";
+}
 
 /** One receipt as the console and its owner read it. */
 export interface PaymentReceipt {
@@ -56,7 +77,8 @@ export interface PaymentReceipt {
   mimeType: string;
   status: ReceiptStatus;
   createdAt: number;
-  savedAt: number | null;
+  /** When the owner approved or rejected it, or null while it is pending. */
+  decidedAt: number | null;
   /** A short-lived URL from the private bucket, when one could be made. */
   previewUrl: string | null;
 }
@@ -98,20 +120,28 @@ export function validateReceiptFile(file: { name?: string; type?: string; size?:
   return null;
 }
 
-/** The moment a saved receipt is due to disappear, or null while it is new. */
-export function receiptWipeAt(savedAt: number | null): number | null {
-  return savedAt && Number.isFinite(savedAt) ? savedAt + RECEIPT_RETENTION_MS : null;
+/**
+ * The moment a decided receipt is due to disappear.
+ *
+ * The clock starts on the decision, not on the upload: a receipt nobody has
+ * answered is still the buyer's evidence that they paid, and deleting it would
+ * erase the only record of a payment the owner has not looked at yet. An
+ * approved and a rejected receipt both keep their proof for the same month, so
+ * a disputed refusal can still be checked.
+ */
+export function receiptWipeAt(decidedAt: number | null): number | null {
+  return decidedAt && Number.isFinite(decidedAt) ? decidedAt + RECEIPT_RETENTION_MS : null;
 }
 
 /** Whole days left before the wipe, floored at zero. */
-export function receiptDaysLeft(savedAt: number | null, now: number = Date.now()): number | null {
-  const at = receiptWipeAt(savedAt);
+export function receiptDaysLeft(decidedAt: number | null, now: number = Date.now()): number | null {
+  const at = receiptWipeAt(decidedAt);
   if (at === null) return null;
   return Math.max(0, Math.ceil((at - now) / (24 * 60 * 60 * 1000)));
 }
 
-/** True when a saved receipt is past its retention and may be wiped. */
-export function receiptExpired(savedAt: number | null, now: number = Date.now()): boolean {
-  const at = receiptWipeAt(savedAt);
+/** True when a decided receipt is past its retention and may be wiped. */
+export function receiptExpired(decidedAt: number | null, now: number = Date.now()): boolean {
+  const at = receiptWipeAt(decidedAt);
   return at !== null && at <= now;
 }

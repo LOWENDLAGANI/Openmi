@@ -90,7 +90,11 @@ test("a receipt is private, and a saved one is wiped after thirty days", () => {
   const admin = read("lib/cloudAdmin.ts");
   assert.match(admin, /purgeExpiredReceipts/, "nothing sweeps expired receipts");
   assert.match(admin, /\.remove\(paths\)/, "the saved receipt file is not wiped");
-  assert.match(admin, /status: "saved", saved_at: iso\(Date\.now\(\)\)/, "saving does not start the clock");
+  assert.match(
+    admin,
+    /\.update\(\{ status, decided_at: iso\(Date\.now\(\)\), decided_by: uid \}\)/,
+    "a decision does not record who made it and when"
+  );
 
   const panel = read("components/AdminReceipts.tsx");
   assert.ok(panel.includes("Saved"), "a saved receipt is not labelled saved");
@@ -198,7 +202,7 @@ test("a deployment without the payments migration says so before anyone pays", (
 test("the buyer follows the receipt, and the owner activates the pass from it", () => {
   const form = read("components/ReceiptUpload.tsx");
   assert.ok(form.includes("listMyReceipts"), "the form never reads the buyer's own receipts");
-  assert.ok(form.includes("Pending review"), "the buyer cannot see that a receipt is waiting");
+  assert.ok(form.includes("RECEIPT_STATUS_LABELS"), "the buyer cannot see what state a receipt is in");
   assert.ok(form.includes("Your receipts"), "there is no status list");
 
   const mine = read("lib/myReceipts.ts");
@@ -210,9 +214,53 @@ test("the buyer follows the receipt, and the owner activates the pass from it", 
   assert.ok(panel.includes("Activate"), "there is no activation control");
   assert.match(
     panel,
-    /await grantPlan\(receipt\.owner, days\);\s*await savePaymentReceipt\(receipt\.id\);/,
-    "activation must grant the pass and then close the receipt"
+    /await grantPlan\(receipt\.owner, days\);\s*await decidePaymentReceipt\(receipt\.id, "approved"\);/,
+    "activation must grant the pass and then approve the receipt"
   );
+});
+
+test("a receipt is pending, approved or rejected, and both sides see it", () => {
+  // Two states were not enough: a refusal and a receipt nobody had opened shared
+  // the word "new", so the buyer could not tell "waiting" from "answered no".
+  const states = read("supabase/migrations/20261029000500_receipt_states.sql");
+  assert.match(
+    states,
+    /check \(status in \('pending', 'approved', 'rejected'\)\)/,
+    "the three states are not constrained in the database"
+  );
+  assert.match(states, /set status = 'pending' where status = 'new'/, "existing receipts are not migrated");
+  assert.match(states, /set status = 'approved' where status = 'saved'/, "approved receipts are not migrated");
+  assert.match(states, /rename column saved_at to decided_at/, "the decision timestamp still claims to be a save");
+  assert.match(
+    states,
+    /and status = 'pending'\s*and decided_at is null\s*and decided_by is null/,
+    "a buyer can write a receipt in a state they should not choose"
+  );
+  assert.match(states, /'rejectReceipt'/, "a rejection cannot be recorded in the ledger");
+
+  const rules = read("lib/receipts.ts");
+  assert.match(rules, /export type ReceiptStatus = "pending" \| "approved" \| "rejected"/);
+  assert.match(rules, /pending: "Pending review"/, "the pending label is gone");
+  assert.match(rules, /approved: "Approved"/, "the approved label is gone");
+  assert.match(rules, /rejected: "Rejected"/, "the rejected label is gone");
+
+  const admin = read("lib/cloudAdmin.ts");
+  assert.match(admin, /export async function decidePaymentReceipt/, "the owner cannot record a decision");
+  assert.ok(!admin.includes("savePaymentReceipt"), "the old save-only decision is still exported");
+  assert.match(
+    admin,
+    /\.in\("status", \["approved", "rejected"\]\)/,
+    "the wipe only covers one of the two decisions"
+  );
+
+  const panel = read("components/AdminReceipts.tsx");
+  assert.ok(panel.includes('decide(receipt, "approved")'), "there is no approve control");
+  assert.ok(panel.includes('decide(receipt, "rejected")'), "there is no reject control");
+  assert.ok(panel.includes("RECEIPT_STATUS_LABELS"), "the console does not label the state");
+
+  const mine = read("lib/myReceipts.ts");
+  assert.match(mine, /decided_at/, "the buyer list does not read the decision time");
+  assert.match(mine, /"rejected" as const/, "the buyer list cannot report a rejection");
 });
 
 console.log(`\n${passes} passed, ${failures} failed`);

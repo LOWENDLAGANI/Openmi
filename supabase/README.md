@@ -34,6 +34,7 @@ carry the rules it used to hold.
 | `migrations/20261029000200_receipts_and_deduct.sql` | `payment_receipts`, the private `receipts` bucket behind the top-up page's receipt form, and `admin_deduct_dew()`, the owner-side deduction. Without this file a receipt cannot be sent or listed, and the console cannot take Dew back. |
 | `migrations/20261029000300_hour_refunds.sql` | The charge split on `hour_sessions` (`free_charged`, `paid_charged`, `charge_day`), `refund_hour_session()`, `auto_refund_idle_hour()` and `mark_hour_session_activity()`: an hour that produced nothing is given back, once, and only while it was unused. |
 | `migrations/20261029000400_deduct_wallet_fix.sql` | Recreates `admin_deduct_dew()` so a deduction works on an account that has credit but no wallet row yet — the state every freshly topped-up buyer is in — and gives the owner a sentence instead of an empty failure. |
+| `migrations/20261029000500_receipt_states.sql` | Receipt states become `pending`, `approved` and `rejected` (with existing rows migrated), `saved_at`/`saved_by` become `decided_at`/`decided_by`, and the ledger gains `rejectReceipt` so a refusal is recorded as its own answer. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it

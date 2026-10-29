@@ -7,6 +7,7 @@ import { PAID_PLANS } from "@/lib/pricing";
 import {
   RECEIPT_BUCKET,
   RECEIPT_MAX_BYTES,
+  RECEIPT_STATUS_LABELS,
   receiptDaysLeft,
   receiptExtension,
   validateReceiptFile,
@@ -337,8 +338,9 @@ export default function ReceiptUpload({ defaultName = null }: { defaultName?: st
         ) : (
           <ul className="mt-1.5 space-y-1.5">
             {mine.map((receipt) => {
-              const saved = receipt.status === "saved";
-              const left = receiptDaysLeft(receipt.savedAt);
+              const status = receipt.status;
+              const decided = status !== "pending";
+              const left = receiptDaysLeft(receipt.decidedAt);
               return (
                 <li
                   key={receipt.id}
@@ -350,7 +352,7 @@ export default function ReceiptUpload({ defaultName = null }: { defaultName?: st
                     </p>
                     <p className="mt-0.5 text-[10px] text-white/30">
                       Sent {receipt.createdAt ? new Date(receipt.createdAt).toLocaleDateString() : "—"}
-                      {saved && left !== null
+                      {decided && left !== null
                         ? left > 0
                           ? ` · file wipes in ${left} day${left === 1 ? "" : "s"}`
                           : " · file wiped"
@@ -359,12 +361,14 @@ export default function ReceiptUpload({ defaultName = null }: { defaultName?: st
                   </div>
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide ${
-                      saved
+                      status === "approved"
                         ? "bg-[#a9d8bb]/15 text-[#a9d8bb]"
-                        : "bg-amber-400/15 text-amber-100/90"
+                        : status === "rejected"
+                          ? "bg-red-400/15 text-red-200/90"
+                          : "bg-amber-400/15 text-amber-100/90"
                     }`}
                   >
-                    {saved ? "Saved" : "Pending review"}
+                    {RECEIPT_STATUS_LABELS[status]}
                   </span>
                 </li>
               );
@@ -372,8 +376,8 @@ export default function ReceiptUpload({ defaultName = null }: { defaultName?: st
           </ul>
         )}
         <p className="mt-1.5 text-[10px] leading-relaxed text-white/25">
-          Only you and the owner can see a receipt, and a saved one is wiped thirty days after it is
-          saved.
+          Only you and the owner can see a receipt. Approving or rejecting it is shown here, and the
+          file is wiped thirty days after that decision.
         </p>
       </div>
     </section>

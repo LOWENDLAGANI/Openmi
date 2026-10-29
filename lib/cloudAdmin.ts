@@ -26,7 +26,12 @@ import {
   roundDew,
 } from "./dew";
 import type { AppConfig } from "./appConfig";
-import { RECEIPT_BUCKET, RECEIPT_RETENTION_MS, type PaymentReceipt } from "./receipts";
+import {
+  RECEIPT_BUCKET,
+  RECEIPT_RETENTION_MS,
+  type PaymentReceipt,
+  type ReceiptStatus,
+} from "./receipts";
 import {
   isValidCode,
   normalizeCode,
@@ -871,6 +876,7 @@ export interface AdminAuditEntry {
     | "grantPlan"
     | "deductDew"
     | "saveReceipt"
+    | "rejectReceipt"
     | "deleteReceipt";
   /** The word the entry is about. */
   code?: string;
@@ -914,7 +920,8 @@ export async function appendAdminAudit(
 
 function receiptFromRow(row: Record<string, unknown>): PaymentReceipt | null {
   if (typeof row.id !== "string" || typeof row.storage_path !== "string") return null;
-  const status = row.status === "saved" ? "saved" : "new";
+  const status: ReceiptStatus =
+    row.status === "approved" ? "approved" : row.status === "rejected" ? "rejected" : "pending";
   return {
     id: row.id,
     owner: typeof row.owner === "string" ? row.owner : "",
@@ -929,7 +936,7 @@ function receiptFromRow(row: Record<string, unknown>): PaymentReceipt | null {
     mimeType: typeof row.mime_type === "string" ? row.mime_type : "",
     status,
     createdAt: ms(row.created_at),
-    savedAt: row.saved_at ? ms(row.saved_at) : null,
+    decidedAt: row.decided_at ? ms(row.decided_at) : null,
     previewUrl: null,
   };
 }
@@ -944,12 +951,14 @@ function receiptFromRow(row: Record<string, unknown>): PaymentReceipt | null {
  */
 async function purgeExpiredReceipts(client: ReturnType<typeof requireClient>): Promise<void> {
   const cutoff = iso(Date.now() - RECEIPT_RETENTION_MS);
+  // Both answers keep their proof for the same month: a rejection can be
+  // disputed just as easily as an approval.
   const { data } = await client
     .from("payment_receipts")
     .select("id, storage_path")
-    .eq("status", "saved")
-    .not("saved_at", "is", null)
-    .lt("saved_at", cutoff)
+    .in("status", ["approved", "rejected"])
+    .not("decided_at", "is", null)
+    .lt("decided_at", cutoff)
     .limit(500);
   const stale = (data ?? []) as Array<{ id?: unknown; storage_path?: unknown }>;
   if (stale.length === 0) return;
@@ -974,7 +983,7 @@ export async function listPaymentReceipts(): Promise<PaymentReceipt[]> {
   const { data, error } = await client
     .from("payment_receipts")
     .select(
-      "id, owner, name, plan, plan_label, amount, reference, note, storage_path, file_name, mime_type, status, created_at, saved_at"
+      "id, owner, name, plan, plan_label, amount, reference, note, storage_path, file_name, mime_type, status, created_at, decided_at"
     )
     .order("created_at", { ascending: false })
     .limit(200);
@@ -1007,13 +1016,24 @@ export async function listPaymentReceipts(): Promise<PaymentReceipt[]> {
   return receipts;
 }
 
-/** Marks a receipt saved: the pass is active, and the wipe clock starts. */
-export async function savePaymentReceipt(id: string): Promise<void> {
+/**
+ * Records the owner's answer: approved or rejected, with who and when.
+ *
+ * One function for both, because the row is the same shape either way and a
+ * rejection is not a special case of saving. Only the administrator's token can
+ * make this write — the policy on the table is the guard, not this code — and
+ * `pending` is deliberately unreachable from here: a decision is not undone by
+ * clearing it, it is changed by pressing the other button.
+ */
+export async function decidePaymentReceipt(
+  id: string,
+  status: "approved" | "rejected"
+): Promise<void> {
   const client = requireClient();
   const uid = await currentUid();
   const { error } = await client
     .from("payment_receipts")
-    .update({ status: "saved", saved_at: iso(Date.now()), saved_by: uid })
+    .update({ status, decided_at: iso(Date.now()), decided_by: uid })
     .eq("id", id);
   if (error) rethrow(error);
 }
