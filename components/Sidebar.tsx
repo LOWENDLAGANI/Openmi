@@ -37,8 +37,8 @@ interface SidebarProps {
   activeChatId: string | null;
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
-  temporary: boolean;
-  onToggleTemporary: () => void;
+  draftId: string | null;
+  onToggleDraft: () => void;
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
@@ -146,8 +146,8 @@ export default function Sidebar({
   activeChatId,
   onSelectChat,
   onNewChat,
-  temporary,
-  onToggleTemporary,
+  draftId,
+  onToggleDraft,
   open,
   onClose,
   onOpenSettings,
@@ -430,11 +430,11 @@ export default function Sidebar({
               not to this device, not to the account — so it is a switch rather
               than a chat of its own in the list below. */}
           <button
-            onClick={onToggleTemporary}
-            aria-pressed={temporary}
-            title={temporary ? "Leave temporary chat" : "Start a temporary chat that is not saved"}
+            onClick={onToggleDraft}
+            aria-pressed={draftId !== null}
+            title={draftId ? "Stop drafting and save the chat" : "Start a chat that is not saved until you create it"}
             className={`mt-2 flex w-full items-center gap-3 rounded-2xl border px-4 py-2.5 text-[14px] font-medium transition-colors ${
-              temporary
+              draftId
                 ? "border-[#2f6b48]/40 bg-[#2f6b48]/[0.14] text-white"
                 : "border-white/[0.07] bg-white/[0.03] text-white/70 hover:bg-white/[0.06] hover:text-white"
             }`}
@@ -448,18 +448,18 @@ export default function Sidebar({
               strokeWidth="1.7"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={temporary ? "text-[#a9d8bb]" : "text-white/50"}
+              className={draftId ? "text-[#a9d8bb]" : "text-white/50"}
             >
               <circle cx="12" cy="12" r="9" />
               <path d="M12 7v5l3 2" />
             </svg>
-            <span className="flex-1 text-left">Temporary chat</span>
+            <span className="flex-1 text-left">Draft chat</span>
             <span
               className={`shrink-0 text-[9px] font-semibold uppercase tracking-wide ${
-                temporary ? "text-[#a9d8bb]" : "text-white/30"
+                draftId ? "text-[#a9d8bb]" : "text-white/30"
               }`}
             >
-              {temporary ? "On" : "Not saved"}
+              {draftId ? "Drafting" : "Not saved"}
             </span>
           </button>
         </div>

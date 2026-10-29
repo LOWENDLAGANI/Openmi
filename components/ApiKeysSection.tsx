@@ -140,10 +140,7 @@ export default function ApiKeysSection() {
   return (
     <section>
       <h3 className="mb-1.5 text-[13px] font-semibold text-white">API keys</h3>
-      <p className="mb-2.5 text-[11px] leading-relaxed text-white/40">
-        Bring your own key for the models Openmi uses. A saved key is sealed on the server, used only for
-        your own requests, and never sent back to this browser — only the last four characters are shown.
-      </p>
+
 
       <div className="space-y-2">
         {USER_KEY_PROVIDERS.map((provider) => {

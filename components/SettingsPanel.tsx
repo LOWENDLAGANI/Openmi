@@ -213,9 +213,7 @@ export default function SettingsPanel({
                 </svg>
                 Home layout
               </h3>
-              <p className="mb-3 text-[11px] leading-relaxed text-white/40">
-                Focus is the mobile home screen, and it brings its own ink-indigo palette.
-              </p>
+
               <div className="grid grid-cols-2 gap-2">
                 {HOME_OPTIONS.map((option) => (
                   <button

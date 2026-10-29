@@ -24,23 +24,21 @@ import AuthScreen from "@/components/AuthScreen";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName, saveAvatar } from "@/lib/visitorName";
 import {
-  flushTrashDecisions,
   loadChatsFromAccount,
+  syncVisitorProfile,
+  flushTrashDecisions,
   loadFoldersFromAccount,
   loadTrashFromAccount,
   syncCloudHistory,
   syncFoldersToAccount,
   syncLocalTrash,
-  syncVisitorProfile,
 } from "@/lib/cloudHistory";
 import { consumeOAuthError, loadAccountName, saveAccountName, watchAccount } from "@/lib/account";
 import { adoptDeviceAccount } from "@/lib/deviceAccount";
 import { describeLinkError, normalizeName, type AccountView } from "@/lib/accountState";
 import {
   DEFAULT_PREFERENCES,
-  loadCloudPreferences,
   loadLocalPreferences,
-  saveCloudPreferences,
   saveLocalPreferences,
   type UserPreferences,
 } from "@/lib/preferences";
@@ -66,6 +64,7 @@ import type {
   SearchMode,
   SearchSource,
   ProposalReview,
+  Chat,
 } from "@/lib/types";
 import {
   DEFAULT_APPEARANCE,
@@ -80,14 +79,43 @@ import {
 import { authHeader } from "@/lib/supabase";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
-import { TempThread, type MessageInput } from "@/lib/tempChat";
 import { purgeTrash } from "@/lib/trash";
 import { parseRetrySeconds } from "@/lib/rateLimit";
+import { uid } from "@/lib/db";
 
-/** The chat id a temporary thread uses. It is never a row in the database — it
-    exists only so the send path has one variable to address either kind of
+
+/** The chat id used for in-memory draft messages that are not kept locally.
+    It exists only so the send path has one variable to address either kind of
     chat by, and it can never collide with a real id, which is a uuid. */
-const TEMP_CHAT_ID = "temporary";
+const DRAFT_CHAT_ID = "draft";
+
+/** A message being composed but not yet stored. It is kept in memory only so
+    the compose path has somewhere to put a user message before the assistant
+    row exists. */
+const draftRef = { message: null as ChatMessage | null };
+
+function draftMessage(input: {
+  chatId: string;
+  role: "user";
+  content?: string;
+  images?: ImageAttachment[];
+  documents?: DocumentAttachment[];
+}): ChatMessage {
+  const now = Math.max(Date.now(), (draftRef.message?.createdAt ?? 0) + 1);
+  const message: ChatMessage = {
+    ...input,
+    id: uid(),
+    createdAt: now,
+    updatedAt: now,
+    content: input.content ?? "",
+  };
+  draftRef.message = message;
+  return message;
+}
+
+function clearDraft(): void {
+  draftRef.message = null;
+}
 
 /** The most the account-resolution gate will wait on one remote answer — 3 s
     is comfortably longer than a healthy single read. A held-open socket is a
@@ -272,9 +300,7 @@ export default function HomePage() {
   // not to the account either, since everything uploaded to the account starts as
   // a local row. The thread lives in this component and in this ref — nothing
   // else is allowed to keep a copy.
-  const [temporary, setTemporary] = useState(false);
-  const tempThreadRef = useRef(new TempThread());
-  const [tempMessages, setTempMessages] = useState<ChatMessage[]>([]);
+  const [draftId, setDraftId] = useState<string | null>(null);
   // The account's live hour session, if any, and the first-message price
   // dialog. The dialog holds the composed message until a price is chosen, and
   // knows which model and repository that hour has to be bought for.
@@ -297,33 +323,31 @@ export default function HomePage() {
   const [pricingNotice, setPricingNotice] = useState<string | null>(null);
   const dew = useDew();
 
-  /** Publishes the thread to React after any change, so the screen follows a
-      message being written exactly as it follows one read from the database. */
-  const publishTemp = useCallback(() => {
-    setTempMessages(tempThreadRef.current.list());
-  }, []);
+  /** Kept for the send path only while a draft message is live; otherwise unused. */
+  const publishTemp = useCallback(() => {}, []);
 
-  const endTemporary = useCallback(() => {
-    tempThreadRef.current.clear();
-    setTempMessages([]);
-    setTemporary(false);
-  }, []);
-
-  const startTemporary = useCallback(() => {
-    abortRef.current?.abort();
-    setStreamingId(null);
-    tempThreadRef.current.clear();
-    setTempMessages([]);
+  const endDraft = useCallback(() => {
+    clearDraft();
+    setDraftId(null);
     setActiveChatId(null);
     setModelNotice(null);
-    setTemporary(true);
     setSidebarOpen(false);
   }, []);
 
-  const toggleTemporary = useCallback(() => {
-    if (temporary) endTemporary();
-    else startTemporary();
-  }, [endTemporary, startTemporary, temporary]);
+  const startDraft = useCallback(() => {
+    abortRef.current?.abort();
+    setStreamingId(null);
+    clearDraft();
+    setDraftId(DRAFT_CHAT_ID);
+    setActiveChatId(null);
+    setModelNotice(null);
+    setSidebarOpen(false);
+  }, []);
+
+  const toggleDraft = useCallback(() => {
+    if (draftId) endDraft();
+    else startDraft();
+  }, [endDraft, startDraft, draftId]);
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messages = useLiveQuery(
@@ -335,7 +359,11 @@ export default function HomePage() {
     [] as ChatMessage[]
   );
 
-  const chats = useLiveQuery(() => db.chats.orderBy("updatedAt").reverse().toArray(), [], []);
+  const sidebarChats = useLiveQuery(
+    () => db.chats.orderBy("updatedAt").reverse().toArray(),
+    [],
+    [] as Chat[]
+  );
 
   // A GitHub connection made through GitHub's own OAuth App returns as a
   // full-page navigation to this app with `?github=…`. Open the repository
@@ -415,11 +443,10 @@ export default function HomePage() {
     saveDisplayName("");
     setDisplayName("");
     saveAvatar("");
-    setAvatarUrl("");
-    endTemporary();
+    setAvatarUrl("");      endDraft();
     setActiveChatId(null);
     setProject(null);
-  }, [account?.signedIn, endTemporary]);
+  }, [account?.signedIn, endDraft]);
 
   // ── Whose history this browser holds ────────────────────────────────────
   // IndexedDB is one database per browser, not one per account. Before the
@@ -479,26 +506,16 @@ export default function HomePage() {
       setDisplayName(saveDisplayName(chosen));
       void saveAccountName(chosen);
 
-      const cloud = await loadCloudPreferences();
-      if (cancelled) return;
-      const current = preferencesRef.current;
-      const merged: UserPreferences = cloud
-        ? {
-            ...cloud,
-            displayName: chosen || cloud.displayName,
-            avatarUrl: cloud.avatarUrl ?? current.avatarUrl ?? null,
-          }
-        : { ...current, displayName: chosen };
+      const merged: UserPreferences = { ...preferencesRef.current, displayName: chosen };
       preferencesRef.current = merged;
       setAppearance(merged.appearance);
       setHomeLayout(merged.homeLayout);
       setResponseLength(merged.responseLength);
       setReasoningEffort(merged.reasoningEffort);
       setSearchMode(merged.searchMode);
-      setSelectedMode(merged.model ?? current.model ?? DEFAULT_MODE_ID);
+      setSelectedMode(merged.model ?? DEFAULT_MODE_ID);
       setAvatarUrl(merged.avatarUrl ?? "");
       saveLocalPreferences(merged);
-      if (!cloud || !cloud.displayName || !cloud.avatarUrl) void saveCloudPreferences(merged);
 
       // The sidebar is part of the account too. Decisions taken while offline
       // are delivered first (otherwise the pull would undo them), then folders
@@ -543,7 +560,7 @@ export default function HomePage() {
     return () => {
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     };
-  }, [hydrated, account?.signedIn, chats, messages]);
+  }, [hydrated, account?.signedIn]);
 
   // The administrator's announcement, read live from the same public node the
   // server enforces. A visitor who blocks the read simply never sees it.
@@ -562,7 +579,6 @@ export default function HomePage() {
     const next = { ...preferencesRef.current, displayName: saved };
     preferencesRef.current = next;
     saveLocalPreferences(next);
-    void saveCloudPreferences(next);
     void saveAccountName(saved);
     void syncVisitorProfile(saved).catch((error: unknown) => {
       console.error("[Openmi] Could not log the visitor name", error);
@@ -575,7 +591,6 @@ export default function HomePage() {
     const next = { ...preferencesRef.current, avatarUrl: avatar || null };
     preferencesRef.current = next;
     saveLocalPreferences(next);
-    void saveCloudPreferences(next);
   }, []);
 
   /**
@@ -589,7 +604,6 @@ export default function HomePage() {
     const next = { ...preferencesRef.current, ...patch };
     preferencesRef.current = next;
     saveLocalPreferences(next);
-    void saveCloudPreferences(next);
   }, []);
 
   // Probe which modes have keys configured server-side (may be empty).
@@ -716,10 +730,10 @@ export default function HomePage() {
     setActiveChatId(null);
     setSidebarOpen(false);
     setModelNotice(null);
-    // A new chat is a chat you meant to keep, so a temporary thread ends here
-    // rather than silently turning into one that is written down.
-    if (temporary) endTemporary();
-  }, [endTemporary, temporary]);
+    // A new chat is a chat you meant to keep, so any unsent draft is dropped
+    // here rather than turned into one that is written down.
+    if (draftId) endDraft();
+  }, [endDraft]);
 
   const handleSelectChat = useCallback((chatId: string) => {
     abortRef.current?.abort();
@@ -727,8 +741,8 @@ export default function HomePage() {
     setActiveChatId(chatId);
     setSidebarOpen(false);
     setModelNotice(null);
-    if (temporary) endTemporary();
-  }, [endTemporary, temporary]);
+    if (draftId) endDraft();
+  }, [endDraft]);
 
   // The session is account-wide, so it is read once per sign-in rather than per
   // chat. Every change the page makes updates the state directly as well.
@@ -819,29 +833,34 @@ export default function HomePage() {
 
   // ── Where a message is written ─────────────────────────────────────────────
   // One set of calls for both kinds of chat, so the send path below has no
-  // `if (temporary)` in it. A temporary message goes to the in-memory thread and
-  // nowhere else; a real one goes to Dexie, and the account sync picks it up
-  // there exactly as it always has.
-  const appendMessage = useCallback(
-    async (input: MessageInput): Promise<ChatMessage> => {
-      if (!temporary) return addMessage(input);
-      const message = tempThreadRef.current.append(input);
-      publishTemp();
-      return message;
-    },
-    [publishTemp, temporary]
+  // draft branching in it. A real message goes to Dexie, and the account sync
+  // picks it up there exactly as it always has.
+  const appendUserMessage = useCallback(
+    async (input: {
+      chatId: string;
+      role: "user";
+      content?: string;
+      images?: ImageAttachment[];
+      documents?: DocumentAttachment[];
+    }): Promise<ChatMessage> => addMessage({ ...input, content: input.content ?? "" }),
+    []
+  );
+
+  const appendAssistantMessage = useCallback(
+    async (input: {
+      chatId: string;
+      role: "assistant";
+      content?: string;
+      model?: string;
+    }): Promise<ChatMessage> => addMessage({ ...input, content: input.content ?? "" }),
+    []
   );
 
   const patchMessage = useCallback(
     async (id: string, changes: Partial<ChatMessage>): Promise<void> => {
-      if (!temporary) {
-        await db.messages.update(id, changes);
-        return;
-      }
-      tempThreadRef.current.patch(id, changes);
-      publishTemp();
+      await db.messages.update(id, changes);
     },
-    [publishTemp, temporary]
+    []
   );
 
   const writeContent = useCallback(
@@ -890,9 +909,8 @@ export default function HomePage() {
   );
 
   const readMessage = useCallback(
-    async (id: string): Promise<ChatMessage | undefined> =>
-      temporary ? tempThreadRef.current.get(id) : db.messages.get(id),
-    [temporary]
+    async (id: string): Promise<ChatMessage | undefined> => db.messages.get(id),
+    []
   );
 
   /** Throws away the turns after the one being edited or regenerated, which is
@@ -904,18 +922,13 @@ export default function HomePage() {
       createdAt: number,
       inclusive: boolean
     ): Promise<void> => {
-      if (!temporary) {
-        await db.messages
-          .where("chatId")
-          .equals(chatId)
-          .filter((message) => (inclusive ? message.createdAt >= createdAt : message.createdAt > createdAt))
-          .delete();
-        return;
-      }
-      tempThreadRef.current.dropFrom(id, inclusive);
-      publishTemp();
+      await db.messages
+        .where("chatId")
+        .equals(chatId)
+        .filter((message) => (inclusive ? message.createdAt >= createdAt : message.createdAt > createdAt))
+        .delete();
     },
-    [publishTemp, temporary]
+    []
   );
 
   /** The conversation so far, in the order the model must read it.
@@ -926,10 +939,9 @@ export default function HomePage() {
       here would hand the server an empty transcript. */
   const threadHistory = useCallback(
     async (chatId: string): Promise<ChatMessage[]> => {
-      if (temporary) return tempThreadRef.current.list();
       return db.messages.where("chatId").equals(chatId).sortBy("createdAt");
     },
-    [temporary]
+    []
   );
 
   /**
@@ -970,7 +982,7 @@ export default function HomePage() {
       if (streamingId) return;
       if (!text && images.length === 0 && documents.length === 0 && !options) return;
 
-      let chatId: string | null = options?.chatId ?? (temporary ? TEMP_CHAT_ID : activeChatId);
+      let chatId: string | null = options?.chatId ?? (draftId ?? (activeChatId ?? DRAFT_CHAT_ID));
       // The row the new answer streams into. Normally a fresh message; when a
       // retry or an edit turns the old reply into a branch point, it is that
       // reply — emptied above, with the previous answer kept beside it.
@@ -1007,20 +1019,23 @@ export default function HomePage() {
           const chat = await createChat();
           chatId = chat.id;
           setActiveChatId(chatId);
+        } else if (chatId === DRAFT_CHAT_ID) {
+          // A message sent before a real chat exists gets its own row now.
+          const chat = await createChat();
+          chatId = chat.id;
+          setActiveChatId(chatId);
         }
-        await appendMessage({
+        await appendUserMessage({
           chatId,
           role: "user",
           content: text,
           images: images.length > 0 ? images : undefined,
           documents: documents.length > 0 ? documents : undefined,
         });
-        // A temporary thread has no row to carry a title, so there is nothing
-        // to name.
-        if (!temporary) await maybeAutoTitle(chatId, text || "Attachment conversation");
+        await maybeAutoTitle(chatId, text || "Attachment conversation");
       }
       if (!chatId) return;
-      if (!temporary) setActiveChatId(chatId);
+      if (!draftId) setActiveChatId(chatId);
 
       const history = await threadHistory(chatId);
       const apiMessages: ApiMessage[] = history.flatMap((message): ApiMessage[] => {
@@ -1049,7 +1064,7 @@ export default function HomePage() {
       // specific ends up in the local database or in an exported backup.
       const assistantMsg: ChatMessage =
         (reuseId ? await readMessage(reuseId) : undefined) ??
-        (await appendMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display }));
+        (await appendAssistantMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display }));
       setStreamingId(assistantMsg.id);
 
       const controller = new AbortController();
@@ -1147,12 +1162,7 @@ export default function HomePage() {
           // behind, so it is taken out of whichever store holds it.
           const msg = await readMessage(assistantMsg.id);
           if (msg && !msg.content) {
-            if (temporary) {
-              tempThreadRef.current.drop(assistantMsg.id);
-              publishTemp();
-            } else {
-              await db.messages.delete(assistantMsg.id);
-            }
+        await db.messages.delete(assistantMsg.id);
           }
         }
       } finally {
@@ -1164,7 +1174,7 @@ export default function HomePage() {
         void refreshDew();
       }
     },
-    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
+    [activeChatId, appendUserMessage, appendAssistantMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, threadHistory, writeContent, writeUsage]
   );
 
   // ── The repository agent ───────────────────────────────────────────────────
@@ -1176,7 +1186,7 @@ export default function HomePage() {
   const sendAgentMessage = useCallback(
     async (text: string, options?: { regenerateAssistantId?: string; editMessageId?: string }) => {
       if (!project || streamingId) return;
-      let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
+      let chatId: string | null = draftId ?? (activeChatId ?? DRAFT_CHAT_ID);
       let assistantId: string;
 
       // Editing a question with a repository attached has to go through the
@@ -1191,14 +1201,13 @@ export default function HomePage() {
         // Everything after the edited question belonged to the answer it is
         // replacing, so it goes with it.
         await dropFromMessage(chatId, original.id, original.createdAt, false);
-        const assistant = await appendMessage({
+        const assistant = await appendAssistantMessage({
           chatId,
           role: "assistant",
           content: "",
           model: getMode("code").display,
         });
-        assistantId = assistant.id;
-        if (!temporary) setActiveChatId(chatId);
+        assistantId = assistant.id;          if (!draftId) setActiveChatId(chatId);
       } else {
         if (!chatId) {
           const chat = await createChat();
@@ -1214,15 +1223,16 @@ export default function HomePage() {
         if (options?.regenerateAssistantId) {
           const previous = await readMessage(options.regenerateAssistantId);
           if (!previous) return;
+
           assistantId = previous.id;
           await branchAnswer(previous);
           // A regenerated answer proposes a new change, so the review card of the
           // previous answer must go with the text it described.
           await patchMessage(assistantId, { content: "", steps: undefined, error: undefined, changesetId: undefined });
         } else {
-          await appendMessage({ chatId, role: "user", content: text });
-          if (!temporary) await maybeAutoTitle(chatId, text);
-          const assistant = await appendMessage({
+          await addMessage({ chatId, role: "user", content: text });
+          await maybeAutoTitle(chatId, text);
+          const assistant = await appendAssistantMessage({
             chatId,
             role: "assistant",
             content: "",
@@ -1400,12 +1410,7 @@ export default function HomePage() {
         if (aborted) {
           const row = await readMessage(assistantId);
           if (row && !row.content) {
-            if (temporary) {
-              tempThreadRef.current.drop(assistantId);
-              publishTemp();
-            } else {
-              await db.messages.delete(assistantId);
-            }
+            await db.messages.delete(assistantId);
           }
         }
       } finally {
@@ -1423,7 +1428,7 @@ export default function HomePage() {
         void refreshDew();
       }
     },
-    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, project, publishTemp, readMessage, streamingId, temporary, threadHistory, writeUsage]
+    [activeChatId, appendUserMessage, appendAssistantMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, project, readMessage, streamingId, threadHistory, writeUsage]
   );
 
   /**
@@ -1521,7 +1526,7 @@ export default function HomePage() {
         hourSession !== null &&
         hourSession.model === requiredModel &&
         (!agentProject || hourSession.projectId === agentProject.id);
-      if (!temporary && !covered) {
+      if (!draftId && !covered) {
         setPricingNotice(null);
         setPricingPrompt({
           text,
@@ -1538,7 +1543,7 @@ export default function HomePage() {
       if (agentTurn) void sendAgentMessage(text);
       else void sendMessage(text, images, documents);
     },
-    [hourSession, project, selectedMode, sendAgentMessage, sendMessage, temporary]
+    [hourSession, project, selectedMode, sendAgentMessage, sendMessage, draftId]
   );
 
   // With a repository attached, an answer was produced by the agent and has to
@@ -1594,9 +1599,7 @@ export default function HomePage() {
     [patchMessage]
   );
 
-  // The conversation on screen: a temporary thread has no database rows to read,
-  // so it is read from memory instead.
-  const threadMessages = temporary ? tempMessages : messages;
+  const threadMessages = messages;
 
   const handleCopyConversation = useCallback(async () => {
     const text = threadMessages.map((message) => `${message.role === "user" ? "You" : "Openmi"}: ${message.content}`).join("\n\n");
@@ -1610,11 +1613,12 @@ export default function HomePage() {
 
   // The Focus home is the empty screen only. A conversation keeps the thread
   // and the thread's composer; the layout still owns the palette.
-  const focusHome = homeLayout === "focus" && !temporary && messages.length === 0;
+  const focusHome = homeLayout === "focus" && messages.length === 0;
 
   const isStreaming = streamingId !== null;
   // The message being drawn has no content yet, so it is kept explicitly to
   // show the drawing placeholder.
+  const temporary = false;
   // A question made only of an attachment has no text at all; images were
   // already admitted, and documents have to be too, or a file-only question
   // disappears from the thread the moment it is sent.
@@ -1636,8 +1640,7 @@ export default function HomePage() {
   }
 
   // Nothing is rendered until localStorage has been read, so a returning
-  // visitor never sees the chat flash before their name is known.
-  if (!hydrated) return null;
+  // visitor never sees the chat flash before their name is known.        if (!hydrated) return null;
 
   // Maintenance replaces the page outright rather than covering it, so
   // nothing behind the notice is mounted and there is nothing to navigate to.
@@ -1693,8 +1696,8 @@ export default function HomePage() {
     );
   }
 
-  // Signed in, and the name is being resolved from the account and written to
-  // this browser. This is a single bounded read, not a gate on the product.
+  // Signed in, and the name is being written to this browser from the account.
+  // This is a single bounded read, not a gate on the product.
   if (!displayName) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">
@@ -1709,8 +1712,8 @@ export default function HomePage() {
         activeChatId={activeChatId}
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
-        temporary={temporary}
-        onToggleTemporary={toggleTemporary}
+        draftId={draftId}
+        onToggleDraft={toggleDraft}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onOpenSettings={() => {
@@ -1939,7 +1942,7 @@ export default function HomePage() {
                 </button>
               </div>
             )}
-            {!focusHome && !temporary && (
+            {!focusHome && (
               <>
                 <AdBanner enabled={appConfig?.adsEnabled !== false} />
                 {/* Same screens and the same switch as the banner: a popunder

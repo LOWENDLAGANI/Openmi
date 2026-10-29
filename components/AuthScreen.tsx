@@ -167,10 +167,7 @@ export default function AuthScreen({ initialError = null, unavailable = null, ba
           </p>
         )}
 
-        <p className="mt-6 text-center text-[10.5px] leading-relaxed text-white/25">
-          New here? The provider buttons create your account. Your data is stored in this
-          project&apos;s Supabase database under your account, protected by row-level security.
-        </p>
+
 
         <p className="mt-2 text-center text-[10.5px] leading-relaxed text-white/30">
           How your messages, connections and ads are handled is set out in the{" "}

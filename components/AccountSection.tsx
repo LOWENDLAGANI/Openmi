@@ -369,9 +369,7 @@ function SignInMethods() {
   return (
     <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5">
       <p className="text-[12px] font-medium text-white/80">Sign-in methods</p>
-      <p className="mt-1 text-[10.5px] leading-relaxed text-white/35">
-        Sign in with any of these and you land in this account. Attaching one here does not create a second account.
-      </p>
+
 
       <ul className="mt-2 space-y-1">
         {methods === null ? (
@@ -448,11 +446,7 @@ function SignInMethods() {
         </div>
       )}
 
-      {methods && methods.length === 1 && (
-        <p className="mt-1.5 text-[10px] leading-relaxed text-amber-100/50">
-          Attach a second method so losing access to this one does not lock you out of the account.
-        </p>
-      )}
+
 
       {error && <p className="mt-2 text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}
       {notice && <p className="mt-2 text-[10.5px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}

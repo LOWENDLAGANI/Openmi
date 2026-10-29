@@ -39,10 +39,7 @@ export default function AuthDiagnostics() {
       </summary>
 
       <div className="mt-2 space-y-2">
-        <p className="text-[10.5px] leading-relaxed text-white/35">
-          Asks the project which of Google, GitHub, Microsoft and email sign-in it has switched on.
-          Nothing is created and no account is needed.
-        </p>
+
 
         <button
           type="button"

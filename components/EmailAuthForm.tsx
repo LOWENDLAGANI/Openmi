@@ -201,7 +201,7 @@ export default function EmailAuthForm({ name: initialName, onSignedIn }: EmailAu
         >
           Forgot password?
         </button>
-        <span className="text-[10px] text-white/20">Secured by Supabase Auth</span>
+
       </div>
 
       {error && <p className="text-[11px] leading-relaxed text-red-200/80">{error}</p>}

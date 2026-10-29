@@ -179,10 +179,7 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
         </div>
 
         <footer className="border-t border-white/[0.06] px-5 py-3">
-          <p className="text-[10px] leading-relaxed text-white/30">
-            Kept in your account for 30 days. A chat restored here comes back on your other devices
-            too; deleting it forever removes it everywhere.
-          </p>
+
         </footer>
       </section>
     </div>

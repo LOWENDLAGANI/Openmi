@@ -66,11 +66,7 @@ export default function DataControls() {
   return (
     <section>
       <h3 className="mb-1.5 text-[13px] font-semibold text-white">Your data</h3>
-      <p className="mb-2.5 text-[11px] leading-relaxed text-white/40">
-        Chats live in this browser first. Export keeps a copy you own; deleting removes every
-        chat, folder and trashed conversation from this device, and clears the saved name, usage
-        log and GitHub connection held by the account. Your Dew balance is never touched.
-      </p>
+
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <button

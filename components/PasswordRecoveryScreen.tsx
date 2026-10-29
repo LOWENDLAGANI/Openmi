@@ -219,9 +219,7 @@ export default function PasswordRecoveryScreen() {
               </form>
             )}
 
-            <p className="mt-3 text-center text-[10.5px] leading-relaxed text-white/25">
-              Secured by Supabase Auth. Openmi never sees or stores your password.
-            </p>
+
           </div>
         )}
       </div>
