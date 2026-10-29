@@ -21,22 +21,48 @@ import { adsterraPopunderSrc } from "@/lib/ads";
 interface AdPopunderProps {
   /** The administrator's kill switch, shared with the banner. */
   enabled?: boolean;
+  /**
+   * Whether to render an explicit "show popunder" button in addition to the
+   * auto-loaded script.
+   *
+   * The button uses the same tag URL the script loads, so it does not open a
+   * hard-coded or guessed URL. It is intentionally manual, opt-in, and still
+   * obeys the same rules as the script: no tag URL, no Ads switch, no Focus
+   * home, and it is only rendered where the parent chooses to put it.
+   */
+  showTrigger?: boolean;
 }
 
-export default function AdPopunder({ enabled = true }: AdPopunderProps) {
+export default function AdPopunder({ enabled = true, showTrigger = false }: AdPopunderProps) {
   const src = adsterraPopunderSrc();
 
   // No tag, or the switch is off: nothing is added to the document at all.
   // A popunder that loads "just in case" is the worst version of this ad.
-  if (!enabled || !src) return null;
+  if (!enabled || !src) {
+    return null;
+  }
 
   return (
-    <Script
-      id="adsterra-popunder"
-      src={src}
-      // After the page is interactive, never before: the composer is the reason
-      // someone is here, and it must not wait on an ad network.
-      strategy="afterInteractive"
-    />
+    <>
+      <Script
+        id="adsterra-popunder"
+        src={src}
+        // After the page is interactive, never before: the composer is the reason
+        // someone is here, and it must not wait on an ad network.
+        strategy="afterInteractive"
+      />
+      {showTrigger && (
+        <button
+          type="button"
+          onClick={() => {
+            window.open(src, "_blank", "noopener");
+          }}
+          className="openmi-ad-trigger"
+          aria-label="Open an advertisement in a new window"
+        >
+          Show ad
+        </button>
+      )}
+    </>
   );
 }

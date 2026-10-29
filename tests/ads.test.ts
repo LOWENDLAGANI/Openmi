@@ -126,15 +126,15 @@ async function main(): Promise<void> {
   await test("the ad is kept off the screens it does not belong on", () => {
     const page = read("app/chat/page.tsx");
     // Both the banner and the popunder sit inside the same guard. Either one
-    // outside it would put an advertisement in a temporary chat, which is the
-    // screen whose whole promise is that nothing is recorded.
+    // outside it would put an advertisement where the screen is not meant to
+    // have any furniture.
     assert.match(
       page,
-      /!focusHome && !temporary && \([\s\S]*?<AdBanner enabled=\{appConfig\?\.adsEnabled !== false\}/
+      /!focusHome && \([\s\S]*?<AdBanner enabled=\{appConfig\?\.adsEnabled !== false\}/
     );
     assert.match(
       page,
-      /!focusHome && !temporary && \([\s\S]*?<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\}/
+      /!focusHome && \([\s\S]*?<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\} showTrigger \/>/
     );
   });
 
@@ -172,7 +172,7 @@ async function main(): Promise<void> {
     assert.equal(adPopunderConfigured(undefined), false);
     assert.equal(adPopunderConfigured("//pl1.example.com/a.js"), true);
     const popunder = read("components/AdPopunder.tsx");
-    assert.match(popunder, /if \(!enabled \|\| !src\) return null;/);
+    assert.match(popunder, /if \(!enabled \|\| !src\) {\n/);
     assert.equal(popunder.match(/<Script/g)?.length, 1, "one tag, not two");
     assert.match(popunder, /strategy="afterInteractive"/);
   });
@@ -180,6 +180,28 @@ async function main(): Promise<void> {
   await test("the popunder is loaded on the same screens as the banner", () => {
     const page = read("app/chat/page.tsx");
     assert.match(page, /<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\}/);
+  });
+
+  await test("the popunder can expose an explicit show trigger button", () => {
+    const popunder = read("components/AdPopunder.tsx");
+    assert.match(popunder, /showTrigger = false/);
+    assert.match(popunder, /showTrigger && \(/);
+    assert.match(popunder, /window\.open\(src, "_blank", "noopener"\)/);
+    // The button is opt-in from the parent, so the component itself should not
+    // force a trigger on every page just because the prop exists.
+    const page = read("app/chat/page.tsx");
+    assert.match(page, /<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\} showTrigger \/>/);
+  });
+
+  await test("the popunder can expose an explicit show trigger button", () => {
+    const popunder = read("components/AdPopunder.tsx");
+    assert.match(popunder, /showTrigger = false/);
+    assert.match(popunder, /showTrigger && \(/);
+    assert.match(popunder, /window\.open\(src, "_blank", "noopener"\)/);
+    // The button is opt-in from the parent, so the component itself should not
+    // force a trigger on every page just because the prop exists.
+    const page = read("app/chat/page.tsx");
+    assert.match(page, /<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\} showTrigger \/>/);
   });
 
   await test("the CSP derives the popunder origin rather than wildcarding", () => {

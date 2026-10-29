@@ -1948,7 +1948,7 @@ export default function HomePage() {
                 {/* Same screens and the same switch as the banner: a popunder
                     in a temporary chat would break the one promise that
                     screen makes. */}
-                <AdPopunder enabled={appConfig?.adsEnabled !== false} />
+                <AdPopunder enabled={appConfig?.adsEnabled !== false} showTrigger />
               </>
             )}
             <ChatInput
