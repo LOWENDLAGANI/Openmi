@@ -342,6 +342,11 @@ export default function HomePage() {
   // thread. Set while a tool is announced or the model is thinking, cleared the
   // moment text starts arriving, so it never competes with the answer itself.
   const [agentActivity, setAgentActivity] = useState<string | null>(null);
+  // The reasoning a thinking model streams before its answer, for the one
+  // message that is being written. Live-only on purpose: it is the model's
+  // scratchpad, not part of the answer, and persisting it would put vendor
+  // thoughts in every backup a user downloads.
+  const [thinking, setThinking] = useState<{ messageId: string; text: string } | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
@@ -1136,6 +1141,7 @@ export default function HomePage() {
       // appended after the transcript is built and never persisted into a
       // previous user message.
       setModelNotice(null);
+      setThinking(null);
       // The Openmi name is stored rather than a provider id, so nothing vendor-
       // specific ends up in the local database or in an exported backup.
       const assistantMsg: ChatMessage =
@@ -1187,7 +1193,7 @@ export default function HomePage() {
           const data = trimmed.slice(5).trim();
           if (!data || data === "[DONE]") return;
           try {
-            const evt = JSON.parse(data) as { content?: string; error?: string; retryAfterSeconds?: number; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
+            const evt = JSON.parse(data) as { content?: string; reasoning?: string; error?: string; retryAfterSeconds?: number; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await patchMessage(assistantMsg.id, { model: evt.model });
             }
@@ -1209,6 +1215,17 @@ export default function HomePage() {
             if (evt.content) {
               full += evt.content;
               await writeContent(assistantMsg.id, full);
+            }
+            if (evt.reasoning) {
+              // Kept beside the message rather than inside it: the answer is
+              // what gets stored and billed, and the panel only has to outlive
+              // the stream it arrived on.
+              const piece = evt.reasoning;
+              setThinking((current) =>
+                current && current.messageId === assistantMsg.id
+                  ? { ...current, text: current.text + piece }
+                  : { messageId: assistantMsg.id, text: piece }
+              );
             }
             if (evt.usage) await writeUsage(assistantMsg.id, evt.usage);
             if (evt.search) {
@@ -2160,6 +2177,7 @@ export default function HomePage() {
                 onCopyConversation={handleCopyConversation}
                 onSwitchVariant={handleSwitchVariant}
                 activity={agentActivity}
+                thinking={thinking}
                 onPropose={handlePropose}
                 agentRepo={project?.repoFullName ?? null}
               />

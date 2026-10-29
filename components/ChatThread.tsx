@@ -10,7 +10,7 @@ import OpenmiMark from "./OpenmiMark";
 import Spinner from "./Spinner";
 import ChangeReview from "./ChangeReview";
 import { useSmoothText } from "@/lib/useSmoothText";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 interface ChatThreadProps {
   messages: ChatMessage[];
@@ -27,6 +27,15 @@ interface ChatThreadProps {
    * runs, so a turn that takes half a minute never looks like it stopped.
    */
   activity?: string | null;
+  /**
+   * The reasoning the model streamed before its answer.
+   *
+   * Live-only and deliberately not a field on `ChatMessage`: it is the model's
+   * scratchpad, it arrives only from a thinking model, and storing it would put
+   * it in every backup the user exports. The panel opens only when text arrived,
+   * so a model that exposes nothing is never given an empty "Thinking…" box.
+   */
+  thinking?: { messageId: string; text: string } | null;
   /**
    * Asks the agent to stage the change it just described. This is a new Code
    * turn, not a free add-on: the button says so in its title.
@@ -770,6 +779,28 @@ function nextHeadline(): string {
   return headline;
 }
 
+/**
+ * The reasoning panel above an answer.
+ *
+ * Rendered only when a model actually streamed thinking — DeepSeek and Groq's
+ * GPT-OSS do, and most plain models send nothing at all — and closed by default,
+ * because the answer should be read before the working that produced it. The
+ * text is the model's own words, so it stays plain: a stray `**` in a thought
+ * must not become a heading, and a stray tag must not run.
+ */
+function ThinkingBlock({ text }: { text: string }) {
+  return (
+    <details className="animate-rise rounded-xl border border-line bg-canvas px-3 py-1.5">
+      <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.12em] text-text-low">
+        Thinking
+      </summary>
+      <div className="mt-1.5 whitespace-pre-wrap break-words text-[11.5px] leading-relaxed text-text-mid">
+        {text}
+      </div>
+    </details>
+  );
+}
+
 export default function ChatThread({  messages,
   streamingId,
   isEmpty,
@@ -778,6 +809,7 @@ export default function ChatThread({  messages,
   onCopyConversation,
   onSwitchVariant,
   activity = null,
+  thinking = null,
   onPropose,
   agentRepo = null,
 }: ChatThreadProps) {
@@ -860,9 +892,10 @@ export default function ChatThread({  messages,
         {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-text-low">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-4">
           {messages.map((msg, index) => (
-            <MessageRow
-              key={msg.id}
-              msg={msg}
+            <Fragment key={msg.id}>
+              {thinking?.messageId === msg.id && <ThinkingBlock text={thinking.text} />}
+              <MessageRow
+                msg={msg}
               streaming={msg.id === streamingId}
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
@@ -876,8 +909,9 @@ export default function ChatThread({  messages,
                 (msg.steps?.length ?? 0) > 0 &&
                 !msg.steps?.some((step) => step.tool === "propose_edits")
               }
-              share={shareSnapshotAt(messages, index)}
-            />
+                share={shareSnapshotAt(messages, index)}
+              />
+            </Fragment>
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">

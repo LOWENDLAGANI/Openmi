@@ -628,7 +628,13 @@ export async function POST(req: NextRequest): Promise<Response> {
           try {
             const chunk = JSON.parse(data) as {
               choices?: {
-                delta?: { content?: string | null; reasoning_content?: string | null };
+                delta?: {
+                  content?: string | null;
+                  /** DeepSeek and Gemini name it this way. */
+                  reasoning_content?: string | null;
+                  /** Groq and OpenRouter name it this way. */
+                  reasoning?: string | null;
+                };
                 finish_reason?: string | null;
               }[];
               usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
@@ -654,6 +660,18 @@ export async function POST(req: NextRequest): Promise<Response> {
             if (delta) {
               text += delta;
               controller.enqueue(encodeEvent({ content: delta }));
+            }
+
+            // The thinking a reasoning model emits before its answer. It used to
+            // be parsed and thrown away, which is why DeepSeek could be told to
+            // think and the screen still showed only the conclusion. Two field
+            // names, because the OpenAI-compatible providers disagree about it;
+            // a chunk that carries neither — most plain models — simply emits
+            // nothing, so the panel on the other side never opens empty.
+            const thinking =
+              chunk.choices?.[0]?.delta?.reasoning_content ?? chunk.choices?.[0]?.delta?.reasoning;
+            if (typeof thinking === "string" && thinking) {
+              controller.enqueue(encodeEvent({ reasoning: thinking }));
             }
 
             if (chunk.usage) {
