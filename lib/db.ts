@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Chat, ChatFolder, ChatMessage } from "./types";
+import type { AgentStep, Chat, ChatFolder, ChatMessage } from "./types";
 import type { TrashEntry } from "./trash";
 import { displayedContent } from "./variants";
 
@@ -9,11 +9,35 @@ import { displayedContent } from "./variants";
 // prompt, provider keys, wire model ids — lives in a separate module so it is
 // never compiled into the page bundle. See lib/systemPrompt.ts.
 
+/**
+ * A repository turn that was still running when the tab went away.
+ *
+ * Device-local on purpose. The transcript is working state for one turn, not
+ * conversation history: it is large, it is only meaningful to the loop that
+ * produced it, and syncing it would hand a half-finished turn to a second
+ * device that cannot continue it under this account's hour.
+ */
+export interface AgentRunRecord {
+  /** The assistant message the turn is writing into. */
+  id: string;
+  chatId: string;
+  projectId: string;
+  /** The loop's own wire state, so step N+1 can be asked for after a reload. */
+  transcript: unknown[];
+  turnToken: string;
+  /** The turn's attached text, re-sent with every step. */
+  context: string;
+  content: string;
+  steps: AgentStep[];
+  updatedAt: number;
+}
+
 export class OpenmiDB extends Dexie {
   chats!: Table<Chat, string>;
   messages!: Table<ChatMessage, string>;
   folders!: Table<ChatFolder, string>;
   trash!: Table<TrashEntry, string>;
+  agentRuns!: Table<AgentRunRecord, string>;
 
   constructor() {
     super("openmi-db");
@@ -61,6 +85,17 @@ export class OpenmiDB extends Dexie {
       folders: "id, name",
       trash: "id, deletedAt",
     });
+    // A repository turn now outlives the tab that started it. The loop's wire
+    // state — transcript, signed turn token, the text written so far — is kept
+    // here after every step, so a reload can ask for the next one instead of
+    // leaving a half-finished answer behind.
+    this.version(6).stores({
+      chats: "id, updatedAt, pinned, folder",
+      messages: "id, chatId, createdAt",
+      folders: "id, name",
+      trash: "id, deletedAt",
+      agentRuns: "id, chatId, updatedAt",
+    });
   }
 }
 
@@ -97,16 +132,19 @@ export async function maybeAutoTitle(chatId: string, firstUserText: string): Pro
 }
 
 export async function deleteChat(chatId: string): Promise<void> {
-  await db.transaction("rw", db.chats, db.messages, async () => {
+  await db.transaction("rw", db.chats, db.messages, db.agentRuns, async () => {
     await db.messages.where("chatId").equals(chatId).delete();
+    // A turn for a chat that no longer exists has nothing to write into.
+    await db.agentRuns.where("chatId").equals(chatId).delete();
     await db.chats.delete(chatId);
   });
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction("rw", db.chats, db.messages, db.folders, db.trash, async () => {
+  await db.transaction("rw", db.chats, db.messages, db.folders, db.trash, db.agentRuns, async () => {
     await db.messages.clear();
     await db.chats.clear();
+    await db.agentRuns.clear();
     // "Clear" means clear: the trash goes with the rest, or a wiped browser is
     // one restore away from being unwiped.
     await db.folders.clear();
@@ -157,6 +195,35 @@ export async function setMessageUsage(
   usage: { prompt: number; completion: number; total: number }
 ): Promise<void> {
   await db.messages.update(id, { usage, updatedAt: Date.now() });
+}
+
+// ── A turn that outlived its tab ─────────────────────────────────────────────
+
+/** Records the loop's state after a step, so the next one can be resumed. */
+export async function saveAgentRun(run: Omit<AgentRunRecord, "updatedAt">): Promise<void> {
+  await db.agentRuns.put({ ...run, updatedAt: Date.now() });
+}
+
+export async function readAgentRun(id: string): Promise<AgentRunRecord | undefined> {
+  return db.agentRuns.get(id);
+}
+
+export async function clearAgentRun(id: string): Promise<void> {
+  await db.agentRuns.delete(id);
+}
+
+/**
+ * The next turn worth picking up, for the repository that is attached now.
+ *
+ * Oldest first, so two turns waiting are resumed in the order they were asked
+ * for. A run for another repository is skipped rather than continued: the hour
+ * session is bound to one repository, so the server would refuse it anyway.
+ */
+export async function nextResumableAgentRun(projectId: string): Promise<AgentRunRecord | undefined> {
+  const runs = await db.agentRuns.toArray();
+  return runs
+    .filter((run) => run.projectId === projectId)
+    .sort((a, b) => a.updatedAt - b.updatedAt)[0];
 }
 
 // ── Backup / restore ─────────────────────────────────────────────────────────

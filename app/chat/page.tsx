@@ -82,6 +82,12 @@ import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
 import { purgeTrash } from "@/lib/trash";
 import { parseRetrySeconds } from "@/lib/rateLimit";
 import { uid } from "@/lib/db";
+import {
+  saveAgentRun,
+  clearAgentRun,
+  nextResumableAgentRun,
+  type AgentRunRecord,
+} from "@/lib/db";
 
 
 /** The chat id used for in-memory draft messages that are not kept locally.
@@ -1186,7 +1192,13 @@ export default function HomePage() {
   const sendAgentMessage = useCallback(
     async (
       text: string,
-      options?: { regenerateAssistantId?: string; editMessageId?: string; documents?: DocumentAttachment[] }
+      options?: {
+        regenerateAssistantId?: string;
+        editMessageId?: string;
+        documents?: DocumentAttachment[];
+        /** A turn this browser was already running when the tab went away. */
+        resume?: AgentRunRecord;
+      }
     ) => {
       if (!project || streamingId) return;
       let chatId: string | null = draftId ?? (activeChatId ?? DRAFT_CHAT_ID);
@@ -1196,7 +1208,14 @@ export default function HomePage() {
       // agent. Sending it to ordinary chat would answer the same wording with no
       // repository access at all — and look exactly like a normal answer, which
       // is the worst way for the two to differ.
-      if (options?.editMessageId) {
+      if (options?.resume) {
+        // Picking a turn back up. The question, the answer row and the chat all
+        // already exist, so nothing is appended — the loop simply continues into
+        // the answer that was already being written.
+        chatId = options.resume.chatId;
+        assistantId = options.resume.id;
+        setActiveChatId(chatId);
+      } else if (options?.editMessageId) {
         const original = await readMessage(options.editMessageId);
         if (!original || original.role !== "user") return;
         chatId = original.chatId;
@@ -1255,23 +1274,25 @@ export default function HomePage() {
 
       const controller = new AbortController();
       abortRef.current = controller;
-      let transcript: unknown[] = [];
-      let turnToken: string | undefined;
-      let content = "";
+      let transcript: unknown[] = options?.resume?.transcript ?? [];
+      let turnToken: string | undefined = options?.resume?.turnToken;
+      let content = options?.resume?.content ?? "";
       let answerModel = getMode("code").display;
       // Steps are placed by the index the server gives them, counted from the
       // start of the steps this request produced. A tool is announced before it
       // runs and its result arrives at the same index, so the timeline fills in
       // while the work is happening instead of appearing all at once at the end.
-      const steps: AgentStep[] = [];
+      const steps: AgentStep[] = options?.resume?.steps ? [...options.resume.steps] : [];
 
       // Attached files become this turn's context. Sent on every step because the
       // server keeps it out of the transcript: it is context for the question,
-      // not something the person said in an earlier turn.
+      // not something the person said in an earlier turn. A resumed turn carries
+      // its own copy, because the composer no longer holds the file.
       const attachContext = (options?.documents ?? [])
         .map((document) => `Attachment ${document.name}:\n${document.text}`)
         .join("\n\n")
         .slice(0, 12_000);
+      const turnContext = attachContext || options?.resume?.context || "";
 
       // ── Live writes ────────────────────────────────────────────────────────
       // A delta can arrive many times a second. Writing every one of them to
@@ -1313,7 +1334,7 @@ export default function HomePage() {
               history,
               transcript,
               turnToken,
-              ...(attachContext ? { context: attachContext } : {}),
+              ...(turnContext ? { context: turnContext } : {}),
             }),
             signal: controller.signal,
           });
@@ -1397,6 +1418,22 @@ export default function HomePage() {
           });
 
           await flushPatches();
+          // Step N+1 can be asked for by a different tab than the one that ran
+          // step N, as long as what this loop has reached is on disk. Only once a
+          // turn token exists: a run without one would start a fresh turn rather
+          // than continue this one.
+          if (!state.finished && turnToken && chatId) {
+            await saveAgentRun({
+              id: assistantId,
+              chatId,
+              projectId: project.id,
+              transcript,
+              turnToken,
+              context: turnContext,
+              content,
+              steps: steps.filter(Boolean).map((step) => ({ tool: step.tool, label: step.label, ok: step.ok })),
+            });
+          }
           if (state.changesetId) {
             await patchMessage(assistantId, {
               changesetId: state.changesetId,
@@ -1439,6 +1476,10 @@ export default function HomePage() {
             steps: steps.filter(Boolean).map((step) => ({ tool: step.tool, label: step.label, ok: step.ok })),
           });
         }
+        // The turn is over, however it ended: a finished answer, an error or a
+        // deliberate stop must not be resumed later. A tab that is simply closed
+        // never reaches this — and that is exactly the case worth resuming.
+        await clearAgentRun(assistantId);
         setAgentActivity(null);
         setStreamingId(null);
         abortRef.current = null;
@@ -1447,6 +1488,35 @@ export default function HomePage() {
     },
     [activeChatId, appendUserMessage, appendAssistantMessage, branchAnswer, dropFromMessage, markError, noteRateLimit, patchMessage, project, readMessage, streamingId, threadHistory, writeUsage]
   );
+
+  // ── A turn that outlived its tab ───────────────────────────────────────────
+  //
+  // The loop is client-driven, so closing the tab ends it — but only in the
+  // sense that nobody asks for the next step. Everything it reached is on disk,
+  // so this picks it up once the repository is known, instead of leaving a
+  // half-finished answer behind with no way to continue it.
+  const resumeCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!project || streamingId || resumeCheckedRef.current) return;
+    resumeCheckedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      const run = await nextResumableAgentRun(project.id);
+      if (!run || cancelled) return;
+      const row = await readMessage(run.id);
+      // A turn whose answer was already reported as an error is finished, not
+      // interrupted: resuming it would replay a failure the person has read.
+      if (!row || row.error) {
+        await clearAgentRun(run.id);
+        return;
+      }
+      setModelNotice("Picking up the repository turn that was running when this tab closed.");
+      void sendAgentMessage("", { resume: run });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project, streamingId, sendAgentMessage, readMessage]);
 
   /**
    * Starts an hour for the composed message and sends it.
