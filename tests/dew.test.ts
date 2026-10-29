@@ -668,14 +668,29 @@ assert.equal(currencyForLocale("ja-JP"), "JPY");
 assert.equal(localPrice(4, "ja-JP").amount, 600);
 assert.equal(localPrice(8, "ja-JP").amount, 1_200);
 assert.equal(currencyForLocale("ko-KR"), "KRW");
-assert.equal(localPrice(4, "ko-KR").amount, 5_500);
+assert.equal(localPrice(4, "ko-KR").amount, 5_520, "three significant digits keep the converted figure");
+assert.equal(localPrice(8, "ko-KR").amount, 11_000);
 assert.equal(localPrice(4, "id-ID").amount, 64_000, "rupiah still rounds to the thousand");
 assert.equal(localPrice(8, "id-ID").amount, 128_000);
 
-// A region with no rate is answered in dollars, never in its own symbol at the
-// dollar's magnitude: the mapping and the rate table are two lists.
-assert.equal(currencyForLocale("hu-HU"), "USD");
-const hungarian = localPrice(4, "hu-HU");
-assert.equal(hungarian.currency, "USD");
-assert.equal(hungarian.amount, 4);
-assert.equal(hungarian.approximate, false);
+// A region the map has never heard of is answered in dollars, never in an
+// invented symbol.
+assert.equal(currencyForLocale("en-AQ"), "USD");
+const unmapped = localPrice(4, "en-AQ");
+assert.equal(unmapped.currency, "USD");
+assert.equal(unmapped.amount, 4);
+assert.equal(unmapped.approximate, false);
+
+// The added coverage resolves, and each figure stays the shape of a price card
+// rather than a number a rate happened to produce.
+assert.equal(currencyForLocale("ar-KW"), "KWD");
+assert.ok(localPrice(4, "ar-KW").amount > 0 && localPrice(4, "ar-KW").amount < 5);
+assert.equal(currencyForLocale("hu-HU"), "HUF");
+assert.ok(localPrice(4, "hu-HU").amount >= 1_000 && localPrice(4, "hu-HU").amount <= 2_000);
+assert.equal(currencyForLocale("es-CL"), "CLP");
+assert.ok(localPrice(4, "es-CL").amount >= 3_000 && localPrice(4, "es-CL").amount <= 5_000);
+assert.equal(currencyForLocale("en-KH"), "KHR");
+assert.ok(localPrice(8, "en-KH").amount >= 20_000 && localPrice(8, "en-KH").amount <= 60_000);
+assert.equal(currencyForLocale("is-IS"), "ISK");
+assert.equal(currencyForLocale("en-GH"), "GHS");
+assert.equal(currencyForLocale("fr-RE"), "EUR");
