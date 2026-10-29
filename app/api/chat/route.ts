@@ -441,10 +441,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     // name.
     return textStream(
       requested === "code"
-        ? "**Code mode has no model to run.** Add your own Groq key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
+        ? "**Code mode has no model to run.** Add your own Groq key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are still saved to your account."
         : requested === "flash"
-          ? "**DeepSeek mode has no model to run.** Add your own DeepSeek key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
-          : "**Openmi isn't connected to a model yet.** Add your own key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
+          ? "**DeepSeek mode has no model to run.** Add your own DeepSeek key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are still saved to your account."
+          : "**Openmi isn't connected to a model yet.** Add your own key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are still saved to your account."
     );
   }
 

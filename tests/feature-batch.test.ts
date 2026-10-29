@@ -184,16 +184,17 @@ await test("the page drops expired trash on start and listens for a wipe", () =>
   assert.match(page, /openmi:data-wiped/, "the wipe event leaves the page on dead data");
 });
 
-await test("the database migration keeps the trash and drops the retired tables", () => {
-  const db = read("lib/db.ts");
-  const start = db.indexOf("this.version(5).stores({");
-  assert.ok(start > 0, "there is no version 5 migration");
-  const end = db.indexOf("});", start);
-  const v5 = db.slice(start, end);
-  assert.match(v5, /trash: "id, deletedAt"/, "the trash table is dropped");
-  assert.match(v5, /chats: /, "the chat table is dropped");
-  assert.ok(!v5.includes("memories:"), "the memory table survives in version 5");
-  assert.ok(!v5.includes("scheduled:"), "the send-later table survives in version 5");
+await test("chat history is served from the account and never stored on the device", () => {
+  const store = read("lib/db.ts");
+  assert.ok(
+    !/from "dexie"|new Dexie|indexedDB\.open/.test(store),
+    "the session cache still opens a local database"
+  );
+  const pkg = JSON.parse(read("package.json"));
+  assert.equal(pkg.dependencies.dexie, undefined, "dexie is still a dependency");
+  assert.equal(pkg.dependencies["dexie-react-hooks"], undefined, "dexie-react-hooks is still a dependency");
+  const cloud = read("lib/cloudHistory.ts");
+  assert.match(cloud, /export async function loadChatsFromAccount/, "nothing pulls history when a session starts");
 });
 
 await test("the wipe button is the two-tap one and clears through lib/privacy", () => {

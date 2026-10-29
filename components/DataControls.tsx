@@ -1,9 +1,9 @@
 "use client";
 
 // ── Settings → Your data ─────────────────────────────────────────────────────
-// The local-first promise needs a visible end: a backup anyone can take, and
-// an eraser anyone can pull. Both run on this device; the eraser additionally
-// clears this identity's database nodes with the visitor's own token, and it
+// History lives on the account, so both promises here point at the account: a
+// backup anyone can take of what is loaded, and an eraser that clears the rows
+// with the visitor's own token. The eraser also clears the tab's cache, and it
 // keeps the paid plan — a purchase is not chat history.
 
 import { useState } from "react";
@@ -49,8 +49,8 @@ export default function DataControls() {
       setConfirmDelete(false);
       setNotice(
         result.remote > 0
-          ? "Deleted on this device and from your account. Your Dew balance was kept."
-          : "Deleted on this device. Your Dew balance was kept."
+          ? "Deleted from your account and this tab. Your Dew balance was kept."
+          : "Deleted from this tab. The account copy could not be reached — try again."
       );
       // The page listens for this and resets to a fresh chat, because the
       // thread that was just erased cannot keep standing in front of anyone.

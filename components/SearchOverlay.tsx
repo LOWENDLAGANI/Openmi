@@ -6,9 +6,8 @@
 // sidebar list on purpose — a search box that pushes the chat list down is a
 // search box that costs the space it needs to show results.
 
-import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
-import { db, searchMessages, type MessageSearchHit } from "@/lib/db";
+import { db, searchMessages, useLiveQuery, type MessageSearchHit } from "@/lib/db";
 import type { Chat } from "@/lib/types";
 
 interface SearchOverlayProps {

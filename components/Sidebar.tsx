@@ -1,6 +1,5 @@
 "use client";
 
-import { useLiveQuery } from "dexie-react-hooks";
 import { useDew } from "@/lib/useDew";
 import { formatDew } from "@/lib/dew";
 import {
@@ -11,6 +10,7 @@ import {
   clearAllData,
   exportBackup,
   importBackup,
+  useLiveQuery,
   type BackupPayload,
 } from "@/lib/db";
 import { moveChatToTrash } from "@/lib/trash";

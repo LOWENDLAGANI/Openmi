@@ -6,7 +6,14 @@
 // shell — never a landing page.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
+import {
+  db,
+  createChat,
+  addMessage,
+  maybeAutoTitle,
+  saveSelectedMode,
+  useLiveQuery,
+} from "@/lib/db";
 import Sidebar from "@/components/Sidebar";
 import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
@@ -42,13 +49,6 @@ import {
   saveLocalPreferences,
   type UserPreferences,
 } from "@/lib/preferences";
-import {
-  db,
-  createChat,
-  addMessage,
-  maybeAutoTitle,
-  saveSelectedMode,
-} from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, modeCapabilities, type ModeId } from "@/lib/models";
 import { readAgentStream } from "@/lib/agentStream";
 import { refreshDew, useDew } from "@/lib/useDew";
@@ -362,10 +362,10 @@ export default function HomePage() {
   // leave it. Empty for a chat turn and for the in-tab agent loop.
   const agentRunRef = useRef<string | null>(null);
   // ── Temporary chat ─────────────────────────────────────────────────────────
-  // A conversation that is never written down: not to IndexedDB, and therefore
-  // not to the account either, since everything uploaded to the account starts as
-  // a local row. The thread lives in this component and in this ref — nothing
-  // else is allowed to keep a copy.
+  // A conversation that is never written down: not to the session cache, and
+  // therefore not to the account either, since everything uploaded to the
+  // account starts as a cached row. The thread lives in this component and in
+  // this ref — nothing else is allowed to keep a copy.
   const [draftId, setDraftId] = useState<string | null>(null);
   // The account's live hour session, if any, and the first-message price
   // dialog. The dialog holds the composed message until a price is chosen, and
@@ -513,10 +513,10 @@ export default function HomePage() {
   }, [account?.signedIn, endDraft]);
 
   // ── Whose history this browser holds ────────────────────────────────────
-  // IndexedDB is one database per browser, not one per account. Before the
-  // product renders for this account the cache is handed over: kept when it is
-  // this account's, cleared when the last person on this browser was somebody
-  // else. Without this the second account's sidebar showed the first account's
+  // The session cache is one cache per tab, not one per account. Before the
+  // product renders for this account it is handed over: kept when it is this
+  // account's, cleared when the last person signed in here was somebody else.
+  // Without this the second account's sidebar showed the first account's
   // conversations, and the push uploaded them into the second account.
   useEffect(() => {
     if (!account?.signedIn || !account.id) {
@@ -530,7 +530,7 @@ export default function HomePage() {
         if (!cancelled) setDeviceAccount(uid);
       })
       .catch((error: unknown) => {
-        // The stale rows are still stored, so this account's history must not be
+        // The stale rows are still cached, so this account's history must not be
         // shown as if it were the device's: the splash stays and a reload tries
         // again. The push guard in `syncCloudHistory` already keeps the previous
         // account's rows out of this account in the meantime.
@@ -544,7 +544,7 @@ export default function HomePage() {
   // ── Once a session exists ───────────────────────────────────────────────
   // Resolve the name, adopt the account's preferences, and pull the account's
   // chat history. The history pull is unawaited: a long backfill must not hold
-  // the first paint, and the live Dexie query already watching `chats` puts the
+  // the first paint, and the live query already watching `chats` puts the
   // conversations on screen the moment they land.
   useEffect(() => {
     if (!hydrated || !account?.signedIn || !account.id) return;
@@ -909,8 +909,8 @@ export default function HomePage() {
 
   // ── Where a message is written ─────────────────────────────────────────────
   // One set of calls for both kinds of chat, so the send path below has no
-  // draft branching in it. A real message goes to Dexie, and the account sync
-  // picks it up there exactly as it always has.
+  // draft branching in it. A real message goes into the session cache, and the
+  // account sync picks it up there exactly as it always has.
   const appendUserMessage = useCallback(
     async (input: {
       chatId: string;
@@ -1373,8 +1373,8 @@ export default function HomePage() {
       const turnContext = attachContext || options?.resume?.context || "";
 
       // ── Live writes ────────────────────────────────────────────────────────
-      // A delta can arrive many times a second. Writing every one of them to
-      // IndexedDB — and from there to the account — would cost more than the
+      // A delta can arrive many times a second. Writing every one of them — into
+      // the cache, and from there to the account — would cost more than the
       // answer is worth, so patches are coalesced into roughly one every 120ms
       // and flushed before anything that has to see the final text.
       let lastPatch = 0;
@@ -1965,9 +1965,9 @@ export default function HomePage() {
     );
   }
 
-  // The local history has to belong to this account before any of it is shown:
-  // the sidebar reads IndexedDB, and until the handover has run that database
-  // still holds whoever was signed in here before.
+  // The cached history has to belong to this account before any of it is shown:
+  // the sidebar reads the session cache, and until the handover has run that
+  // cache still holds whoever was signed in here before.
   if (deviceAccount !== account.id) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-canvas text-text-body">

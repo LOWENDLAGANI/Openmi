@@ -268,8 +268,8 @@ export default function PrivacyPage() {
 
               <SubHeading>Your conversations</SubHeading>
               <p>
-                Stored in this browser’s local database (IndexedDB, through Dexie) and synced to
-                your account, in the <code className="font-mono text-[12px]">chats</code>,{" "}
+                Stored only on your account’s side, in the{" "}
+                <code className="font-mono text-[12px]">chats</code>,{" "}
                 <code className="font-mono text-[12px]">chat_messages</code>,{" "}
                 <code className="font-mono text-[12px]">folders</code> and{" "}
                 <code className="font-mono text-[12px]">trash</code> tables:
@@ -470,15 +470,16 @@ export default function PrivacyPage() {
               <Bullets
                 items={[
                   <>
-                    <span className="text-text-hi">A local database (IndexedDB)</span> for chats,
-                    messages, folders, trash, projects and change sets, so the app works before the
-                    network does.
+                    <span className="text-text-hi">No offline copy of your chats.</span> Conversations,
+                    folders and the trash are read from your account when the app opens and kept in
+                    memory only for as long as the tab is open — nothing you write is stored on this
+                    device.
                   </>,
                   <>
                     <span className="text-text-hi">Local storage</span> for appearance and layout
-                    settings, your pending invitation code, and the identifier of the account that
-                    owns this browser’s history, so one account’s cache is never uploaded into
-                    another’s.
+                    settings, your model choice, your pending invitation code, and the identifier of
+                    the account the open tab is showing, so one account’s conversations are never
+                    uploaded into another’s.
                   </>,
                   <>
                     <span className="text-text-hi">Your sign-in session</span>, kept in this browser
@@ -495,8 +496,8 @@ export default function PrivacyPage() {
                 ]}
               />
               <p>
-                Clearing site data in your browser removes the local copies. Your synced copies
-                remain until you erase them (§12).
+                Closing the tab discards the in-memory copy. Your account’s copy remains until you
+                erase it (§12).
               </p>
             </Section>
 

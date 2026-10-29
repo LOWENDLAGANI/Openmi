@@ -209,7 +209,7 @@ export function accountExplanation(view: AccountView): string {
     case "unconfigured":
       return "Add the NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY values and redeploy. Openmi needs an account service to sign anyone in.";
     case "unreachable":
-      return "Nothing has changed. Your chats stay on this device — check the connection and try again in a moment.";
+      return "Nothing has changed. Your chats are read from your account — check the connection and try again in a moment.";
     case "signed-in":
       return `Signed in with ${providerLabel(view.provider)}. Your chats and preferences follow you to any browser you sign in from.`;
     case "signed-out":

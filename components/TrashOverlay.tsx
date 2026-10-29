@@ -6,9 +6,8 @@
 // it permanent. Both decisions are written to the account, so the trash and
 // what happens to a chat in it are the same on every device.
 
-import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
-import { db } from "@/lib/db";
+import { db, useLiveQuery } from "@/lib/db";
 import {
   markChatDeleted,
   markTrashDecision,
