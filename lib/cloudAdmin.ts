@@ -783,22 +783,42 @@ export async function listUsageHistory(limitDays = 60): Promise<UsageHistoryDay[
 
 /** Saves the runtime controls. The admin's own token is what makes it allowed. */
 export async function saveAppConfig(config: AppConfig): Promise<void> {
+  // The controls are saved through the verified route, not by upserting the
+  // table from here. Two reasons, both of which used to be bugs:
+  //
+  //   1. PostgreSQL filters a refused UPDATE instead of raising, so a write the
+  //      policies rejected came back with no error and the console said
+  //      "Saved". The route reads the row back and answers 403 when it is not
+  //      there, which is the only way this can tell the truth.
+  //   2. `ads_enabled` was never in this payload, so the Ads switch was a
+  //      no-op. The route maps every column from `storedConfigFrom`, and stamps
+  //      the bans' author and date from the token it verified.
   const client = requireClient();
-  const { error } = await client.from("app_config").upsert(
-    {
-      id: 1,
-      chat_enabled: config.chatEnabled,
-      search_enabled: config.searchEnabled,
-      announcement: config.announcement,
-      daily_chat_cap: config.dailyChatCap,
-      bans: config.bans,
-      maintenance_enabled: config.maintenanceEnabled,
-      maintenance_message: config.maintenanceMessage,
-      updated_at: iso(config.updatedAt),
-    },
-    { onConflict: "id" }
-  );
-  if (error) rethrow(error);
+  const { data } = await client.auth.getSession();
+  const token = data.session?.access_token;
+
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+
+  const response = await fetch("/api/admin/config", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(config),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    // The route's message is the useful one (a missing admin grant names the
+    // table to check), so it is preferred over a status code.
+    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    const message =
+      typeof body?.error === "string" && body.error.trim()
+        ? body.error
+        : `The controls were not saved (${response.status}).`;
+    const error = new Error(message) as Error & { code?: string };
+    error.code = response.status === 403 ? "app/permission-denied" : "app/save-failed";
+    throw error;
+  }
 }
 
 // ── Audit ──────────────────────────────────────────────────────────────────
