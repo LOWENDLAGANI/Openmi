@@ -29,6 +29,8 @@ carry the rules it used to hold.
 | `migrations/20261028000200_charge_dew.sql` | The only charge: `start_hour_session()` charges 3 Dew for one hour of usage, with the free daily bucket paying first. Drops `deduct_dew()`, `deduct_dew_split()`, `dew_charge()` and the old per-chat session function, so no per-request charge remains. Recreates `hour_sessions` per account, plus `paid_passes` and `has_paid_pass()`. |
 | `migrations/20261028000300_session_scope.sql` | `hour_sessions.model`, `project_id` and `repo_full_name`, and `start_hour_session(p_model text, p_project_id text)`: an hour is bound to the one model and, when started in the repository workspace, the one repository it was bought for. The function validates both against what the account owns and answers a second start with the live binding, so the routes can name the active model or repository and offer ending the hour. |
 | `migrations/20261028000400_email_guard.sql` | `blocked_email_domains`, the `email_domain_is_blocked()` check, and the `reject_disposable_signup` trigger on `auth.users`: a disposable address cannot create an account, even from a modified client, while an existing account on one can still sign in. The list mirrors `lib/emailGuard.ts`; both are compared by the tests. |
+| `migrations/20261029000000_agent_runs.sql` | `agent_runs`: one row per repository turn. `authenticated` is granted SELECT on its own rows and no write at all — a run is created and advanced through the service key, because it has no caller by design. |
+| `migrations/20261029000100_agent_runs_health.sql` | Registers `agent_runs` in `schema_expected`, so a deployment that skipped the migration is named by `/api/setup` instead of failing at the first run. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
@@ -46,6 +48,68 @@ SQL editor. Nothing in the app can create these tables for you, and the one
 privileged key it holds (`SUPABASE_SERVICE_ROLE_KEY`, read only by
 `lib/supabaseAdmin.ts`) is not a schema tool: a table it has no grant on is a
 table it cannot make.
+
+## Enable background runs (optional)
+
+A repository turn normally stops when the tab that asked for it closes. With two
+extras it outlives the tab.
+
+1. **Apply `20261029000000_agent_runs.sql`.** Without the table, starting a run
+   answers 503 and names the migration; the in-tab step loop still works.
+2. **Set `SUPABASE_SERVICE_ROLE_KEY`** on the deployment. This is what
+   `lib/supabaseAdmin.ts` reads, and the run routes are its only importer: a
+   tick has no caller, so it cannot borrow a JWT. Unset means background runs
+   are off, not that the agent is broken.
+3. **Set `AGENT_SWEEP_SECRET`** to any long random string (`openssl rand -hex
+   32`) and schedule the watchdog below. Unset means `POST
+   /api/agent/runs/sweep` answers 503 `sweep-unconfigured`.
+
+The chain is healthiest when `AGENT_TURN_SECRET` (or `GITHUB_TOKEN_KEY`)
+identifies the deployment rather than one process: a tick signed with the
+per-process fallback cannot continue a turn that started on another instance.
+
+### The watchdog schedule
+
+A tick is a fire-and-forget request to the next link. A deploy, a cold start or a
+process that died between the write and the dispatch leaves a run at `running`
+with nothing to advance it. The sweep turns that into a retry; it spends nothing
+when there is nothing stale, because the tick it fires still has to win a claim.
+
+Run this once in the SQL editor, with the same secret as `AGENT_SWEEP_SECRET`:
+
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+select vault.create_secret('<AGENT_SWEEP_SECRET>', 'openmi_sweep_secret');
+
+select cron.schedule(
+  'openmi-agent-run-sweep',
+  '* * * * *',
+  $$
+  select net.http_post(
+    url := 'https://<your-origin>/api/agent/runs/sweep',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-openmi-sweep',
+      (select decrypted_secret from vault.decrypted_secrets where name = 'openmi_sweep_secret')
+    ),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  );
+  $$
+);
+```
+
+To check it: `select * from cron.job where jobname =
+'openmi-agent-run-sweep';` lists the job, and `select status_code from
+net._http_response order by id desc limit 5;` shows what the endpoint answered —
+200 with `{checked, revived, abandoned}` is a working sweep, 403 is a secret
+mismatch, and 503 means the deployment variable is missing.
+
+Without this job nothing creates runs (the table stays empty) and a broken chain
+is never recovered — the feature keeps working, in that every run that completes
+keeps its answer, but a dropped link becomes a row nobody advances.
 
 ## Enable the sign-in methods
 

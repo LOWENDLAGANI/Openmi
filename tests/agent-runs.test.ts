@@ -11,6 +11,8 @@
 // database would. If `claimRun` ever loses an `.eq`, these fail.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   RUN_MAX_ATTEMPTS,
@@ -79,6 +81,11 @@ function fakeAgentRuns(rows: Row[]): SupabaseClient {
       return { update };
     },
   } as unknown as SupabaseClient;
+}
+
+/** A repository file, read as text: these checks are about what the docs say. */
+function read(file: string): string {
+  return readFileSync(join(process.cwd(), file), "utf8");
 }
 
 const STATE: AgentRunState = {
@@ -333,6 +340,37 @@ async function main(): Promise<void> {
   await check("a stale run at or past the budget is abandoned, not re-run", () => {
     assert.deepEqual(sweepAction({ attempts: RUN_MAX_ATTEMPTS }), { action: "abandon" });
     assert.deepEqual(sweepAction({ attempts: RUN_MAX_ATTEMPTS + 5 }), { action: "abandon" });
+  });
+
+  // ── What a deployment has to be told ──────────────────────────────────────
+  //
+  // These are the Phase C contracts. A variable the code requires but the docs
+  // never mention is a feature only its author can turn on.
+
+  await check("the env example lists the service key and the watchdog secret", () => {
+    const env = read(".env.example");
+    assert.match(env, /^SUPABASE_SERVICE_ROLE_KEY=$/m, "the service key is undocumented");
+    assert.match(env, /^AGENT_SWEEP_SECRET=$/m, "the sweep secret is undocumented");
+    assert.match(env, /supabaseAdmin\.ts/, "the privileged key does not name its one importer");
+    assert.ok(
+      !/nothing in this app needs it/.test(env),
+      "the claim that no route needs the service key is back"
+    );
+  });
+
+  await check("the setup docs name both run migrations and the schedule", () => {
+    const readme = read("supabase/README.md");
+    assert.match(readme, /20261029000000_agent_runs\.sql/, "the run table is unlisted");
+    assert.match(readme, /20261029000100_agent_runs_health\.sql/, "the health migration is unlisted");
+    assert.match(readme, /cron\.schedule/, "the watchdog has no schedule");
+    assert.match(readme, /net\.http_post/, "the schedule never calls the endpoint");
+    assert.match(readme, /AGENT_SWEEP_SECRET/, "the schedule does not name its secret");
+  });
+
+  await check("the health audit learns about the run table", () => {
+    const sql = read("supabase/migrations/20261029000100_agent_runs_health.sql");
+    assert.match(sql, /insert into public\.schema_expected[\s\S]*agent_runs/);
+    assert.match(sql, /20261029000000_agent_runs/);
   });
 
   console.log(`\nagent-runs: ${passed} checks passed`);
