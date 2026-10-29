@@ -89,6 +89,40 @@ import {
   type AgentRunRecord,
 } from "@/lib/db";
 
+/**
+ * The run shape this page polls.
+ *
+ * Declared here rather than imported from `lib/agentRuns`: that module holds the
+ * service-role client, and pulling it into a client component would carry the
+ * privileged key into the bundle.
+ */
+interface AgentRunPayload {
+  id: string;
+  status: "running" | "done" | "failed" | "cancelled";
+  content: string;
+  steps: AgentStep[];
+  changesetId: string | null;
+  review: ProposalReview | null;
+  truncated: boolean;
+  error: string | null;
+  usage: { prompt: number; completion: number };
+}
+
+/** A wait that a closed tab interrupts, so polling never outlives the page. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+}
+
 
 /** The chat id used for in-memory draft messages that are not kept locally.
     It exists only so the send path has one variable to address either kind of
@@ -1324,137 +1358,241 @@ export default function HomePage() {
       };
 
       try {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-          const stepOffset = steps.filter(Boolean).length;
-          const response = await fetch("/api/agent/step", {
+        // ── Start the run ────────────────────────────────────────────────────
+        // From here the turn belongs to the server. This tab renders it; closing
+        // the tab no longer stops it, which is the whole point of the change.
+        let runId = options?.resume?.runId ?? "";
+        if (!runId) {
+          const started = await fetch("/api/agent/runs", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...(await authHeader()) },
-            body: JSON.stringify({
-              projectId: project.id,
-              history,
-              transcript,
-              turnToken,
-              ...(turnContext ? { context: turnContext } : {}),
-            }),
+            body: JSON.stringify({ projectId: project.id, history, context: turnContext }),
             signal: controller.signal,
           });
-
-          if (!response.ok) {
-            const payload = (await response.json().catch(() => null)) as {
-              error?: string;
-              retryAfterSeconds?: number;
-            } | null;
-            const message = payload?.error ?? `The agent request failed (HTTP ${response.status}).`;
-            noteRateLimit(message, payload?.retryAfterSeconds);
+          const start = (await started.json().catch(() => null)) as
+            | { run?: { id?: string }; error?: string; retryAfterSeconds?: number; detail?: string }
+            | null;
+          runId = start?.run?.id ?? "";
+          // A deployment with no service key cannot advance a turn unattended.
+          // That is a supported state, not a failure: the same turn runs here,
+          // one step at a time, and stops when this tab does.
+          const inTab = started.status === 503 && start?.detail === "runs-unconfigured";
+          if (!inTab && (!started.ok || !runId)) {
+            const message = start?.error ?? `The agent request failed (HTTP ${started.status}).`;
+            noteRateLimit(message, start?.retryAfterSeconds);
             await markError(assistantId, message);
             return;
           }
-          if (!response.body) {
-            await markError(assistantId, "The agent returned an empty stream. Try again.");
-            return;
-          }
-
-          // Mutated from the stream callback, so it lives in an object: a plain
-          // `let` would be read as its initial value after the await.
-          const state = {
-            failure: null as string | null,
-            finished: false,
-            changesetId: undefined as string | undefined,
-            review: undefined as ProposalReview | undefined,
-          };
-          let stepText = "";
-
-          const { sawDone } = await readAgentStream(response.body, (event) => {
-            if (event.type === "thinking") {
-              setAgentActivity("Thinking about your repository…");
-              return;
-            }
-            if (event.type === "delta") {
-              // One step's prose can follow another's; a paragraph break keeps
-              // two rounds of writing from running together.
-              if (!stepText && content.trim()) content += "\n\n";
-              content += event.text;
-              stepText += event.text;
-              setAgentActivity(null);
-              schedulePatch();
-              return;
-            }
-            if (event.type === "step") {
-              steps[stepOffset + event.index] = event.step;
-              setAgentActivity(event.pending ? event.step.label : null);
-              schedulePatch();
-              return;
-            }
-            if (event.type === "error") {
-              state.failure = event.error;
-              return;
-            }
-
-            // The prose already arrived as deltas; only what the server added on
-            // top of it (the turn-budget note) is still missing here.
-            if (event.content && event.content.startsWith(stepText)) {
-              const rest = event.content.slice(stepText.length).replace(/^\s+/, "");
-              if (rest) content = content ? `${content}\n\n${rest}` : rest;
-            } else if (!stepText && event.content) {
-              content = content ? `${content}\n\n${event.content}` : event.content;
-            }
-            for (const [index, step] of event.steps.entries()) steps[stepOffset + index] = step;
-            if (event.transcript.length > 0) transcript = event.transcript;
-            if (event.turnToken) turnToken = event.turnToken;
-            if (event.model) answerModel = event.model;
-            if (event.changesetId) state.changesetId = event.changesetId;
-            if (event.review) state.review = event.review;
-            // The id follows the answer, so the review card survives a reload and
-            // still points at the change the server signed.
-            if (event.changesetWarning) setModelNotice(event.changesetWarning);
-            if (event.usage.prompt || event.usage.completion) {
-              void writeUsage(assistantId, {
-                prompt: event.usage.prompt,
-                completion: event.usage.completion,
-                total: event.usage.prompt + event.usage.completion,
-              });
-            }
-            state.finished = event.done;
-          });
-
-          await flushPatches();
-          // Step N+1 can be asked for by a different tab than the one that ran
-          // step N, as long as what this loop has reached is on disk. Only once a
-          // turn token exists: a run without one would start a fresh turn rather
-          // than continue this one.
-          if (!state.finished && turnToken && chatId) {
+          // A pointer, not the state: the run itself lives on the server. Kept so
+          // a reload can attach to this message instead of starting a second run.
+          if (chatId) {
             await saveAgentRun({
               id: assistantId,
               chatId,
               projectId: project.id,
-              transcript,
-              turnToken,
+              transcript: [],
+              turnToken: "",
               context: turnContext,
-              content,
-              steps: steps.filter(Boolean).map((step) => ({ tool: step.tool, label: step.label, ok: step.ok })),
+              content: "",
+              steps: [],
+              runId,
             });
           }
-          if (state.changesetId) {
-            await patchMessage(assistantId, {
-              changesetId: state.changesetId,
-              ...(state.review ? { review: state.review } : {}),
-            });
-          }
-
-          if (state.failure) {
-            noteRateLimit(state.failure);
-            await markError(assistantId, state.failure);
-            return;
-          }
-          if (!state.finished && !sawDone) {
-            await markError(assistantId, "The agent connection dropped before it finished. Try again.");
-            return;
-          }
-          if (state.finished) break;
         }
 
-        if (!content.trim() && steps.filter(Boolean).length === 0 && !controller.signal.aborted) {
-          await markError(assistantId, "The agent did not return an answer. Try asking again.");
+        // ── No run: step in this tab ─────────────────────────────────────────
+        // The same turn the tick would have run, driven by the page instead. It
+        // is the whole of the old behaviour, kept because a deployment without
+        // the key is still a working deployment.
+        if (!runId) {
+          for (let attempt = 0; attempt < 10; attempt += 1) {
+            const stepOffset = steps.filter(Boolean).length;
+            const response = await fetch("/api/agent/step", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...(await authHeader()) },
+              body: JSON.stringify({
+                projectId: project.id,
+                history,
+                transcript,
+                turnToken,
+                ...(turnContext ? { context: turnContext } : {}),
+              }),
+              signal: controller.signal,
+            });
+
+            if (!response.ok) {
+              const payload = (await response.json().catch(() => null)) as {
+                error?: string;
+                retryAfterSeconds?: number;
+              } | null;
+              const message = payload?.error ?? `The agent request failed (HTTP ${response.status}).`;
+              noteRateLimit(message, payload?.retryAfterSeconds);
+              await markError(assistantId, message);
+              return;
+            }
+            if (!response.body) {
+              await markError(assistantId, "The agent returned an empty stream. Try again.");
+              return;
+            }
+
+            // Mutated from the stream callback, so it lives in an object: a plain
+            // `let` would be read as its initial value after the await.
+            const state = {
+              failure: null as string | null,
+              finished: false,
+              changesetId: undefined as string | undefined,
+              review: undefined as ProposalReview | undefined,
+            };
+            let stepText = "";
+
+            const { sawDone } = await readAgentStream(response.body, (event) => {
+              if (event.type === "thinking") {
+                setAgentActivity("Thinking about your repository…");
+                return;
+              }
+              if (event.type === "delta") {
+                // One step's prose can follow another's; a paragraph break keeps
+                // two rounds of writing from running together.
+                if (!stepText && content.trim()) content += "\n\n";
+                content += event.text;
+                stepText += event.text;
+                setAgentActivity(null);
+                schedulePatch();
+                return;
+              }
+              if (event.type === "step") {
+                steps[stepOffset + event.index] = event.step;
+                setAgentActivity(event.pending ? event.step.label : null);
+                schedulePatch();
+                return;
+              }
+              if (event.type === "error") {
+                state.failure = event.error;
+                return;
+              }
+
+              // The prose already arrived as deltas; only what the server added on
+              // top of it (the turn-budget note) is still missing here.
+              if (event.content && event.content.startsWith(stepText)) {
+                const rest = event.content.slice(stepText.length).replace(/^\s+/, "");
+                if (rest) content = content ? `${content}\n\n${rest}` : rest;
+              } else if (!stepText && event.content) {
+                content = content ? `${content}\n\n${event.content}` : event.content;
+              }
+              for (const [index, step] of event.steps.entries()) steps[stepOffset + index] = step;
+              if (event.transcript.length > 0) transcript = event.transcript;
+              if (event.turnToken) turnToken = event.turnToken;
+              if (event.model) answerModel = event.model;
+              if (event.changesetId) state.changesetId = event.changesetId;
+              if (event.review) state.review = event.review;
+              // The id follows the answer, so the review card survives a reload and
+              // still points at the change the server signed.
+              if (event.changesetWarning) setModelNotice(event.changesetWarning);
+              if (event.usage.prompt || event.usage.completion) {
+                void writeUsage(assistantId, {
+                  prompt: event.usage.prompt,
+                  completion: event.usage.completion,
+                  total: event.usage.prompt + event.usage.completion,
+                });
+              }
+              state.finished = event.done;
+            });
+
+            await flushPatches();
+            // Step N+1 can be asked for by a different tab than the one that ran
+            // step N, as long as what this loop has reached is on disk. Only once a
+            // turn token exists: a run without one would start a fresh turn rather
+            // than continue this one.
+            if (!state.finished && turnToken && chatId) {
+              await saveAgentRun({
+                id: assistantId,
+                chatId,
+                projectId: project.id,
+                transcript,
+                turnToken,
+                context: turnContext,
+                content,
+                steps: steps.filter(Boolean).map((step) => ({ tool: step.tool, label: step.label, ok: step.ok })),
+              });
+            }
+            if (state.changesetId) {
+              await patchMessage(assistantId, {
+                changesetId: state.changesetId,
+                ...(state.review ? { review: state.review } : {}),
+              });
+            }
+
+            if (state.failure) {
+              noteRateLimit(state.failure);
+              await markError(assistantId, state.failure);
+              return;
+            }
+            if (!state.finished && !sawDone) {
+              await markError(assistantId, "The agent connection dropped before it finished. Try again.");
+              return;
+            }
+            if (state.finished) break;
+          }
+
+          if (!content.trim() && steps.filter(Boolean).length === 0 && !controller.signal.aborted) {
+            await markError(assistantId, "The agent did not return an answer. Try asking again.");
+          }
+          return;
+        }
+
+        // ── Follow it ────────────────────────────────────────────────────────
+        // Polling rather than streaming, because the answer is being written by
+        // the server either way: this loop only renders it.
+        while (!controller.signal.aborted) {
+          const poll = await fetch(`/api/agent/runs/${runId}`, {
+            headers: { ...(await authHeader()) },
+            cache: "no-store",
+            signal: controller.signal,
+          });
+
+          if (poll.status === 404) {
+            await markError(assistantId, "This run is no longer available. Ask again.");
+            return;
+          }
+
+          if (poll.ok) {
+            const { run } = (await poll.json().catch(() => ({}))) as { run?: AgentRunPayload };
+            if (run) {
+              if (run.content && run.content !== content) {
+                content = run.content;
+                steps.splice(0, steps.length, ...run.steps);
+                writeNow();
+              }
+              if (run.changesetId) {
+                await patchMessage(assistantId, {
+                  changesetId: run.changesetId,
+                  ...(run.review ? { review: run.review } : {}),
+                });
+              }
+              if (run.status !== "running") {
+                await flushPatches();
+                if (run.error) {
+                  await markError(assistantId, run.error);
+                  return;
+                }
+                if (run.usage.prompt || run.usage.completion) {
+                  await writeUsage(assistantId, {
+                    prompt: run.usage.prompt,
+                    completion: run.usage.completion,
+                    total: run.usage.prompt + run.usage.completion,
+                  });
+                }
+                if (run.truncated) await patchMessage(assistantId, { truncated: true });
+                if (!content.trim() && steps.length === 0) {
+                  await markError(assistantId, "The agent did not return an answer. Try asking again.");
+                }
+                return;
+              }
+            }
+          }
+
+          // A failed poll is not a failed run: it is still going, on the server.
+          await pause(1200, controller.signal);
         }
       } catch (error) {
         const aborted = error instanceof DOMException && error.name === "AbortError";
@@ -1504,9 +1642,9 @@ export default function HomePage() {
       const run = await nextResumableAgentRun(project.id);
       if (!run || cancelled) return;
       const row = await readMessage(run.id);
-      // A turn whose answer was already reported as an error is finished, not
-      // interrupted: resuming it would replay a failure the person has read.
-      if (!row || row.error) {
+      // A record with no run id predates server-side runs: its state is gone, so
+      // it is dropped rather than replayed into a message that has moved on.
+      if (!run.runId || !row || row.error) {
         await clearAgentRun(run.id);
         return;
       }

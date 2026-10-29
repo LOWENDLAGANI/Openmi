@@ -607,6 +607,32 @@ function commitFromRow(row: unknown): unknown {
   };
 }
 
+/**
+ * The row a change set is stored as.
+ *
+ * Extracted so the store below and the background run tick cannot drift: one is
+ * written with the caller's token, the other with the service key because a tick
+ * has no caller, and both must produce exactly the same row.
+ */
+export function changeSetRow(uid: string, changeSet: ChangeSet) {
+  return {
+    owner: uid,
+    id: changeSet.id,
+    project_id: changeSet.projectId,
+    repo_full_name: changeSet.repoFullName,
+    default_branch: changeSet.defaultBranch,
+    base_sha: changeSet.baseSha,
+    hash: changeSet.hash,
+    branch: changeSet.branch,
+    message: changeSet.message,
+    files: changeSet.files,
+    status: changeSet.status,
+    expires_at: iso(changeSet.exp),
+    signature: changeSet.sig,
+    created_at: iso(changeSet.createdAt),
+  };
+}
+
 export async function saveChangeSet(
   authorization: string | null,
   uid: string,
@@ -616,25 +642,9 @@ export async function saveChangeSet(
   const client = token ? clientForToken(token) : null;
   if (!client || !uid) return false;
   try {
-    const { error } = await client.from("changesets").upsert(
-      {
-        owner: uid,
-        id: changeSet.id,
-        project_id: changeSet.projectId,
-        repo_full_name: changeSet.repoFullName,
-        default_branch: changeSet.defaultBranch,
-        base_sha: changeSet.baseSha,
-        hash: changeSet.hash,
-        branch: changeSet.branch,
-        message: changeSet.message,
-        files: changeSet.files,
-        status: changeSet.status,
-        expires_at: iso(changeSet.exp),
-        signature: changeSet.sig,
-        created_at: iso(changeSet.createdAt),
-      },
-      { onConflict: "owner,id" }
-    );
+    const { error } = await client
+      .from("changesets")
+      .upsert(changeSetRow(uid, changeSet), { onConflict: "owner,id" });
     return !error;
   } catch {
     return false;

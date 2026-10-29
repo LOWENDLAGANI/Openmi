@@ -29,6 +29,15 @@ export interface AgentRunRecord {
   context: string;
   content: string;
   steps: AgentStep[];
+  /**
+   * The server-side run this message is following.
+   *
+   * The run — its transcript, token and budget — lives in `agent_runs` now, so
+   * this record is only the pointer that says which message to render it into.
+   * Absent on a record written by a build that kept the state here; those are
+   * discarded rather than resumed into the wrong place.
+   */
+  runId?: string;
   updatedAt: number;
 }
 

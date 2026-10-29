@@ -572,9 +572,9 @@ export default function PrivacyPage() {
               <Bullets
                 items={[
                   <>
-                    Every table is protected by row-level security, and the application holds{" "}
-                    <span className="text-text-hi">no service-role key</span>, so a request can only
-                    ever reach the caller’s own rows.
+                    Every table is protected by row-level security, so a request can only ever
+                    reach the caller’s own rows. One privileged key exists, used solely to advance a
+                    repository run after the tab is closed; it is never used to read your data.
                   </>,
                   "GitHub tokens and personal model keys are sealed with AES-256-GCM under a server-side key that never reaches the browser.",
                   "Provider and GitHub credentials are never returned by any response and never written to logs; the app shows a masked hint only.",

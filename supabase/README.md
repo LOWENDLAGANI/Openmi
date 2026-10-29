@@ -42,9 +42,10 @@ supabase db execute --file supabase/seed.sql   # or paste seed.sql into the SQL 
 ```
 
 Or paste the migrations in filename order, then `seed.sql`, into the project's
-SQL editor. Nothing in the app can create these tables for you: the app
-deliberately holds no service-role key, so a table it has no grant on is a table
-it cannot make.
+SQL editor. Nothing in the app can create these tables for you, and the one
+privileged key it holds (`SUPABASE_SERVICE_ROLE_KEY`, read only by
+`lib/supabaseAdmin.ts`) is not a schema tool: a table it has no grant on is a
+table it cannot make.
 
 ## Enable the sign-in methods
 
@@ -94,9 +95,11 @@ in, which is why the screen does not offer it there.
 - The administrator is whoever `app_admin.email` names, compared against the
   verified `email` claim in the JWT. `public.is_admin()` is the only reader of
   that table, so the address is never served to a browser as data.
-- No service-role key exists anywhere in this deployment. Every read and write
-  the app makes carries the caller's own JWT, so RLS is the only judge — the same
-  property `database.rules.json` gave the Firebase build.
+- Every read and write a browser triggers carries the caller's own JWT, so RLS is
+  the judge — the same property `database.rules.json` gave the Firebase build.
+  The single exception is the run routes (`lib/supabaseAdmin.ts`), which create
+  and advance a run that outlives its tab and so has no caller by design.
+  `agent_runs` grants `authenticated` SELECT and no write for exactly that reason.
 - `visitor_registry` is writable by its owner and readable only by the
   administrator. That asymmetry is deliberate and is what the old rules did: a
   visitor may say who they are, not see who else is here.

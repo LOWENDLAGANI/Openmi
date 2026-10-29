@@ -6,8 +6,8 @@
 // one address elevated read and write across the user tables, and this module is
 // the client-side caller for those grants.
 //
-// So there is no project-wide credential in the deployment environment, and no
-// service-role key in this file. The check in `verifyAdminAccess` is cosmetic: it
+// So there is no project-wide credential in this path, and no service-role key in
+// this file. The check in `verifyAdminAccess` is cosmetic: it
 // only decides which screen to show. Postgres evaluates the same condition on
 // every read and write, so patching this file would gain an attacker nothing.
 //

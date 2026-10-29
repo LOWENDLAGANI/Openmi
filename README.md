@@ -138,8 +138,10 @@ gone: no dependency, no `database.rules.json`, no Admin SDK.
 Access is decided in the database, not in a route. The browser talks to PostgREST
 with the caller's own JWT, and every table carries row-level security that keys
 off `auth.uid()`. The server routes do the same thing with a client built from
-the caller's bearer token, so there is no service-role key in this app, in its
-environment or in its code. `supabase/migrations/` is the whole authority
+the caller's bearer token. The deployment's one service-role key is confined to
+`lib/supabaseAdmin.ts` and used only by the `/api/agent/runs` routes — creating
+and advancing a run is the one job with no caller to carry a token for.
+`supabase/migrations/` is the whole authority
 surface, and `supabase/README.md` is the one-time dashboard setup.
 
 If you ran into the sign-in error that sends people down a rabbit hole, here is
@@ -181,8 +183,13 @@ The important ones for **this build**:
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App, a second door beside the pasted token. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
 
-No service-role key belongs anywhere in this project. Nothing needs it: the
-server routes carry the caller's token, exactly as the browser does.
+One privileged key exists, and one thing may use it. `SUPABASE_SERVICE_ROLE_KEY`
+is read by `lib/supabaseAdmin.ts` for the `/api/agent/runs` routes, which create
+and advance a repository turn after the tab is closed and therefore have no
+caller to carry a token for. They take the owner from the verified session, never
+from the request body. Every other route carries the caller's token, exactly as
+the browser does, and may not import that module. Without the key the agent still
+works; it just stops when the tab does.
 
 ### Bringing your own model keys
 

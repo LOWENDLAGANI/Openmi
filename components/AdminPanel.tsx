@@ -33,8 +33,8 @@ import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
 // ── Admin console ────────────────────────────────────────────────────────────
 // Reads and wipes go straight to PostgREST from the browser. Access is granted
 // by a verified `app_admin` row, and row-level security enforces that on every
-// call, so the console holds no credential of its own and the deployment
-// environment holds no service-role key.
+// call, so the console holds no credential of its own. The deployment's one
+// service-role key belongs to the background run tick, never to this screen.
 
 interface AdminUser {
   uid: string;

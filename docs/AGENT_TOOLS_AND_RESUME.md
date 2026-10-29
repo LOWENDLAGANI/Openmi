@@ -97,9 +97,17 @@ work is no longer lost.
 
 ### The honest boundary
 
-This is **pickup, not background execution**. Nothing runs while the tab is
-closed. The turn continues when the page is opened again, from the last completed
-step.
+This is **pickup**, and — when the deployment holds a service key — **background
+execution**. The difference is one environment variable:
+
+- With `SUPABASE_SERVICE_ROLE_KEY` set, a turn is a row in `agent_runs` and the
+tick advances it whether or not a tab is open. `app/chat/page.tsx` starts the run
+and polls it; closing the tab only stops the rendering.
+- With no key, `POST /api/agent/runs` answers `503 runs-unconfigured` and the page
+falls back to the in-tab step loop it always had. Same turn, same bounds, and it
+stops when the tab does.
+
+The in-tab path is otherwise unchanged:
 
 - A step that was in flight when the tab closed is re-asked, so that one step
   costs twice in GitHub reads. There is no double charge: the hour covers the
@@ -115,30 +123,28 @@ step.
 
 ## What is still open
 
-### Background execution (not built)
+### Background execution (built)
 
-For a turn to keep working while the browser is closed, the loop has to move
-server-side. The design that fits this codebase:
+A turn outlives its tab when the deployment holds a service key. The pieces:
 
-1. `agent_runs` in Postgres (RLS shaped like `changesets`): status, history,
-   transcript, sealed turn token, steps, content, error, `heartbeat_at`,
-   `attempts`.
-2. `POST /api/agent/runs` creates the row and dispatches the first tick.
-3. An internal tick endpoint, authorised by a **server-signed run token** rather
-   than the user's session, running exactly one step and persisting it.
-4. Chaining: each tick fires the next with a fire-and-forget `fetch` held open by
-   `after()` / `waitUntil`. One dropped link silently stops a run.
-5. A watchdog sweeping `status='running'` with a stale heartbeat and re-ticking
-   it. Supabase already provides `pg_cron` + `pg_net`; no new vendor is needed.
-   A search for a managed durable queue surfaced no suitable service, so the
-   honest options are "build it on what exists" or buy a workflow engine
-   separately.
+1. `supabase/migrations/20261029000000_agent_runs.sql` — `agent_runs`, RLS shaped
+   like `changesets`, except `authenticated` gets SELECT and nothing else.
+2. `lib/supabaseAdmin.ts` — the only importer of `SUPABASE_SERVICE_ROLE_KEY`. It
+   returns null when the variable is unset, which is the supported no-runs state.
+3. `lib/agentRuns.ts` — create / read / claim / saveProgress / finish /
+   listStaleRuns. `readOwnRun` uses the caller's token; the rest are the tick's.
+4. `POST /api/agent/runs` — hour and repository checks, a row, a first tick.
+5. `POST /api/agent/tick` — verifies the signed run token, runs exactly one
+   `runAgentStep`, persists, chains the next tick, stops at the turn bounds.
+6. `GET /api/agent/runs/[id]` — owner-scoped view the chat polls.
+7. `POST /api/agent/runs/sweep` — the `pg_cron` entry point that re-ticks runs
+   whose chain dropped.
 
-**The hard part is idempotency, not plumbing.** Two ticks on one run is two
-model calls. Claim the run with a conditional update — `status='running' AND
-heartbeat_at < now() - interval '90 seconds'` — and keep a per-account cap on
-simultaneous runs. The turn's own bounds (`MAX_STEPS = 40`,
-`MAX_TURN_TOKENS = 200_000`, `TURN_TTL_MS = 30 minutes`) must be enforced by the
+**Idempotency is the hard part, not plumbing.** Two ticks on one run is two model
+calls, so `claimRun` is what stands between the sweep and a double charge: a
+conditional update on `status='running' AND heartbeat_at < now() - interval '90
+seconds' AND attempts = <seen>`. The turn's own bounds (`MAX_STEPS = 40`,
+`MAX_TURN_TOKENS = 200_000`, `TURN_TTL_MS = 30 minutes`) are enforced by the
 driver, or an abandoned run quietly burns a 200k-token turn and the GitHub rate
 limit with nobody watching.
 

@@ -473,7 +473,9 @@ rejects the root.
 
 - No provider model id, API key name or vendor name reaches the browser
   (`lib/models.ts` is the only client catalog).
-- No service-role key for BYOK or ads; both use the caller's JWT and RLS.
+- No service-role key for BYOK, ads or the admin console; all use the caller's JWT
+  and RLS. The one exception is the run routes (`lib/supabaseAdmin.ts`), which
+  create and advance a turn with no caller attached.
 - Every new route is same-origin checked, identity-gated where it touches
   user data, and rate-limited.
 - Every phase ends with `bun run typecheck`, `bun run test`, `bun run lint`,
