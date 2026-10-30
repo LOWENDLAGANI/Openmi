@@ -237,7 +237,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             if (stored) changesetId = changeSet.id;
             else
               changesetWarning =
-                "This change could not be saved for review, so it cannot be committed from here. Check the `changesets` policies in the Supabase project.";
+                "This change could not be saved for review, so it cannot be committed from here. Check the `change_sets` policies in the Supabase project.";
           }
         }
 
