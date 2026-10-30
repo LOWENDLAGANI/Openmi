@@ -131,6 +131,33 @@ try {
     );
   }
 
+  // The run tick writes with the service key. Supabase's default privileges
+  // usually supply this, but a project whose defaults were reset — or a table
+  // that already existed when `create table if not exists` ran — leaves the
+  // role without INSERT while the table is present and the health audit is
+  // happy. Every run then fails at 42501 with a sentence about a grant, so the
+  // folder has to grant it explicitly and this check has to prove it.
+  const writer = await db.query(`
+    select
+      has_table_privilege('service_role', 'public.agent_runs', 'SELECT') as runs_select,
+      has_table_privilege('service_role', 'public.agent_runs', 'INSERT') as runs_insert,
+      has_table_privilege('service_role', 'public.agent_runs', 'UPDATE') as runs_update,
+      has_table_privilege('service_role', 'public.agent_runs', 'DELETE') as runs_delete,
+      has_table_privilege('service_role', 'public.changesets', 'INSERT') as changesets_insert,
+      has_table_privilege('service_role', 'public.changesets', 'UPDATE') as changesets_update
+  `);
+  const writerGrants = writer.rows[0] ?? {};
+  const missingWriter = Object.entries(writerGrants)
+    .filter(([, granted]) => !granted)
+    .map(([privilege]) => privilege);
+  if (missingWriter.length > 0) {
+    fail(
+      "service_role cannot do what the run tick needs: " +
+        `${missingWriter.join(", ")}. Grant it explicitly in the migrations rather ` +
+        "than relying on a hosted project's default privileges."
+    );
+  }
+
   // The receipt states were a two-step rename. If only the constraint half
   // applied, the console reads a column that is not there.
   const receipts = await db.query(`

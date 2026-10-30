@@ -273,7 +273,7 @@ export function runStartFailure(reason: CreateRunFailure): RunStartFailure {
       return {
         status: 503,
         error:
-          "The database refused to record this run: the service role has no insert grant on `agent_runs`. Apply the `agent_runs` migration so its grants match this build.",
+          "The database refused to record this run (Postgres 42501 on `agent_runs`). Apply `supabase/migrations/20261029000600_agent_runs_service_grants.sql`, which grants the service role the INSERT and UPDATE the run tick needs, and check that `SUPABASE_SERVICE_ROLE_KEY` is the project's service-role key rather than its anon key.",
         detail: "run-denied",
       };
     case "no-key":
