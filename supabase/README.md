@@ -35,7 +35,6 @@ carry the rules it used to hold.
 | `migrations/20261029000300_hour_refunds.sql` | The charge split on `hour_sessions` (`free_charged`, `paid_charged`, `charge_day`), `refund_hour_session()`, `auto_refund_idle_hour()` and `mark_hour_session_activity()`: an hour that produced nothing is given back, once, and only while it was unused. |
 | `migrations/20261029000400_deduct_wallet_fix.sql` | Recreates `admin_deduct_dew()` so a deduction works on an account that has credit but no wallet row yet — the state every freshly topped-up buyer is in — and gives the owner a sentence instead of an empty failure. |
 | `migrations/20261029000500_receipt_states.sql` | Receipt states become `pending`, `approved` and `rejected` (with existing rows migrated), `saved_at`/`saved_by` become `decided_at`/`decided_by`, and the ledger gains `rejectReceipt` so a refusal is recorded as its own answer. |
-| `migrations/20261029000600_agent_runs_service_grants.sql` | Grants `service_role` the SELECT/INSERT/UPDATE/DELETE the run tick performs on `agent_runs`, and the same on `changesets`, explicitly instead of through the project's default privileges. Without it, a project whose defaults were reset (or whose table already existed) answers every turn with `42501 permission denied for table agent_runs` while `/api/setup` stays quiet. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
@@ -47,12 +46,6 @@ supabase link --project-ref <your-project-ref>
 supabase db push          # runs every migration in order
 supabase db execute --file supabase/seed.sql   # or paste seed.sql into the SQL editor
 ```
-
-To check this directory before it touches a hosted project, run
-`bun run check:migrations`: it applies every file twice to a throwaway Postgres
-(Postgres compiled to WebAssembly, so no Docker) and fails on the first file a
-second run cannot apply, naming the file and the pass. CI runs the same command,
-so a migration that would stop `supabase db push` fails the pull request first.
 
 Or paste the migrations in filename order, then `seed.sql`, into the project's
 SQL editor. Nothing in the app can create these tables for you, and the one
@@ -71,7 +64,6 @@ two different symptoms, and neither is fixed by deleting rows by hand:
 | `Found local migration files to be inserted before the last migration on remote database` | the project has a version this folder does not, or a file was renamed after it was pushed |
 | a route answers `PGRST202` / `relation "…" does not exist` | a migration was never applied, so the build is newer than the schema |
 | starting a run answers `503 run-table-missing` | `20261029000000_agent_runs.sql` has not been applied |
-| starting a run answers `503 run-denied` (`42501 permission denied`) | the table exists but `service_role` has no write privilege on it: apply `20261029000600_agent_runs_service_grants.sql`, and check that `SUPABASE_SERVICE_ROLE_KEY` is the service-role key, not the anon key |
 
 Use `supabase migration list` to see both sides, then `supabase migration
 repair` to record what is actually true — `applied` only for a version whose
@@ -110,12 +102,9 @@ is exactly the one behind "This run could not be recorded".
 A repository turn normally stops when the tab that asked for it closes. With two
 extras it outlives the tab.
 
-1. **Apply `20261029000000_agent_runs.sql` and
-   `20261029000600_agent_runs_service_grants.sql`.** Without the table, starting a
-   run answers 503 with `detail: run-table-missing` and names the migration;
-   without the grant (and with a service key that is present), it answers 503
-   with `detail: run-denied` and names the grant. The in-tab step loop works in
-   both cases.
+1. **Apply `20261029000000_agent_runs.sql`.** Without the table, starting a run
+   answers 503 with `detail: run-table-missing` and names the migration; the
+   in-tab step loop still works.
 2. **Set `SUPABASE_SERVICE_ROLE_KEY`** on the deployment. This is what
    `lib/supabaseAdmin.ts` reads, and the run routes are its only importer: a
    tick has no caller, so it cannot borrow a JWT. Unset means background runs

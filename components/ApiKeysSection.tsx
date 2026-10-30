@@ -17,6 +17,7 @@ import Spinner from "./Spinner";
 import {
   keyProblem,
   keySourceLabel,
+  USER_KEY_HELP,
   USER_KEY_LABELS,
   USER_KEY_PROVIDERS,
   USER_KEY_SOURCES,
@@ -153,7 +154,13 @@ export default function ApiKeysSection() {
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[12.5px] font-medium text-white/90">{USER_KEY_LABELS[provider]}</p>
-                  <p className="mt-1 text-[10.5px] text-white/45">{keySourceLabel(source, stored?.hint)}</p>
+                  <p className="mt-0.5 text-[10.5px] leading-relaxed text-white/35">{USER_KEY_HELP[provider]}</p>
+                  <p className="mt-1 text-[10.5px] text-white/45">
+                    {keySourceLabel(source, stored?.hint)}
+                    {source === "missing" && (
+                      <span className="text-white/30"> — this mode cannot answer until a key is added</span>
+                    )}
+                  </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {stored && !open && (
@@ -222,6 +229,7 @@ export default function ApiKeysSection() {
                     >
                       Cancel
                     </button>
+                    <span className="ml-auto text-[10px] text-white/25">Checked with the provider before saving</span>
                   </div>
                 </div>
               )}
@@ -230,6 +238,13 @@ export default function ApiKeysSection() {
         })}
       </div>
 
+      {payload?.storeReady === false && (
+        <p className="mt-2 text-[10.5px] leading-relaxed text-amber-100/60">
+          This deployment cannot store a key: it needs <span className="font-mono">GITHUB_TOKEN_KEY</span> (32
+          bytes of hex) set, because the same secret seals every stored credential. Until then, Openmi uses the
+          deployment&apos;s own keys.
+        </p>
+      )}
       {error && <p className="mt-2 text-[11px] leading-relaxed text-red-200/80">{error}</p>}
       {notice && <p className="mt-2 text-[11px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}
     </section>

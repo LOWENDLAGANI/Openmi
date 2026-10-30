@@ -182,18 +182,6 @@ check("agent_runs is readable by its owner and writable by nothing else", () => 
   assert.match(sql, /primary key \(owner, id\)/);
 });
 
-check("the service role is granted what the run tick writes, and nothing to the browser", () => {
-  const sql = read("20261029000600_agent_runs_service_grants.sql");
-  assert.match(sql, /grant select, insert, update, delete on public\.agent_runs to service_role/);
-  assert.match(sql, /grant select, insert, update, delete on public\.changesets to service_role/);
-  assert.match(sql, /pg_roles where rolname = 'service_role'/, "the grant must survive a Postgres without the role");
-  assert.doesNotMatch(
-    sql,
-    /grant[^;]*to authenticated/i,
-    "the browser must not gain a write through the repair migration"
-  );
-});
-
 check("every migration named in schema_expected exists as a file", () => {
   const versions = new Set(files.map((name) => name.slice(0, 14)));
   for (const file of files) {

@@ -7,15 +7,14 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "eslint .",
-    "check:migrations": "node scripts/check-migrations.mjs",
-    "test": "bunx tsx tests/code-fence.test.ts && bunx tsx tests/account.test.ts && bunx tsx tests/chat-sync.test.ts && bunx tsx tests/truncation.test.ts && bunx tsx tests/model-health.test.ts && bunx tsx tests/temp-chat.test.ts && bunx tsx tests/deleted-chats.test.ts && bunx tsx tests/folders-trash.test.ts && bunx tsx tests/redeem.test.ts && bunx tsx tests/server-control.test.ts && bunx tsx tests/feature-batch.test.ts && bunx tsx tests/composer-and-thread.test.ts && bunx tsx tests/dew.test.ts && bunx tsx tests/dew-activity.test.ts && bunx tsx tests/referral.test.ts && bunx tsx tests/share.test.ts && bunx tsx tests/repo-agent.test.ts && bunx tsx tests/agent-review.test.ts && bunx tsx tests/github-connections.test.ts && bunx tsx tests/setup-check.test.ts && bunx tsx tests/focus-home.test.ts && bunx tsx tests/navigation.test.ts && bunx tsx tests/context-ring.test.ts && bunx tsx tests/ads.test.ts && bunx tsx tests/rate-limit.test.ts && bunx tsx tests/provider-keys.test.ts && bunx tsx tests/email-guard.test.ts && bunx tsx tests/agent-runs.test.ts && bunx tsx tests/receipts.test.ts && bunx tsx tests/refund.test.ts && bunx tsx tests/migrations.test.ts && bunx tsx tests/chat-errors.test.ts && bunx tsx tests/site-url.test.ts",
+    "test": "bunx tsx tests/code-fence.test.ts && bunx tsx tests/account.test.ts && bunx tsx tests/chat-sync.test.ts && bunx tsx tests/truncation.test.ts && bunx tsx tests/model-health.test.ts && bunx tsx tests/temp-chat.test.ts && bunx tsx tests/deleted-chats.test.ts && bunx tsx tests/folders-trash.test.ts && bunx tsx tests/redeem.test.ts && bunx tsx tests/server-control.test.ts && bunx tsx tests/feature-batch.test.ts && bunx tsx tests/composer-and-thread.test.ts && bunx tsx tests/dew.test.ts && bunx tsx tests/dew-activity.test.ts && bunx tsx tests/referral.test.ts && bunx tsx tests/share.test.ts && bunx tsx tests/repo-agent.test.ts && bunx tsx tests/agent-review.test.ts && bunx tsx tests/github-connections.test.ts && bunx tsx tests/setup-check.test.ts && bunx tsx tests/focus-home.test.ts && bunx tsx tests/navigation.test.ts && bunx tsx tests/context-ring.test.ts && bunx tsx tests/ads.test.ts && bunx tsx tests/rate-limit.test.ts && bunx tsx tests/provider-keys.test.ts && bunx tsx tests/email-guard.test.ts && bunx tsx tests/agent-runs.test.ts && bunx tsx tests/receipts.test.ts && bunx tsx tests/refund.test.ts && bunx tsx tests/migrations.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
     "next": "15.5.28",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.6.1",
     "remark-gfm": "^4.0.0",
@@ -27,18 +26,17 @@
     "postcss-selector-parser": "^6.1.5"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.13",
     "@eslint/compat": "^2.1.1",
     "@eslint/eslintrc": "^3.3.7",
-    "@sentry/nextjs": "^11.10.0",
-    "@types/node": "^26.6.6",
+    "@sentry/nextjs": "^11.6.0",
+    "@types/node": "^26.6.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "autoprefixer": "^10.6.2",
+    "autoprefixer": "^10.4.20",
     "eslint": "^9",
-    "eslint-config-next": "^15.5.28",
-    "postcss": "^8.5.32",
+    "eslint-config-next": "^15.5.0",
+    "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5"
   }

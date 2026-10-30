@@ -46,6 +46,7 @@ export interface PricingDialogProps {
 
 export default function PricingDialog({
   modeLabel,
+  repoLabel = null,
   priceDew,
   balance,
   dailyRemaining,
@@ -105,9 +106,14 @@ export default function PricingDialog({
           {formatDew(priceDew)} Dew for an hour
         </h2>
         <p className="mt-1.5 text-[13px] leading-relaxed text-white/50">
-          Free {formatDew(dailyRemaining)}
-          {wallet > 0 ? ` · Wallet ${formatDew(wallet)}` : ""}
-          {paid ? " · Paid pass" : ""}
+          One hour covers every answer in every chat on {modeLabel}
+          {repoLabel ? `, and only the ${repoLabel} repository` : ""}. There is no per-message
+          charge.
+        </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-white/50">
+          You have <span className="font-medium text-white/85">{formatDew(dailyRemaining)} free Dew</span> today
+          {wallet > 0 ? ` and ${formatDew(wallet)} in your wallet` : ""}
+          {paid ? " · paid pass active" : ""}.
         </p>
 
         {notice && (
@@ -119,9 +125,9 @@ export default function PricingDialog({
         {conflict ? (
           <>
             <p className="mt-4 rounded-[14px] border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5 text-[12px] leading-relaxed text-amber-100/80">
-              {conflict}
+              {conflict} Ending the hour now ends the time you have already paid for.
             </p>
-            {canStart && onReplace && (
+            {canStart && onReplace ? (
               <button
                 type="button"
                 onClick={onReplace}
@@ -133,6 +139,10 @@ export default function PricingDialog({
                   {busy ? "Ending the hour…" : `End it and start an hour for ${modeLabel}`}
                 </span>
               </button>
+            ) : (
+              <p className="mt-3 text-[12px] leading-relaxed text-white/45">
+                Keep using the active hour until it ends, or top up so this one can be started after it.
+              </p>
             )}
             <button
               type="button"
@@ -147,10 +157,13 @@ export default function PricingDialog({
           <>
             <div className="mt-4 rounded-[14px] border border-white/[0.07] bg-black/20 px-3 py-2.5">
               {coveredByFree ? (
-                <p className="text-[11.5px] leading-relaxed text-white/50">Free Dew covers this hour.</p>
+                <p className="text-[11.5px] leading-relaxed text-white/50">
+                  Today&apos;s free Dew covers the hour — your wallet is not touched.
+                </p>
               ) : (
                 <p className="text-[11.5px] leading-relaxed text-white/55">
-                  Wallet pays {formatDew(fromWallet)} Dew.
+                  Your free Dew covers {formatDew(Math.min(dailyRemaining, priceDew))}; the other{" "}
+                  <span className="font-medium text-white">{formatDew(fromWallet)} Dew</span> comes from your wallet.
                 </p>
               )}
             </div>
@@ -170,7 +183,8 @@ export default function PricingDialog({
         ) : (
           <>
             <p className="mt-4 rounded-[14px] border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5 text-[12px] leading-relaxed text-amber-100/80">
-              Needs {formatDew(priceDew)} Dew. You have {formatDew(balance)}.
+              An hour needs {formatDew(priceDew)} Dew and you have {formatDew(balance)} left. Top up, or come back after
+              your daily Dew refills.
             </p>
             <Link
               href="/plus"

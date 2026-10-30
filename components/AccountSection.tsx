@@ -14,6 +14,7 @@ import { changePassword } from "@/lib/emailAuth";
 import { pendingEmailChange, requestEmailChange } from "@/lib/emailChange";
 import Spinner from "@/components/Spinner";
 import {
+  accountExplanation,
   accountHeadline,
   describeLinkError,
   linkableProviders,
@@ -125,10 +126,18 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
             <p className="truncate text-[13px] font-medium text-white/90">
               {accountHeadline(view, displayName)}
             </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-white/40">
+              {accountExplanation(view)}
+            </p>
             {signedIn && (
               <p className="mt-1 text-[10.5px] text-white/30">
                 Signed in with {providerLabel(view.provider)}
                 {view.emailVerified ? "" : " · address not confirmed"}
+              </p>
+            )}
+            {signedIn && view.provider === "email" && !view.emailVerified && (
+              <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
+                Email not confirmed yet. Nothing is blocked — confirm it whenever the link arrives.
               </p>
             )}
           </div>
@@ -140,6 +149,9 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
               <ProfileAvatar name={name || displayName || "Openmi user"} seed={avatarSeed} size={56} />
               <div className="min-w-0 flex-1">
                 <p className="text-[12px] text-white/80">Profile picture</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-white/35">
+                  Generated from this account — no upload needed.
+                </p>
               </div>
             </div>
             <label className="block">
@@ -185,7 +197,9 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
 
         {(unconfigured || unreachable) && (
           <p className="mt-2 text-[10.5px] leading-relaxed text-amber-100/60">
-            {unconfigured ? "Accounts are not configured." : "Account service unreachable."}
+            {unconfigured
+              ? "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for this deployment, then rebuild."
+              : "Sign-in is unavailable while the account service is unreachable."}
           </p>
         )}
 
@@ -260,7 +274,8 @@ function ChangeEmail({ current }: { current: string | null }) {
           <p className="mt-0.5 break-all text-[11px] text-white/45">{current}</p>
           {pending && (
             <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
-              Waiting for confirmation of {pending}.
+              Waiting for confirmation of {pending}. Open the link sent there — and the one sent to{" "}
+              {current}, if your project asks both addresses to approve it.
             </p>
           )}
         </div>
@@ -533,6 +548,10 @@ function SignInMethods({ email }: { email: string | null }) {
         <div className="mt-2 border-t border-white/[0.06] pt-2">
           {passwordOpen ? (
             <form onSubmit={addPassword} className="space-y-1.5">
+              <p className="text-[10.5px] leading-relaxed text-white/40">
+                A password for <span className="break-all text-white/70">{email}</span> — the address this
+                account already has. Nothing is re-addressed and nothing is emailed.
+              </p>
               <div className="flex gap-1.5">
                 <input
                   type="password"

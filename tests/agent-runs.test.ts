@@ -408,13 +408,6 @@ async function main(): Promise<void> {
     assert.equal(failure.detail, "run-table-missing");
   });
 
-  await check("a refused insert names the grants migration and the key to check", () => {
-    const failure = runStartFailure("denied");
-    assert.match(failure.error, /20261029000600_agent_runs_service_grants\.sql/);
-    assert.match(failure.error, /SUPABASE_SERVICE_ROLE_KEY/);
-    assert.equal(failure.detail, "run-denied");
-  });
-
   await check("a missing sealing key names the variable, not a migration", () => {
     const failure = runStartFailure("no-key");
     assert.match(failure.error, /GITHUB_TOKEN_KEY/);

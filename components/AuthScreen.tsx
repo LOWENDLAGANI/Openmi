@@ -114,6 +114,10 @@ export default function AuthScreen({ initialError = null, unavailable = null, ba
           <h1 className="mt-4 text-[24px] font-semibold tracking-[-0.03em]">
             Sign in to Openmi
           </h1>
+          <p className="mt-2 max-w-[320px] text-[12.5px] leading-relaxed text-white/45">
+            An account keeps your chats, preferences and repository connections with you on every
+            browser.
+          </p>
         </div>
 
         {unavailable && (
@@ -121,7 +125,9 @@ export default function AuthScreen({ initialError = null, unavailable = null, ba
             role="status"
             className="mt-6 rounded-[16px] border border-amber-300/20 bg-amber-400/[0.05] px-3.5 py-3 text-[11.5px] leading-relaxed text-amber-100/85"
           >
-            {unavailable === "unconfigured" ? "Accounts are not configured." : "Account service unreachable."}
+            {unavailable === "unconfigured"
+              ? "This deployment has no Supabase project configured, so accounts cannot be used yet. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY and rebuild."
+              : "Openmi cannot reach the account service right now. Your local data is safe — check the connection and reload."}
           </div>
         )}
 
@@ -163,13 +169,15 @@ export default function AuthScreen({ initialError = null, unavailable = null, ba
 
 
 
-        <p className="mt-2 text-center text-[10.5px] text-white/30">
+        <p className="mt-2 text-center text-[10.5px] leading-relaxed text-white/30">
+          How your messages, connections and ads are handled is set out in the{" "}
           <Link
             href="/privacy"
             className="text-[#a9d8bb]/80 underline decoration-[#a9d8bb]/25 underline-offset-2 transition-colors hover:text-[#a9d8bb]"
           >
             Privacy Policy
           </Link>
+          .
         </p>
       </div>
     </div>

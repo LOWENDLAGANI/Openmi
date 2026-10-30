@@ -51,7 +51,6 @@ import {
 } from "@/lib/preferences";
 import { DEFAULT_MODE_ID, getMode, modeCapabilities, type ModeId } from "@/lib/models";
 import { readAgentStream } from "@/lib/agentStream";
-import { sanitizeError } from "@/lib/chatErrors";
 import { refreshDew, useDew } from "@/lib/useDew";
 import { DEW_PER_HOUR } from "@/lib/dew";
 // getMode is used for the assistant message engine label below.
@@ -876,19 +875,6 @@ export default function HomePage() {
     abortRef.current?.abort();
   }, []);
 
-  // Escape is the keyboard's Stop: the same action as the button, without
-  // moving the pointer off the answer the reader wants to keep. Only while a
-  // stream is live, and never when something else already claimed the key.
-  useEffect(() => {
-    if (!streamingId) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      stopStreaming();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [streamingId, stopStreaming]);
-
   // Turning the server's own refusal into a countdown the composer can show.
   // `retryAfterSeconds` from the body is authoritative when it is there; the
   // sentence is the fallback for an older server, a proxy that rewrote the
@@ -962,9 +948,38 @@ export default function HomePage() {
     async (id: string, content: string): Promise<void> => patchMessage(id, { content }),
     [patchMessage]
   );
+  const sanitizeError = useCallback((error: unknown): string => {
+    if (typeof error === "string") {
+      const msg = error.trim();
+      if (!msg) return "Something went wrong. Please try again.";
+      // Make technical errors more user-friendly
+      if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
+        return "Connection issue. Please check your internet and try again.";
+      }
+      if (msg.toLowerCase().includes("timeout")) {
+        return "The request timed out. Please try again.";
+      }
+      if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("401")) {
+        return "Something went wrong with authentication. Please try signing in again.";
+      }
+      if (msg.toLowerCase().includes("rate limit")) {
+        return "Too many requests. Please wait a moment and try again.";
+      }
+      // If it's very technical/long, make it simpler
+      if (msg.length > 200 || msg.includes("{\"")) {
+        return "Something went wrong. Please try again.";
+      }
+      return msg;
+    }
+    if (error instanceof Error) {
+      return sanitizeError(error.message);
+    }
+    return "Something went wrong. Please try again.";
+  }, []);
+
   const markError = useCallback(
     async (id: string, error: string | unknown): Promise<void> => patchMessage(id, { error: sanitizeError(error) }),
-    [patchMessage]
+    [patchMessage, sanitizeError]
   );
   const writeUsage = useCallback(
     async (

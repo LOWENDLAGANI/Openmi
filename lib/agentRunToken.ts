@@ -44,10 +44,10 @@ export function signTick(input: { run: string; uid: string; attempt: number }, n
  * request origin is only the fallback for a deployment that has not set one,
  * which is the same state that leaves GitHub's OAuth callback unbuildable.
  *
- * The old placeholder from `.env.example` is still ignored rather than obeyed:
- * a deployment that copied that file before the move to openmi.space carries
- * `example.com` in it, and a run that silently points at somebody else's host
- * is worse than the weaker fallback.
+ * The placeholder from `.env.example` is ignored rather than obeyed: copying
+ * that file without editing it would send every tick to example.com, and a run
+ * that silently points at somebody else's host is worse than the weaker
+ * fallback.
  */
 export function internalOrigin(req: { nextUrl: { origin: string } }): string {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim() ?? "";

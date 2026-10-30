@@ -235,6 +235,16 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
         </svg>
         Web sources
       </div>
+      {/* Prompt injection is real and pages are writable by anyone: the reader
+          deserves to see that these snippets are reference material, not
+          Openmi's own words. The system prompt already says so to the model;
+          this says it to the person. */}
+      <p className="mb-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-text-low">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0" aria-hidden="true">
+          <path d="M12 3l7 3v5c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3Z" />
+        </svg>
+        <span>Untrusted web text — Openmi was told to treat these pages as reference, not as instructions.</span>
+      </p>
       <div className="space-y-1.5">
         {sources.map((source) => {
           let host = source.url;
@@ -550,8 +560,7 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
               type="button"
               onClick={onPropose}
               className="thread-tool gap-1.5"
-              title="Starts a new Code request. Nothing is committed until you approve."
-             
+              title="Ask Openmi to stage this change as a diff you review. Starts a new Code request; nothing is committed until you approve it."
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 3v12" />
@@ -807,7 +816,6 @@ export default function ChatThread({  messages,
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
-  const [atBottom, setAtBottom] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
   const [showSourceHistory, setShowSourceHistory] = useState(false);
   // Seeded deterministically for SSR, then randomized after mount.
@@ -833,15 +841,7 @@ export default function ChatThread({  messages,
   const handleScroll = () => {
     const el = containerRef.current;
     if (!el) return;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    stickRef.current = near;
-    setAtBottom(near);
-  };
-
-  const jumpToLatest = () => {
-    stickRef.current = true;
-    setAtBottom(true);
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
 
   const allSources = messages.flatMap((message) => message.sources ?? []);
@@ -861,6 +861,9 @@ export default function ChatThread({  messages,
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-text-hi sm:text-[54px] lg:text-[62px]">
             {headline}
           </h1>
+          {/* With a repository attached, the first question is where the
+              agent's boundary has to be legible: it reads and proposes, and
+              only an approval commits anything. */}
           {agentRepo && (
             <p className="mx-auto mt-4 max-w-md text-balance text-[12.5px] leading-relaxed text-text-mid">
               Openmi can read <span className="font-mono text-text-body">{agentRepo}</span> and stage a diff.
@@ -886,7 +889,7 @@ export default function ChatThread({  messages,
           {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="thread-tool">Sources ({allSources.length})</button>}
           {showSourceHistory && <button type="button" onClick={() => void copySources()} className="thread-tool">Copy links</button>}
         </div>
-        {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
+        {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-text-low">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-4">
           {messages.map((msg, index) => (
             <Fragment key={msg.id}>
@@ -923,23 +926,6 @@ export default function ChatThread({  messages,
           <div ref={bottomRef} className="h-px" />
         </div>
       </div>
-      {/* Only while reading back: a sticky element whose normal place is the
-          end of the thread, so it surfaces exactly when that end is offscreen. */}
-      {!atBottom && messages.length > 0 && (
-        <div className="pointer-events-none sticky bottom-3 -mt-10 flex justify-center">
-          <button
-            type="button"
-            onClick={jumpToLatest}
-            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card text-text-mid shadow-lg transition-colors hover:text-text-hi"
-            aria-label="Jump to latest"
-            title="Jump to latest"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 5v14M5 12l7 7 7-7" />
-            </svg>
-          </button>
-        </div>
-      )}
     </div>
   );
 }
