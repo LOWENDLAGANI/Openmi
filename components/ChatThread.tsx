@@ -7,9 +7,10 @@ import { isShareId, shareUrl, type ShareMessage, type ShareSnapshot } from "@/li
 import Link from "next/link";
 import Markdown from "./Markdown";
 import OpenmiMark from "./OpenmiMark";
+import Spinner from "./Spinner";
 import ChangeReview from "./ChangeReview";
 import { useSmoothText } from "@/lib/useSmoothText";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 interface ChatThreadProps {
   messages: ChatMessage[];
@@ -26,6 +27,15 @@ interface ChatThreadProps {
    * runs, so a turn that takes half a minute never looks like it stopped.
    */
   activity?: string | null;
+  /**
+   * The reasoning the model streamed before its answer.
+   *
+   * Live-only and deliberately not a field on `ChatMessage`: it is the model's
+   * scratchpad, it arrives only from a thinking model, and storing it would put
+   * it in every backup the user exports. The panel opens only when text arrived,
+   * so a model that exposes nothing is never given an empty "Thinking…" box.
+   */
+  thinking?: { messageId: string; text: string } | null;
   /**
    * Asks the agent to stage the change it just described. This is a new Code
    * turn, not a free add-on: the button says so in its title.
@@ -225,16 +235,6 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
         </svg>
         Web sources
       </div>
-      {/* Prompt injection is real and pages are writable by anyone: the reader
-          deserves to see that these snippets are reference material, not
-          Openmi's own words. The system prompt already says so to the model;
-          this says it to the person. */}
-      <p className="mb-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-text-low">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0" aria-hidden="true">
-          <path d="M12 3l7 3v5c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3Z" />
-        </svg>
-        <span>Untrusted web text — Openmi was told to treat these pages as reference, not as instructions.</span>
-      </p>
       <div className="space-y-1.5">
         {sources.map((source) => {
           let host = source.url;
@@ -427,13 +427,11 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
       {/* The answer is a card: white on the gray canvas, a hairline border and
           the softest shadow that still lifts it off the page. The model badge
           sits at the top of the card rather than floating above it, so the
-          whole turn is one object. */}
-      <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
+          whole turn is one object. */}          <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
         {/* Header only when there is an answer to head. A turn that produced
             no text has already returned above as a bare alert. */}
         {msg.content && (
           <div className="mb-2.5 flex items-center gap-2">
-            <ModelBadge model={msg.model} />
             {msg.usage && (
               <span
                 className="text-[10px] text-text-low"
@@ -500,7 +498,7 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
             directly under the text that explains it. It reads the stored change
             set rather than the step response, so a reload keeps a reviewable
             change instead of losing the only diff the browser ever held. */}
-        {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} />}
+        {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} review={msg.review} />}
 
         {msg.sources && <SearchSources sources={msg.sources} />}
 
@@ -552,7 +550,8 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
               type="button"
               onClick={onPropose}
               className="thread-tool gap-1.5"
-              title="Ask Openmi to stage this change as a diff you review. Starts a new Code request; nothing is committed until you approve it."
+              title="Starts a new Code request. Nothing is committed until you approve."
+             
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 3v12" />
@@ -580,15 +579,7 @@ function TypingDots({ message }: { message: string }) {
           the message card above it. */}
       <span className="typing-waiter-glow" aria-hidden="true" />
       <div className="flex items-center gap-2 py-1">
-        <span className="flex items-center gap-1" aria-hidden="true">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="h-1 w-1 rounded-full animate-blink bg-text-mid"
-              style={{ animationDelay: `${i * 0.18}s` }}
-            />
-          ))}
-        </span>
+        <Spinner variant="pulse" size={13} className="text-text-mid" />
         <span className="text-[12px] leading-relaxed text-text-mid">{message}</span>
       </div>
     </div>
@@ -779,6 +770,28 @@ function nextHeadline(): string {
   return headline;
 }
 
+/**
+ * The reasoning panel above an answer.
+ *
+ * Rendered only when a model actually streamed thinking — DeepSeek and Groq's
+ * GPT-OSS do, and most plain models send nothing at all — and closed by default,
+ * because the answer should be read before the working that produced it. The
+ * text is the model's own words, so it stays plain: a stray `**` in a thought
+ * must not become a heading, and a stray tag must not run.
+ */
+function ThinkingBlock({ text }: { text: string }) {
+  return (
+    <details className="animate-rise rounded-xl border border-line bg-canvas px-3 py-1.5">
+      <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.12em] text-text-low">
+        Thinking
+      </summary>
+      <div className="mt-1.5 whitespace-pre-wrap break-words text-[11.5px] leading-relaxed text-text-mid">
+        {text}
+      </div>
+    </details>
+  );
+}
+
 export default function ChatThread({  messages,
   streamingId,
   isEmpty,
@@ -787,12 +800,14 @@ export default function ChatThread({  messages,
   onCopyConversation,
   onSwitchVariant,
   activity = null,
+  thinking = null,
   onPropose,
   agentRepo = null,
 }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
   const [showSourceHistory, setShowSourceHistory] = useState(false);
   // Seeded deterministically for SSR, then randomized after mount.
@@ -818,7 +833,15 @@ export default function ChatThread({  messages,
   const handleScroll = () => {
     const el = containerRef.current;
     if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    stickRef.current = near;
+    setAtBottom(near);
+  };
+
+  const jumpToLatest = () => {
+    stickRef.current = true;
+    setAtBottom(true);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   };
 
   const allSources = messages.flatMap((message) => message.sources ?? []);
@@ -838,9 +861,6 @@ export default function ChatThread({  messages,
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-text-hi sm:text-[54px] lg:text-[62px]">
             {headline}
           </h1>
-          {/* With a repository attached, the first question is where the
-              agent's boundary has to be legible: it reads and proposes, and
-              only an approval commits anything. */}
           {agentRepo && (
             <p className="mx-auto mt-4 max-w-md text-balance text-[12.5px] leading-relaxed text-text-mid">
               Openmi can read <span className="font-mono text-text-body">{agentRepo}</span> and stage a diff.
@@ -866,12 +886,13 @@ export default function ChatThread({  messages,
           {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="thread-tool">Sources ({allSources.length})</button>}
           {showSourceHistory && <button type="button" onClick={() => void copySources()} className="thread-tool">Copy links</button>}
         </div>
-        {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-text-low">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
+        {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-4">
           {messages.map((msg, index) => (
-            <MessageRow
-              key={msg.id}
-              msg={msg}
+            <Fragment key={msg.id}>
+              {thinking?.messageId === msg.id && <ThinkingBlock text={thinking.text} />}
+              <MessageRow
+                msg={msg}
               streaming={msg.id === streamingId}
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
@@ -885,23 +906,12 @@ export default function ChatThread({  messages,
                 (msg.steps?.length ?? 0) > 0 &&
                 !msg.steps?.some((step) => step.tool === "propose_edits")
               }
-              share={shareSnapshotAt(messages, index)}
-            />
+                share={shareSnapshotAt(messages, index)}
+              />
+            </Fragment>
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">
-              <div className="mb-2 flex items-center gap-2">
-                {(() => {
-                  const m = messages.find((x) => x.id === streamingId);
-                  return m ? (
-                    <>
-                      <ModelBadge model={m.model} />
-                    </>
-                  ) : (
-                    <span className="text-[12px] font-medium text-text-mid">Openmi</span>
-                  );
-                })()}
-              </div>
               <TypingDots message={loadingMessage} />
             </div>
           )}
@@ -913,31 +923,27 @@ export default function ChatThread({  messages,
           <div ref={bottomRef} className="h-px" />
         </div>
       </div>
+      {/* Only while reading back: a sticky element whose normal place is the
+          end of the thread, so it surfaces exactly when that end is offscreen. */}
+      {!atBottom && messages.length > 0 && (
+        <div className="pointer-events-none sticky bottom-3 -mt-10 flex justify-center">
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card text-text-mid shadow-lg transition-colors hover:text-text-hi"
+            aria-label="Jump to latest"
+            title="Jump to latest"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12l7 7 7-7" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Model identity badge (added for UI overhaul) ──────────────────────────
-// Visual indicator showing which Openmi model responded with color-coded styling
-import { OPENMI_MODES } from "@/lib/models";
-
-function ModelBadge({ model }: { model?: string }) {
-  // A stored message carries the display name rather than the mode id, so both
-  // are matched. Looking up the id alone made every pinned mode fall back to
-  // Auto's badge and label.
-  const mode =
-    OPENMI_MODES.find((m) => m.id === model || m.display === model) ?? OPENMI_MODES[0];
-  const isCode = mode.id === "code";
-  const badgeClass = isCode ? "model-badge model-badge-code" : "model-badge model-badge-auto";
-  const label = mode.display;
-  
-  return (
-    <span className={badgeClass}>
-      <span className="model-badge-dot" />
-      {label}
-    </span>
-  );
-}
 
 /** The triangle every alert in the thread uses. */
 function AlertIcon() {

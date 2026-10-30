@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import MaintenanceGate from "@/components/MaintenanceGate";
 import RedeemCodeBox from "@/components/RedeemCodeBox";
-import DewQrDialog from "@/components/DewQrDialog";
-import PassQrDialog from "@/components/PassQrDialog";
+import DewPayDialog from "@/components/DewPayDialog";
+import PassPayDialog from "@/components/PassPayDialog";
+import ReceiptUpload from "@/components/ReceiptUpload";
+import PaymentsSetupNotice from "@/components/PaymentsSetupNotice";
 import { watchAccount } from "@/lib/account";
 import type { AccountView } from "@/lib/accountState";
 import { authHeader, getSupabase } from "@/lib/supabase";
@@ -15,6 +17,7 @@ import {
   PAID_BENEFITS,
   PAID_PLANS,
   browserLocale,
+  currencyForLocale,
   formatPlanPrice,
   type PaidPlan,
 } from "@/lib/pricing";
@@ -348,19 +351,26 @@ function PlansPanel({ onChoose }: { onChoose: (plan: PaidPlan) => void }) {
             onClick={() => onChoose(plan)}
             className="group flex flex-col items-start gap-1 rounded-[18px] border border-white/[0.09] bg-white/[0.03] px-4 py-3.5 text-left transition-colors hover:border-[#a9d8bb]/40 hover:bg-[#a9d8bb]/[0.06]"
           >
+            {/* The ringgit figure is the price: it is what a DuitNow transfer
+                takes. A converted number is a courtesy for readers who do not
+                think in ringgit, never the amount that is charged. */}
             <span className="text-[19px] font-semibold leading-none text-white">
-              {/* Before the locale is known the planning price is printed, so
-                  the server render and the first client render agree. */}
-              {locale ? formatPlanPrice(plan.usd, locale) : `$${plan.usd}`}
+              {formatRinggit(plan.ringgit)}
             </span>
+            {locale && currencyForLocale(locale) !== "MYR" && (
+              <span className="text-[10.5px] leading-snug text-white/35">
+                {formatPlanPrice(plan.usd, locale)}
+              </span>
+            )}
             <span className="text-[12px] font-medium text-white/70">{plan.label}</span>
             <span className="text-[10.5px] leading-snug text-white/35">{plan.note}</span>
           </button>
         ))}
       </div>
       <p className="mt-2 text-[10.5px] leading-relaxed text-white/35">
-        Prices are shown in your country&apos;s currency; the DuitNow transfer is in ringgit. A pass
-        activates after the payment lands, and its 15 Dew a day starts then.
+        The price is in ringgit, because that is what the DuitNow transfer takes. A second figure,
+        when shown, follows the language this browser is set to — not where you are — and is
+        approximate. A pass activates after the payment lands, and its 15 Dew a day starts then.
       </p>
     </section>
   );
@@ -390,12 +400,22 @@ export default function OpenmiPlusPage() {
 
   const canShowWallet = account?.status === "signed-in";
 
+  // The dialogs end by pointing at the receipt form rather than at "Done".
+  // Closing first lets the page scroll while the body is no longer locked.
+  const focusReceipt = () => {
+    setDewTopUp(null);
+    setPassPlan(null);
+    window.setTimeout(() => {
+      document.getElementById("send-receipt")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+
   return (
     <MaintenanceGate>
       <main className="min-h-dvh bg-[#0b1310] px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
         <div className="mx-auto w-full max-w-2xl lg:max-w-3xl">
           <Link
-            href="/"
+            href="/chat"
             aria-label="Back to Openmi"
             className="lift mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12] hover:text-white"
           >
@@ -434,7 +454,7 @@ export default function OpenmiPlusPage() {
                 to know who it is before it can show one.
               </p>
               <Link
-                href="/"
+                href="/chat"
                 className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12]"
               >
                 {account ? "Sign in to Openmi" : "Checking your account…"}
@@ -468,7 +488,10 @@ export default function OpenmiPlusPage() {
             </section>
           )}
 
-
+          {/* Before the form, not inside it: a deployment that cannot store a
+              receipt must say so above the payment it cannot honour. */}
+          {canShowWallet && <PaymentsSetupNotice className="mt-5" />}
+          {canShowWallet && <ReceiptUpload defaultName={account?.name ?? null} />}
 
           {canShowWallet && (
             <div className="mt-5">
@@ -478,8 +501,22 @@ export default function OpenmiPlusPage() {
         </div>
       </main>
 
-      {dewTopUp && <DewQrDialog key={dewTopUp.id} pack={dewTopUp} onClose={() => setDewTopUp(null)} />}
-      {passPlan && <PassQrDialog key={passPlan.id} plan={passPlan} onClose={() => setPassPlan(null)} />}
+      {dewTopUp && (
+        <DewPayDialog
+          key={dewTopUp.id}
+          pack={dewTopUp}
+          onClose={() => setDewTopUp(null)}
+          onSendReceipt={focusReceipt}
+        />
+      )}
+      {passPlan && (
+        <PassPayDialog
+          key={passPlan.id}
+          plan={passPlan}
+          onClose={() => setPassPlan(null)}
+          onSendReceipt={focusReceipt}
+        />
+      )}
     </MaintenanceGate>
   );
 }

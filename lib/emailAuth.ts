@@ -68,7 +68,8 @@ function client() {
 
 /** The origin the confirmation or reset mail should come back to. */
 function returnUrl(): string | undefined {
-  return typeof window === "undefined" ? undefined : window.location.origin;
+  // The confirmation and reset mails return to the product, not the landing page.
+  return typeof window === "undefined" ? undefined : `${window.location.origin}/chat`;
 }
 
 /**

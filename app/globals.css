@@ -4,6 +4,10 @@
 
 :root {
   color-scheme: dark;
+  /* The landing page's two faces, loaded in app/layout.tsx. Components reach
+     them through Tailwind's `font-sans` / `font-mono`, and prose code through
+     `--font-mono`, so there is one type system rather than a marketing one. */
+  --font-mono: var(--font-lp-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --bg: #0b1310;
   --bg-raised: #111a16;
   --bg-hover: #17221c;
@@ -43,41 +47,53 @@
   --warn-border: rgba(251, 191, 36, 0.2);
   --warn-ink: #fcd34d;
   --warn-strong: #fde68a;
+
+  /* Motion system: buy a few good moments, not motion everywhere. */
+  --motion-ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-ink: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-fast: 140ms var(--motion-ease-smooth);
+  --motion-base: 260ms var(--motion-ease-smooth);
+  --motion-slow: 420ms var(--motion-ease-smooth);
 }
 
-/* ── Light mode: the Openmi product palette ─────────────────────────────────
-   A light neutral canvas (gray-50) with white cards on top of it, charcoal
-   text, and one electric blue for anything that is the user's own — their
-   message, the send button, an active control. Every value here is a token,
-   so the components are written once against the variables and the paper
-   appearance is a table of values rather than a second stylesheet. */
+/* ── Paper: the landing page's palette, carried into the product ────────────
+   A warm paper canvas (#f3f1e9), raised cream cards, ink text, and one orange
+   for anything that is the user's own — their message, the send button, an
+   active control. The grey-and-blue scheme this replaces read as a dashboard;
+   this is the same app wearing the marketing page's clothes.
+
+   Every value here is a token, so the components are written once against the
+   variables and an appearance is a table of values rather than a second
+   stylesheet. Note `--on-accent`: the accent is saturated orange, so the text
+   inside it is nearly black, exactly as the landing page's buttons do it. */
 html.light {
   color-scheme: light;
-  --bg: #f8f9fa;
-  --bg-raised: #ffffff;
-  --bg-hover: #f3f4f6;
-  --bg-elevated: #ffffff;
-  --line: #e5e7eb;
-  --line-strong: #d1d5db;
-  --text-hi: #111827;
-  --text: #1f2937;
-  --text-mid: #6b7280;
-  --text-low: #9ca3af;
-  --accent: #0066ff;
-  --accent-soft: rgba(0, 102, 255, 0.1);
-  --azure: #0066ff;
-  --azure-soft: rgba(0, 102, 255, 0.1);
-  --code: #b45309;
-  --code-soft: rgba(180, 83, 9, 0.1);
-  --on-accent: #ffffff;
-  --card: #ffffff;
-  --card-border: #e5e7eb;
-  --card-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
-  --bubble-user: #0066ff;
-  --bubble-user-text: #ffffff;
-  --dock: #ffffff;
-  --chip: #ffffff;
-  --chip-border: #e5e7eb;
+  --bg: #f3f1e9;
+  --bg-raised: #fbf9f2;
+  --bg-hover: #eae6db;
+  --bg-elevated: #fffdf7;
+  --line: rgba(21, 19, 15, 0.12);
+  --line-strong: rgba(21, 19, 15, 0.22);
+  --text-hi: #15130f;
+  --text: #2b2722;
+  --text-mid: #6b6154;
+  --text-low: #8a8172;
+  --accent: #f55036;
+  --accent-soft: rgba(245, 80, 54, 0.1);
+  --azure: #a8562f;
+  --azure-soft: rgba(168, 86, 47, 0.12);
+  --code: #8a4b2a;
+  --code-soft: rgba(138, 75, 42, 0.1);
+  --on-accent: #15130f;
+  --card: #fbf9f2;
+  --card-border: rgba(21, 19, 15, 0.12);
+  --card-shadow: 0 1px 2px rgba(21, 19, 15, 0.04), 0 10px 28px -22px rgba(21, 19, 15, 0.4);
+  --bubble-user: #f55036;
+  --bubble-user-text: #15130f;
+  --dock: #f3f1e9;
+  --chip: #fbf9f2;
+  --chip-border: rgba(21, 19, 15, 0.14);
   --danger-bg: #fef2f2;
   --danger-border: #fecaca;
   --danger-ink: #b91c1c;
@@ -93,7 +109,7 @@ html.light body { background: var(--bg); }
    light chat interface look busy. */
 html.light .app-surface { background: var(--bg); }
 html.light .surface-glow { background: none; }
-html.light aside { background: #ffffff !important; }
+html.light aside { background: #f7f5ee !important; }
 
 /* ── Focus home: the ink-indigo theme ─────────────────────────────────────
    The Focus home is one design with one palette: a near-black indigo canvas,
@@ -190,7 +206,7 @@ html.ink [class*=" bg-[#1a2620]"], html.ink [class^="bg-[#1a2620]"] { background
    buttons, a filled pill behind the model name, panels tinted for no reason.
    A prefixed variant is now never read as a rest state, and the hover rules at
    the end of this block put the feedback back where it belongs. */
-html.light .text-white { color: #111827 !important; }
+html.light .text-white { color: #15130f !important; }
 
 /* Muted and micro text */
 html.light [class*=" text-white/1"],
@@ -198,17 +214,17 @@ html.light [class^="text-white/1"],
 html.light [class*=" text-white/2"],
 html.light [class^="text-white/2"],
 html.light [class*=" text-white/3"],
-html.light [class^="text-white/3"] { color: #9ca3af !important; }
+html.light [class^="text-white/3"] { color: #8a8172 !important; }
 
 /* Secondary text */
 html.light [class*=" text-white/4"],
 html.light [class^="text-white/4"],
 html.light [class*=" text-white/5"],
-html.light [class^="text-white/5"] { color: #6b7280 !important; }
+html.light [class^="text-white/5"] { color: #6b6154 !important; }
 
 /* Mid-weight text: between secondary and body copy. */
 html.light [class*=" text-white/6"],
-html.light [class^="text-white/6"] { color: #4b5563 !important; }
+html.light [class^="text-white/6"] { color: #4a443a !important; }
 
 /* Primary text */
 html.light [class*=" text-white/7"],
@@ -216,21 +232,21 @@ html.light [class^="text-white/7"],
 html.light [class*=" text-white/8"],
 html.light [class^="text-white/8"],
 html.light [class*=" text-white/9"],
-html.light [class^="text-white/9"] { color: #111827 !important; }
+html.light [class^="text-white/9"] { color: #15130f !important; }
 
 html.light [class*=" bg-white/"],
-html.light [class^="bg-white/"] { background-color: rgba(17, 24, 39, 0.05) !important; }
+html.light [class^="bg-white/"] { background-color: rgba(21, 19, 15, 0.05) !important; }
 html.light [class*=" border-white/"],
-html.light [class^="border-white/"] { border-color: #e5e7eb !important; }
+html.light [class^="border-white/"] { border-color: #e4dfd2 !important; }
 /* Only the small black washes are surfaces — an input well, a code chip. The
    deep ones (60–85%) are modal backdrops and stay dark, because a light-mode
    dialog still needs a dimmed page behind it. */
 html.light [class~="bg-black/20"],
 html.light [class~="bg-black/25"],
 html.light [class~="bg-black/30"],
-html.light [class~="bg-black/40"] { background-color: rgba(17, 24, 39, 0.05) !important; }
+html.light [class~="bg-black/40"] { background-color: rgba(21, 19, 15, 0.05) !important; }
 html.light [class*=" shadow-black"],
-html.light [class^="shadow-black"] { box-shadow: 0 18px 40px -24px rgba(17, 24, 39, 0.28) !important; }
+html.light [class^="shadow-black"] { box-shadow: 0 18px 40px -24px rgba(21, 19, 15, 0.28) !important; }
 
 /* Deep surfaces that were written as literal hex values rather than tokens.
    Naming each one keeps the rule honest: a sheet, a panel, and the page all
@@ -245,7 +261,7 @@ html.light [class*=" bg-[#141f1a]"], html.light [class^="bg-[#141f1a]"],
 html.light [class*=" bg-[#1a2620]"], html.light [class^="bg-[#1a2620]"],
 html.light [class*=" bg-[#111a16]"], html.light [class^="bg-[#111a16]"],
 html.light [class*=" bg-[#0e1613]"], html.light [class^="bg-[#0e1613]"],
-html.light [class*=" bg-[#0b1312]"], html.light [class^="bg-[#0b1312]"] { background-color: #ffffff !important; }
+html.light [class*=" bg-[#0b1312]"], html.light [class^="bg-[#0b1312]"] { background-color: #fbf9f2 !important; }
 
 /* Decorative glows were painted for a dark canvas. On paper they stop being a
    glow and become a coloured smudge behind the logo, so they are switched off
@@ -253,12 +269,14 @@ html.light [class*=" bg-[#0b1312]"], html.light [class^="bg-[#0b1312]"] { backgr
 html.light [class*=" blur-3xl"], html.light [class^="blur-3xl"] { display: none !important; }
 
 /* The sage accent family the dark theme was built on reads as a foreign colour
-   on paper, so every literal use of it is the same electric blue in light. */
+   on paper, so every literal use of it is the same orange in light. */
 html.light [class*=" text-[#a9d8bb]"], html.light [class^="text-[#a9d8bb]"],
 html.light [class*=" text-[#c9e6d4]"], html.light [class^="text-[#c9e6d4]"],
 html.light [class*=" text-[#b6e3c8]"], html.light [class^="text-[#b6e3c8]"],
 html.light [class*=" text-[#d7f0e1]"], html.light [class^="text-[#d7f0e1]"],
-html.light [class*=" text-[#6ec294]"], html.light [class^="text-[#6ec294]"] { color: #0066ff !important; }
+html.light [class*=" text-[#6ec294]"], html.light [class^="text-[#6ec294]"] { color: #f55036 !important; }
+html.light [class*=" text-[#2f6b48]"], html.light [class^="text-[#2f6b48]"],
+html.light [class*=" text-[#c9e7d5]"], html.light [class^="text-[#c9e7d5]"] { color: #f55036 !important; }
 /* A solid accent fill becomes the blue; a wash of the same colour stays a wash.
    The `~=` form matches the whole class token, so a `/15` tint is not caught
    here and turned into a wall of saturated blue. */
@@ -269,14 +287,14 @@ html.light [class~="bg-[#35744f]"],
 html.light [class~="bg-[#3a8359]"],
 html.light [class~="bg-[#327350]"],
 html.light [class~="bg-[#7fd1a1]"],
-html.light [class~="bg-[#a9d8bb]"] { background-color: #0066ff !important; }
+html.light [class~="bg-[#a9d8bb]"] { background-color: #f55036 !important; }
 html.light [class*=" bg-[#2f6b48]/"], html.light [class^="bg-[#2f6b48]/"],
 html.light [class*=" bg-[#2a6142]/"], html.light [class^="bg-[#2a6142]/"],
 html.light [class*=" bg-[#7fd1a1]/"], html.light [class^="bg-[#7fd1a1]/"],
-html.light [class*=" bg-[#a9d8bb]/"], html.light [class^="bg-[#a9d8bb]/"] { background-color: rgba(0, 102, 255, 0.1) !important; }
+html.light [class*=" bg-[#a9d8bb]/"], html.light [class^="bg-[#a9d8bb]/"] { background-color: rgba(245, 80, 54, 0.1) !important; }
 html.light [class*=" border-[#2f6b48]"], html.light [class^="border-[#2f6b48]"],
 html.light [class*=" border-[#3f7d5c]"], html.light [class^="border-[#3f7d5c]"],
-html.light [class*=" border-[#a9d8bb]"], html.light [class^="border-[#a9d8bb]"] { border-color: rgba(0, 102, 255, 0.35) !important; }
+html.light [class*=" border-[#a9d8bb]"], html.light [class^="border-[#a9d8bb]"] { border-color: rgba(245, 80, 54, 0.35) !important; }
 html.light [class*=" text-[#0a100d]"], html.light [class^="text-[#0a100d]"],
 html.light [class*=" text-[#121c18]"], html.light [class^="text-[#121c18]"] { color: #ffffff !important; }
 
@@ -301,37 +319,37 @@ html.light [class*=" text-emerald-3"], html.light [class^="text-emerald-3"] { co
    permanent paint. Without these, turning off the leak above would leave every
    control with no feedback under the cursor at all. */
 html.light [class*=" hover:bg-white/"]:hover,
-html.light [class^="hover:bg-white/"]:hover { background-color: rgba(17, 24, 39, 0.06) !important; }
-html.light [class*=" active:bg-white/"]:active { background-color: rgba(17, 24, 39, 0.09) !important; }
+html.light [class^="hover:bg-white/"]:hover { background-color: rgba(21, 19, 15, 0.06) !important; }
+html.light [class*=" active:bg-white/"]:active { background-color: rgba(21, 19, 15, 0.09) !important; }
 html.light [class*=" hover:text-white"]:hover,
-html.light [class^="hover:text-white"]:hover { color: #111827 !important; }
+html.light [class^="hover:text-white"]:hover { color: #15130f !important; }
 html.light [class*=" hover:border-white"]:hover,
-html.light [class^="hover:border-white"]:hover { border-color: #d1d5db !important; }
+html.light [class^="hover:border-white"]:hover { border-color: #cdc6b6 !important; }
 html.light [class*=" focus:border-white"]:focus,
-html.light [class^="focus:border-white"]:focus { border-color: #d1d5db !important; }
-html.light [class*=" placeholder:text-white"]::placeholder { color: #9ca3af !important; }
+html.light [class^="focus:border-white"]:focus { border-color: #cdc6b6 !important; }
+html.light [class*=" placeholder:text-white"]::placeholder { color: #8a8172 !important; }
 
 /* Coloured status dots keep their meaning: amber and green still say what they
    said on the dark canvas. */
 
 /* Prose and controls that carry their own colours rather than a token. */
-html.light .prose-chat a { color: #0066ff; text-decoration-color: rgba(0, 102, 255, 0.35); }
-html.light .prose-chat a:hover { text-decoration-color: rgba(0, 102, 255, 0.9); }
+html.light .prose-chat a { color: #f55036; text-decoration-color: rgba(245, 80, 54, 0.35); }
+html.light .prose-chat a:hover { text-decoration-color: rgba(245, 80, 54, 0.9); }
 html.light .prose-chat :not(pre) > code {
-  background: #f3f4f6;
-  color: #111827;
+  background: #ece8dd;
+  color: #15130f;
 }
-html.light .copy-btn:hover { background: rgba(17, 24, 39, 0.06); }
-html.light :hover { scrollbar-color: rgba(17, 24, 39, 0.2) transparent; }
-html.light *:hover::-webkit-scrollbar-thumb { background: rgba(17, 24, 39, 0.18); }
+html.light .copy-btn:hover { background: rgba(21, 19, 15, 0.06); }
+html.light :hover { scrollbar-color: rgba(21, 19, 15, 0.2) transparent; }
+html.light *:hover::-webkit-scrollbar-thumb { background: rgba(21, 19, 15, 0.18); }
 
 /* Code keeps its deep well on paper: a syntax-highlighted block that flipped to
    white-on-white stops being readable, and one dark island reads as deliberate
    rather than as a leftover. */
-html.light .code-block { border-color: #e5e7eb; }
+html.light .code-block { border-color: #e4dfd2; }
 html.light .stream-cursor > :last-child::after {
-  background: linear-gradient(180deg, #6aa4ff, #0066ff);
-  box-shadow: 0 0 10px rgba(0, 102, 255, 0.3);
+  background: linear-gradient(180deg, #ffb3a5, #f55036);
+  box-shadow: 0 0 10px rgba(245, 80, 54, 0.3);
 }
 
 /* ── Chat surfaces ──────────────────────────────────────────────────────────
@@ -371,23 +389,27 @@ html.light .stream-cursor > :last-child::after {
 .msg-user-bubble::selection { background: rgba(255, 255, 255, 0.25); }
 
 /* Escape hatches from the light-mode colour inversion, for anything that sits
-   on its own dark surface: the user's blue bubble, a frosted overlay on a
-   photograph, a button whose fill is the accent. */
+   on its own dark surface: the user's bubble, a frosted overlay on a
+   photograph, a button whose fill is the accent. On paper the accent is a
+   saturated orange, so the ink inside it is nearly black — the pairing the
+   landing page uses on its buttons — while the dark appearances keep white. */
 .on-accent,
-html.light .on-accent,
-.msg-user-bubble,
-html.light .msg-user-bubble {
+.msg-user-bubble {
   color: #ffffff !important;
 }
+html.light .on-accent,
+html.light .msg-user-bubble {
+  color: #15130f !important;
+}
 
-/* A control filled with the accent keeps white text, even though `text-white`
-   is charcoal everywhere else on paper. Two attribute selectors beat the
-   single-class inversion rule, so this needs no class in the markup. */
+/* A control filled with the accent keeps ink text, even though `text-white`
+   is the dark-theme colour. Two attribute selectors beat the single-class
+   inversion rule, so this needs no class in the markup. */
 html.light [class~="bg-[#2f6b48]"][class*="text-white"],
 html.light [class~="bg-[#2a6142]"][class*="text-white"],
 html.light [class~="bg-[#a9d8bb]"][class*="text-white"],
 html.light [class*="bg-accent"][class*="text-white"] {
-  color: #ffffff !important;
+  color: #15130f !important;
 }
 .frosted {
   background: rgba(0, 0, 0, 0.4) !important;
@@ -585,7 +607,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-lp-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv11", "ss01";
@@ -845,58 +867,6 @@ html.light .typing-waiter-glow {
 }
 
 /* ── Model badge styles ────────────────────────────────────────────────── */
-.model-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.125rem 0.5rem 0.125rem 0.375rem;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-.model-badge-azure {
-  background: var(--azure-soft);
-  color: var(--azure);
-  border: 1px solid color-mix(in srgb, var(--azure) 22%, transparent);
-}
-.model-badge-code {
-  background: var(--code-soft);
-  color: var(--code);
-  border: 1px solid color-mix(in srgb, var(--code) 22%, transparent);
-}
-.model-badge-auto {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-}
-.model-badge-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.model-badge-azure .model-badge-dot {
-  animation: pulse-azure 2s ease-in-out infinite;
-}
-.model-badge-code .model-badge-dot {
-  animation: pulse-code 2s ease-in-out infinite;
-}
-.model-badge-auto .model-badge-dot {
-  animation: pulse-auto 2s ease-in-out infinite;
-}
-@keyframes pulse-azure {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-@keyframes pulse-code {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-@keyframes pulse-auto {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
 
 /* ── Utilities ──────────────────────────────────────────────────────────── */
 .hairline-b { border-bottom: 1px solid var(--line); }
@@ -995,6 +965,89 @@ html.light .typing-waiter-glow {
 }
 .animate-blink {
   animation: blink 1.2s ease-in-out infinite;
+}
+
+/* ── The spinner ─────────────────────────────────────────────────────────────
+   One shape per level of the product, all drawn with `currentColor`: an accent
+   button, a white-on-accent control and the ink theme each colour it without a
+   variant prop. Everything animates transform and opacity only, so a spinner
+   never forces layout, and the reduced-motion block at the end of this section
+   leaves a still frame rather than a frozen mid-spin.
+
+   .spinner-arc    the default — a thin hour hand sweeping with a gap
+   .spinner-pulse  the thread's three breathing dots
+   .spinner-dew    the droplet with an orbiting bead, for a whole screen */
+.spinner {
+  display: inline-block;
+  flex-shrink: 0;
+}
+.spinner-arc {
+  border-radius: 50%;
+  background: conic-gradient(from 90deg, transparent 0 12%, currentColor 46%, currentColor 92%, transparent 92%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 12%), #000 calc(100% - 11%));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 12%), #000 calc(100% - 11%));
+  animation: spinner-turn 0.9s linear infinite;
+}
+.spinner-pulse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.14em;
+}
+.spinner-pulse i {
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 50%;
+  background: currentColor;
+  animation: spinner-dot 1.25s ease-in-out infinite;
+}
+.spinner-pulse i:nth-child(2) { animation-delay: 0.16s; }
+.spinner-pulse i:nth-child(3) { animation-delay: 0.32s; }
+.spinner-dew {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.spinner-dew > svg {
+  width: 58%;
+  height: 58%;
+  display: block;
+}
+.spinner-dew-orbit {
+  position: absolute;
+  inset: 0;
+  animation: spinner-turn 1.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+.spinner-dew-orbit i {
+  position: absolute;
+  top: -2%;
+  left: 50%;
+  width: 13%;
+  height: 13%;
+  margin-left: -6.5%;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px color-mix(in srgb, currentColor 60%, transparent);
+}
+@keyframes spinner-turn {
+  to { transform: rotate(360deg); }
+}
+@keyframes spinner-dot {
+  0%, 100% { opacity: 0.28; transform: translateY(0) scale(0.8); }
+  45% { opacity: 1; transform: translateY(-6%) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner-arc,
+  .spinner-pulse i,
+  .spinner-dew-orbit {
+    animation: none !important;
+  }
+  /* A still arc with a wide gap still reads as "in progress" without moving. */
+  .spinner-arc {
+    background: conic-gradient(from 90deg, currentColor 0 70%, transparent 70%);
+  }
+  .spinner-pulse i { opacity: 0.8; }
+  .spinner-dew-orbit { display: none; }
 }
 
 /* Card hover effect */
@@ -1124,6 +1177,576 @@ html.light .typing-waiter-glow {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+}
+
+/* ── The landing page ────────────────────────────────────────────────────────
+   One scoped palette, deliberately separate from the product's tokens: the
+   marketing page is warm paper with a single orange accent, and it must look
+   the same whether the reader's chat appearance is dark, paper or ink. Every
+   rule below is namespaced under `.lp` so it cannot leak into the app shell.
+
+   Type is the design here: a tight grotesque for the statements, a spaced mono
+   for labels, hairlines instead of cards, and a lot of empty space. */
+.lp {
+  --lp-cream: #f3f1e9;
+  --lp-ink: #15130f;
+  --lp-dim: #bdb7aa;
+  --lp-orange: #f55036;
+  --lp-line: rgba(21, 19, 15, 0.13);
+  --lp-muted: rgba(21, 19, 15, 0.62);
+  --lp-sans: var(--font-lp-sans), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --lp-mono: var(--font-lp-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-height: 100dvh;
+  background: var(--lp-cream);
+  color: var(--lp-ink);
+  font-family: var(--lp-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+  letter-spacing: -0.011em;
+}
+
+.lp ::selection {
+  background: var(--lp-orange);
+  color: #fff;
+}
+
+.lp-shell {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+@media (min-width: 768px) {
+  .lp-shell {
+    padding-left: 44px;
+    padding-right: 44px;
+  }
+}
+
+.lp-mono {
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+@media (min-width: 900px) {
+  .lp-mono {
+    font-size: 12px;
+  }
+}
+
+.lp a:focus-visible,
+.lp button:focus-visible {
+  outline: 2px solid var(--lp-orange);
+  outline-offset: 3px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.lp-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--lp-cream) 88%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  height: 64px;
+}
+.lp-logo-link {
+  text-decoration: none;
+  color: inherit;
+}
+.lp-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.lp-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--lp-orange);
+  color: var(--lp-cream);
+}
+.lp-mark svg {
+  width: 17px;
+  height: 17px;
+}
+.lp-logo-text {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+.lp-nav {
+  display: none;
+  margin-left: auto;
+  margin-right: 26px;
+  gap: 30px;
+}
+@media (min-width: 860px) {
+  .lp-nav {
+    display: flex;
+  }
+}
+.lp-nav a {
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(21, 19, 15, 0.58);
+  text-decoration: none;
+  transition: color 180ms ease;
+}
+.lp-nav a:hover {
+  color: var(--lp-ink);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--lp-orange);
+  color: var(--lp-ink);
+  padding: 12px 20px;
+  font-family: var(--lp-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background 180ms ease;
+}
+.lp-btn:hover {
+  background: #ff6047;
+  transform: translateY(-1px);
+}
+.lp-btn:active {
+  transform: translateY(0) scale(0.99);
+}
+.lp-btn-arrow {
+  width: 15px;
+  height: 15px;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lp-btn:hover .lp-btn-arrow {
+  transform: translateX(2px);
+}
+.lp-btn-small {
+  padding: 9px 16px;
+  font-size: 12.5px;
+}
+.lp-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--lp-line);
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  color: var(--lp-ink);
+  text-decoration: none;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+.lp-btn-ghost:hover {
+  background: rgba(21, 19, 15, 0.04);
+  border-color: rgba(21, 19, 15, 0.26);
+}
+
+/* ── Ticker ─────────────────────────────────────────────────────────────── */
+.lp-ticker {
+  overflow: hidden;
+  border-top: 1px solid var(--lp-line);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: lp-ticker 44s linear infinite;
+}
+.lp-ticker-run {
+  display: flex;
+  flex-shrink: 0;
+}
+.lp-ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 22px;
+  padding: 11px 22px;
+  font-family: var(--lp-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(21, 19, 15, 0.5);
+  white-space: nowrap;
+}
+.lp-ticker-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--lp-orange);
+}
+@keyframes lp-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ── Hero ───────────────────────────────────────────────────────────────── */
+.lp-hero {
+  padding-top: clamp(48px, 8vw, 96px);
+  padding-bottom: clamp(40px, 6vw, 64px);
+}
+.lp-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--lp-muted);
+  margin: 0;
+}
+.lp-square {
+  width: 9px;
+  height: 9px;
+  background: var(--lp-orange);
+  flex-shrink: 0;
+}
+.lp-display {
+  margin: clamp(22px, 3vw, 34px) 0 0;
+  font-size: clamp(40px, 7.2vw, 86px);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.lp-lede {
+  margin: 26px 0 0;
+  max-width: 46ch;
+  font-size: clamp(15px, 1.5vw, 17.5px);
+  line-height: 1.55;
+  color: var(--lp-muted);
+}
+.lp-actions {
+  margin-top: clamp(28px, 3.4vw, 38px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── The mono brief under the hero ──────────────────────────────────────── */
+.lp-brief {
+  border-top: 1px solid var(--lp-line);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-brief-inner {
+  padding-top: 26px;
+  padding-bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+}
+.lp-brief-line {
+  margin: 0;
+  max-width: 40ch;
+  line-height: 2;
+  letter-spacing: 0.18em;
+}
+@media (min-width: 900px) {
+  .lp-brief-line {
+    max-width: 46ch;
+  }
+}
+.lp-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lp-orange);
+  text-decoration: none;
+}
+.lp-more span {
+  transition: transform 180ms ease;
+}
+.lp-more:hover span {
+  transform: translateX(3px);
+}
+
+/* ── The statement that fills with ink ────────────────────────────────────
+   Each word is a span that starts warm grey and takes the ink colour when the
+   scroll has reached it. The transition is on colour only: a couple of dozen
+   spans changing colour is cheap, and the eased change is what makes the fill
+   read as a sweep rather than a snap. */
+.lp-statement {
+  padding-top: clamp(64px, 10vw, 132px);
+  padding-bottom: clamp(64px, 10vw, 132px);
+}
+.lp-fill {
+  /* `ch` is measured against this element's own type, so the statement's size
+     is set here and inherited by its lines. Declared on the lines instead, the
+     column would be counted in 16px body ch and squeeze 60px type into a few
+     characters per line. */
+  font-size: clamp(32px, 5.4vw, 60px);
+  max-width: 24ch;
+}
+@media (min-width: 900px) {
+  .lp-fill {
+    max-width: 26ch;
+  }
+}
+.lp-block {
+  margin: 0;
+}
+.lp-block + .lp-block {
+  margin-top: clamp(34px, 5vw, 60px);
+}
+.lp-line {
+  display: block;
+  font-size: inherit;
+  line-height: 1.07;
+  letter-spacing: -0.038em;
+  font-weight: 450;
+}
+.lp-word {
+  color: var(--lp-dim);
+  transition: color 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.lp-word[data-on="1"] {
+  color: var(--lp-ink);
+}
+
+/* ── Sections ───────────────────────────────────────────────────────────── */
+.lp-steps,
+.lp-rules {
+  border-top: 1px solid var(--lp-line);
+  padding-top: clamp(52px, 7.5vw, 96px);
+  padding-bottom: clamp(52px, 7.5vw, 96px);
+}
+.lp-kicker {
+  margin: 0;
+  color: var(--lp-muted);
+}
+.lp-h2 {
+  margin: 16px 0 0;
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.02;
+  letter-spacing: -0.038em;
+  font-weight: 500;
+  max-width: 24ch;
+}
+.lp-section-head {
+  margin-bottom: clamp(32px, 4.5vw, 56px);
+}
+.lp-grid-3 {
+  border-top: 1px solid var(--lp-line);
+}
+@media (min-width: 860px) {
+  .lp-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.lp-step {
+  padding: 26px 0 30px;
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-step:last-child {
+  border-bottom: 0;
+}
+@media (min-width: 860px) {
+  .lp-step {
+    border-bottom: 0;
+    border-right: 1px solid var(--lp-line);
+    padding: 30px 30px 8px;
+  }
+  .lp-step:first-child {
+    padding-left: 0;
+  }
+  .lp-step:last-child {
+    border-right: 0;
+    padding-right: 0;
+  }
+}
+.lp-step-label {
+  margin: 0;
+  color: var(--lp-orange);
+}
+.lp-step h3 {
+  margin: 16px 0 0;
+  font-size: 19px;
+  font-weight: 550;
+  letter-spacing: -0.022em;
+}
+.lp-step-body {
+  margin: 9px 0 0;
+  max-width: 34ch;
+  font-size: 14.5px;
+  line-height: 1.62;
+  color: var(--lp-muted);
+}
+
+/* ── The rule ───────────────────────────────────────────────────────────── */
+.lp-rules-grid {
+  display: grid;
+  gap: clamp(30px, 4.5vw, 60px);
+}
+@media (min-width: 960px) {
+  .lp-rules-grid {
+    grid-template-columns: 1.05fr 0.95fr;
+    align-items: start;
+  }
+}
+.lp-rule-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--lp-line);
+}
+.lp-rule-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--lp-line);
+  font-size: clamp(15px, 1.4vw, 17px);
+  line-height: 1.45;
+  letter-spacing: -0.018em;
+}
+.lp-rule-mark {
+  flex-shrink: 0;
+  color: var(--lp-orange);
+}
+
+/* ── Closing panel ──────────────────────────────────────────────────────── */
+.lp-cta {
+  background: var(--lp-ink);
+  color: var(--lp-cream);
+  padding-top: clamp(60px, 9vw, 116px);
+  padding-bottom: clamp(60px, 9vw, 116px);
+}
+.lp-cta .lp-kicker {
+  color: rgba(243, 241, 233, 0.5);
+}
+.lp-cta-title {
+  margin: 18px 0 0;
+  font-size: clamp(32px, 5.6vw, 66px);
+  line-height: 1;
+  letter-spacing: -0.042em;
+  font-weight: 480;
+}
+.lp-cta .lp-btn {
+  margin-top: clamp(28px, 3.6vw, 38px);
+}
+.lp-cta-note {
+  margin: clamp(26px, 3vw, 36px) 0 0;
+  color: rgba(243, 241, 233, 0.45);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.lp-footer {
+  padding-top: 30px;
+  padding-bottom: 40px;
+}
+.lp-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px 30px;
+}
+.lp-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin-left: auto;
+}
+.lp-footer-links a,
+.lp-footer-links button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--lp-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(21, 19, 15, 0.55);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+.lp-footer-links a:hover,
+.lp-footer-links button:hover {
+  color: var(--lp-ink);
+}
+.lp-copyright {
+  margin: 0;
+  color: rgba(21, 19, 15, 0.4);
+}
+
+/* ── Phones ───────────────────────────────────────────────────────────────
+   The type is set for a wide sheet: hairline leading and negative tracking are
+   what give an 80px headline its weight, and both are what make the same
+   sentence, wrapped over four lines at 34px, feel squeezed together. On a phone
+   the tracking eases off, the leading opens up, and the display sizes come down
+   far enough that the hard line breaks in the hero and the closing panel stay
+   inside the shell instead of running past its edge. */
+@media (max-width: 767px) {
+  .lp-display {
+    font-size: clamp(28px, 9vw, 52px);
+    line-height: 1.08;
+    letter-spacing: -0.026em;
+  }
+  .lp-lede {
+    line-height: 1.62;
+  }
+  .lp-line {
+    line-height: 1.2;
+    letter-spacing: -0.024em;
+  }
+  .lp-block + .lp-block {
+    margin-top: 28px;
+  }
+  .lp-h2,
+  .lp-cta-title {
+    line-height: 1.16;
+    letter-spacing: -0.024em;
+  }
+  .lp-step-body {
+    line-height: 1.7;
+  }
+  .lp-rule-list li {
+    line-height: 1.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-ticker-track {
+    animation: none;
+  }
+  .lp-word {
+    transition: none;
   }
 }
 

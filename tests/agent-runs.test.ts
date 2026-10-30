@@ -1,0 +1,473 @@
+// ── Openmi — the run claim, the tick token and the watchdog ──────────────────
+//
+// Background execution has exactly one safety property: two ticks on one run must
+// not spend two model calls. Everything here is that property, or a piece that
+// would quietly undermine it.
+//
+//   bun run test
+//
+// No network and no database: the one write is exercised against a stand-in for
+// the single table it touches, which applies the same conditional filter the
+// database would. If `claimRun` ever loses an `.eq`, these fail.
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  RUN_MAX_ATTEMPTS,
+  cancelRun,
+  claimRun,
+  normalizeRun,
+  openRunState,
+  runStartFailure,
+  sealRunState,
+  sweepAction,
+  sweepSecretMatches,
+  toView,
+  type AgentRunState,
+  type CreateRunFailure,
+} from "../lib/agentRuns";
+import { TICK_TTL_MS, internalOrigin, signTick, tickVerdict, verifyTick } from "../lib/agentRunToken";
+
+// A sealed state needs a key, and `tokenKey` reads it per call. Pinned here so
+// the round-trip and the foreign-key refusal are both testable without a
+// deployment.
+const KEY_ONE = "1".repeat(64);
+const KEY_TWO = "2".repeat(64);
+process.env.GITHUB_TOKEN_KEY = KEY_ONE;
+
+type Row = Record<string, unknown>;
+
+let passed = 0;
+function check(label: string, fn: () => void | Promise<void>): Promise<void> {
+  return Promise.resolve()
+    .then(fn)
+    .then(() => {
+      passed += 1;
+      console.log(`  ✓ ${label}`);
+    });
+}
+
+/**
+ * The one table the claim writes, with the filter that matters.
+ *
+ * `select()` applies every `.eq()` the caller chained before touching a row, so
+ * a claim that presented a stale attempt, a foreign owner or the wrong id simply
+ * matches nothing — which is the database's behaviour, not a simplification
+ * that would let a broken claim pass.
+ */
+interface UpdateBuilder {
+  eq(column: string, value: unknown): UpdateBuilder;
+  select(): Promise<{ data: Array<{ id: unknown }>; error: null }>;
+}
+
+function fakeAgentRuns(rows: Row[]): SupabaseClient {
+  const update = (values: Row): UpdateBuilder => {
+    const filters: Array<[string, unknown]> = [];
+    const builder: UpdateBuilder = {
+      eq(column: string, value: unknown) {
+        filters.push([column, value]);
+        return builder;
+      },
+      async select() {
+        const matched = rows.filter((row) => filters.every(([column, value]) => row[column] === value));
+        for (const row of matched) Object.assign(row, values);
+        return { data: matched.map((row) => ({ id: row.id })), error: null };
+      },
+    };
+    return builder;
+  };
+  return {
+    from(table: string) {
+      assert.equal(table, "agent_runs");
+      return { update };
+    },
+  } as unknown as SupabaseClient;
+}
+
+/** A repository file, read as text: these checks are about what the docs say. */
+function read(file: string): string {
+  return readFileSync(join(process.cwd(), file), "utf8");
+}
+
+const STATE: AgentRunState = {
+  v: 1,
+  uid: "user-a",
+  project: { id: "p1", repoFullName: "owner/repo", defaultBranch: "main", baseSha: "a".repeat(40) },
+  githubToken: "ghs_a_token_that_must_not_leak",
+  accountKeys: { openrouter: "sk-or-secret" },
+  history: [{ role: "user", content: "fix the build" }],
+  transcript: [],
+  context: "",
+  content: "",
+  steps: [],
+  attempt: 0,
+};
+
+async function main(): Promise<void> {
+  // ── The claim ─────────────────────────────────────────────────────────────
+
+  await check("the first tick at an attempt wins and advances the row", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await claimRun("run-1", "user-a", 0, { client }), true);
+    assert.equal(rows[0]!.attempts, 1);
+  });
+
+  await check("a replay at the same attempt wins nothing and spends nothing", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await claimRun("run-1", "user-a", 0, { client }), true);
+    assert.equal(await claimRun("run-1", "user-a", 0, { client }), false);
+    assert.equal(rows[0]!.attempts, 1, "a refused claim must not move the attempt");
+  });
+
+  await check("the next link claims the attempt the previous one wrote", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await claimRun("run-1", "user-a", 0, { client }), true);
+    assert.equal(await claimRun("run-1", "user-a", 1, { client }), true);
+    assert.equal(rows[0]!.attempts, 2);
+  });
+
+  await check("another run's id claims nothing", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await claimRun("run-2", "user-a", 0, { client }), false);
+    assert.equal(rows[0]!.attempts, 0);
+  });
+
+  await check("another account's id claims nothing", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await claimRun("run-1", "user-b", 0, { client }), false);
+    assert.equal(rows[0]!.attempts, 0);
+  });
+
+  await check("a finished run cannot be resumed by a late link", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "done", attempts: 7 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await claimRun("run-1", "user-a", 7, { client }), false);
+  });
+
+  await check("a cancelled run cannot be claimed either", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "cancelled", attempts: 2 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await claimRun("run-1", "user-a", 2, { client }), false);
+  });
+
+  await check("no client means no claim, rather than a crash", async () => {
+    assert.equal(await claimRun("run-1", "user-a", 0, { client: null }), false);
+  });
+
+  // ── The ending ────────────────────────────────────────────────────────────
+
+  await check("cancelling a running run closes it and drops the sealed state", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 4, state: "v1.sealed" }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), true);
+    assert.equal(rows[0]!.status, "cancelled");
+    assert.equal(rows[0]!.state, "", "nothing may resume a cancelled run");
+  });
+
+  await check("cancelling twice closes the run once", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), true);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), false);
+  });
+
+  await check("another account cannot cancel this run", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 0 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-b", { client }), false);
+    assert.equal(rows[0]!.status, "running");
+  });
+
+  await check("a finished run is not rewritten as cancelled", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "done", attempts: 9 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), false);
+    assert.equal(rows[0]!.status, "done");
+  });
+
+  await check("a tick that arrives after the cancel claims nothing", async () => {
+    const rows: Row[] = [{ id: "run-1", owner: "user-a", status: "running", attempts: 3 }];
+    const client = fakeAgentRuns(rows);
+    assert.equal(await cancelRun("run-1", "user-a", { client }), true);
+    assert.equal(await claimRun("run-1", "user-a", 3, { client }), false, "the ending wins, not the next step");
+    assert.equal(rows[0]!.attempts, 3, "the refused tick did not advance the attempt");
+  });
+
+  await check("no client means no cancel, rather than a crash", async () => {
+    assert.equal(await cancelRun("run-1", "user-a", { client: null }), false);
+  });
+
+  // ── The verdict ───────────────────────────────────────────────────────────
+
+  const claim = { run: "run-1", uid: "user-a", attempt: 3, exp: Date.now() + 60_000 };
+
+  await check("a matching running row is advanced", () => {
+    assert.equal(tickVerdict({ owner: "user-a", status: "running", attempts: 3 }, claim), "advance");
+  });
+
+  await check("a token for a missing run is missing, not advanced", () => {
+    assert.equal(tickVerdict(null, claim), "missing");
+  });
+
+  await check("a token for somebody else's run never reaches their row", () => {
+    assert.equal(tickVerdict({ owner: "user-b", status: "running", attempts: 3 }, claim), "missing");
+  });
+
+  await check("a finished or cancelled run ends the chain", () => {
+    assert.equal(tickVerdict({ owner: "user-a", status: "done", attempts: 3 }, claim), "finished");
+    assert.equal(tickVerdict({ owner: "user-a", status: "cancelled", attempts: 3 }, claim), "finished");
+    assert.equal(tickVerdict({ owner: "user-a", status: "failed", attempts: 3 }, claim), "finished");
+  });
+
+  await check("a stale attempt is a claimed duplicate", () => {
+    assert.equal(tickVerdict({ owner: "user-a", status: "running", attempts: 4 }, claim), "claimed");
+    assert.equal(tickVerdict({ owner: "user-a", status: "running", attempts: 2 }, claim), "claimed");
+  });
+
+  // ── The token ─────────────────────────────────────────────────────────────
+
+  await check("a signed tick round-trips with the attempt it was minted for", () => {
+    const token = signTick({ run: "run-1", uid: "user-a", attempt: 5 });
+    const opened = verifyTick(token);
+    assert.ok(opened);
+    assert.equal(opened!.run, "run-1");
+    assert.equal(opened!.uid, "user-a");
+    assert.equal(opened!.attempt, 5);
+  });
+
+  await check("an expired tick is refused", () => {
+    const now = Date.now();
+    const token = signTick({ run: "run-1", uid: "user-a", attempt: 0 }, now);
+    assert.ok(verifyTick(token, now + 1_000));
+    assert.equal(verifyTick(token, now + TICK_TTL_MS + 1), null);
+  });
+
+  await check("a truncated or tampered tick is refused", () => {
+    const token = signTick({ run: "run-1", uid: "user-a", attempt: 0 });
+    assert.equal(verifyTick(token.slice(0, -3)), null);
+    const body = token.slice(0, token.lastIndexOf("."));
+    assert.equal(verifyTick(`${body}.${"A".repeat(43)}`), null);
+    assert.equal(verifyTick(""), null);
+  });
+
+  await check("a token that claims a negative attempt is refused", () => {
+    // Signed by this deployment, but not a claim any tick may present.
+    const forged = signTick({ run: "run-1", uid: "user-a", attempt: -1 });
+    assert.equal(verifyTick(forged), null);
+  });
+
+  // ── The sealed state ──────────────────────────────────────────────────────
+
+  const sealed = sealRunState(STATE);
+
+  await check("sealing produces ciphertext, not the credentials inside it", () => {
+    assert.ok(sealed);
+    assert.ok(sealed!.startsWith("v1."), "the prefix is what identifies the format");
+    assert.ok(!sealed!.includes("ghs_a_token_that_must_not_leak"));
+    assert.ok(!sealed!.includes("sk-or-secret"));
+  });
+
+  await check("the same key opens exactly what was sealed", () => {
+    assert.deepEqual(openRunState(sealed!), STATE);
+  });
+
+  await check("a different key opens nothing", () => {
+    process.env.GITHUB_TOKEN_KEY = KEY_TWO;
+    assert.equal(openRunState(sealed!), null);
+    process.env.GITHUB_TOKEN_KEY = KEY_ONE;
+  });
+
+  await check("a value this module did not produce is not state", () => {
+    assert.equal(openRunState(""), null);
+    assert.equal(openRunState("not-a-seal"), null);
+    assert.equal(openRunState("v1.aaaa.bbbb.cccc"), null);
+  });
+
+  // ── What the chat is allowed to see ───────────────────────────────────────
+
+  const record = normalizeRun({
+    id: "run-1",
+    owner: "user-a",
+    project_id: "p1",
+    repo_full_name: "owner/repo",
+    status: "running",
+    content: "partial answer",
+    steps: [{ tool: "read_file", label: "read a.ts", ok: true }],
+    proposals: [],
+    changeset_id: null,
+    review: null,
+    truncated: false,
+    prompt_tokens: 10,
+    completion_tokens: 5,
+    error: null,
+    state: sealed,
+    attempts: 2,
+    created_at: new Date().toISOString(),
+  });
+
+  await check("the view carries no state, no owner and no credential", () => {
+    assert.ok(record);
+    const view = toView(record!);
+    assert.ok(!("state" in view));
+    assert.ok(!("owner" in view));
+    assert.ok(!JSON.stringify(view).includes("ghs_a_token_that_must_not_leak"));
+    assert.ok(!JSON.stringify(view).includes("sk-or-secret"));
+  });
+
+  await check("the view still carries what the chat renders", () => {
+    const view = toView(record!);
+    assert.equal(view.id, "run-1");
+    assert.equal(view.status, "running");
+    assert.equal(view.content, "partial answer");
+    assert.equal(view.steps.length, 1);
+    assert.deepEqual(view.usage, { prompt: 10, completion: 5 });
+  });
+
+  // ── The watchdog ──────────────────────────────────────────────────────────
+
+  await check("a stale run below the budget is revived at the attempt it holds", () => {
+    assert.deepEqual(sweepAction({ attempts: 0 }), { action: "revive", attempt: 0 });
+    assert.deepEqual(sweepAction({ attempts: RUN_MAX_ATTEMPTS - 1 }), {
+      action: "revive",
+      attempt: RUN_MAX_ATTEMPTS - 1,
+    });
+  });
+
+  await check("a stale run at or past the budget is abandoned, not re-run", () => {
+    assert.deepEqual(sweepAction({ attempts: RUN_MAX_ATTEMPTS }), { action: "abandon" });
+    assert.deepEqual(sweepAction({ attempts: RUN_MAX_ATTEMPTS + 5 }), { action: "abandon" });
+  });
+
+  await check("the sweep secret is compared without leaking its shape", () => {
+    assert.equal(sweepSecretMatches("a".repeat(64), "a".repeat(64)), true);
+    assert.equal(sweepSecretMatches("a".repeat(63) + "b", "a".repeat(64)), false);
+    assert.equal(sweepSecretMatches("short", "a".repeat(64)), false);
+    assert.equal(sweepSecretMatches("", ""), false, "an unset secret never authorises");
+  });
+
+  // ── What a deployment has to be told ──────────────────────────────────────
+  //
+  // These are the Phase C contracts. A variable the code requires but the docs
+  // never mention is a feature only its author can turn on.
+
+  await check("the env example lists the service key and the watchdog secret", () => {
+    const env = read(".env.example");
+    assert.match(env, /^SUPABASE_SERVICE_ROLE_KEY=$/m, "the service key is undocumented");
+    assert.match(env, /^AGENT_SWEEP_SECRET=$/m, "the sweep secret is undocumented");
+    assert.match(env, /supabaseAdmin\.ts/, "the privileged key does not name its one importer");
+    assert.ok(
+      !/nothing in this app needs it/.test(env),
+      "the claim that no route needs the service key is back"
+    );
+  });
+
+  await check("the setup docs name both run migrations and the schedule", () => {
+    const readme = read("supabase/README.md");
+    assert.match(readme, /20261029000000_agent_runs\.sql/, "the run table is unlisted");
+    assert.match(readme, /20261029000100_agent_runs_health\.sql/, "the health migration is unlisted");
+    assert.match(readme, /cron\.schedule/, "the watchdog has no schedule");
+    assert.match(readme, /net\.http_post/, "the schedule never calls the endpoint");
+    assert.match(readme, /AGENT_SWEEP_SECRET/, "the schedule does not name its secret");
+  });
+
+  await check("the health audit learns about the run table", () => {
+    const sql = read("supabase/migrations/20261029000100_agent_runs_health.sql");
+    assert.match(sql, /insert into public\.schema_expected[\s\S]*agent_runs/);
+    assert.match(sql, /20261029000000_agent_runs/);
+  });
+
+  // ── Why a run could not be stored ─────────────────────────────────────────
+  //
+  // The route used to answer "check the agent_runs migration" for every
+  // failure, including a deployment with no sealing key. Four fixable problems
+  // with four different fixes must not collapse back into one sentence.
+
+  await check("each failed start names its own cause, status and fix", () => {
+    const reasons: CreateRunFailure[] = ["missing-table", "denied", "no-key", "unconfigured", "failed"];
+    const details = new Set<string>();
+    for (const reason of reasons) {
+      const failure = runStartFailure(reason);
+      assert.ok(failure.status >= 500 && failure.status < 600, `${reason} needs a server-error status`);
+      assert.ok(failure.error.length > 40, `${reason} says nothing useful`);
+      assert.ok(failure.detail.length > 0, `${reason} has no machine-readable detail`);
+      details.add(failure.detail);
+    }
+    assert.equal(details.size, reasons.length, "two causes share one detail, so the client cannot tell them apart");
+  });
+
+  await check("a missing table names the migration to apply", () => {
+    const failure = runStartFailure("missing-table");
+    assert.match(failure.error, /20261029000000_agent_runs\.sql/);
+    assert.equal(failure.detail, "run-table-missing");
+  });
+
+  await check("a refused insert names the grants migration and the key to check", () => {
+    const failure = runStartFailure("denied");
+    assert.match(failure.error, /20261029000600_agent_runs_service_grants\.sql/);
+    assert.match(failure.error, /SUPABASE_SERVICE_ROLE_KEY/);
+    assert.equal(failure.detail, "run-denied");
+  });
+
+  await check("a missing sealing key names the variable, not a migration", () => {
+    const failure = runStartFailure("no-key");
+    assert.match(failure.error, /GITHUB_TOKEN_KEY/);
+    assert.doesNotMatch(failure.error, /migration/);
+  });
+
+  // ── Where a tick is sent ──────────────────────────────────────────────────
+  //
+  // The dispatch origin must never be taken from a header a caller can set:
+  // a forged Host would make this server POST a signed tick token wherever that
+  // caller liked. These pin the preference order and the placeholder guard.
+
+  await check("a tick goes to the configured origin when there is one", () => {
+    const saved = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = "https://openmi.example.org";
+    try {
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://169.254.169.254" } }), "https://openmi.example.org");
+    } finally {
+      if (saved === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+      else process.env.NEXT_PUBLIC_SITE_URL = saved;
+    }
+  });
+
+  await check("the example.com placeholder is not obeyed", () => {
+    const saved = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = "https://example.com";
+    try {
+      assert.equal(internalOrigin({ nextUrl: { origin: "https://openmi.example.org" } }), "https://openmi.example.org");
+    } finally {
+      if (saved === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+      else process.env.NEXT_PUBLIC_SITE_URL = saved;
+    }
+  });
+
+  await check("without a usable configuration the request's own origin is the fallback", () => {
+    const saved = process.env.NEXT_PUBLIC_SITE_URL;
+    delete process.env.NEXT_PUBLIC_SITE_URL;
+    try {
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://localhost:3000" } }), "http://localhost:3000");
+      process.env.NEXT_PUBLIC_SITE_URL = "not a url";
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://localhost:3000" } }), "http://localhost:3000");
+      process.env.NEXT_PUBLIC_SITE_URL = "ftp://example.org";
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://localhost:3000" } }), "http://localhost:3000");
+    } finally {
+      if (saved === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+      else process.env.NEXT_PUBLIC_SITE_URL = saved;
+    }
+  });
+
+  console.log(`\nagent-runs: ${passed} checks passed`);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

@@ -13,14 +13,16 @@ function SparkleMark({ title }: { title: string }) {
   return (
     <svg viewBox="0 0 48 48" className="h-full w-full overflow-visible" role="img" aria-label={title}>
       <defs>
+        {/* The landing page's orange, so the mark in the app shell is the same
+            mark the marketing page shows when the uploaded logo is missing. */}
         <linearGradient id="openmi-mark" x1="8" y1="6" x2="40" y2="43" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#bfe6cd" />
-          <stop offset="0.45" stopColor="#3f7d5c" />
-          <stop offset="1" stopColor="#1f4a33" />
+          <stop stopColor="#ffb59f" />
+          <stop offset="0.45" stopColor="#f55036" />
+          <stop offset="1" stopColor="#a82e18" />
         </linearGradient>
         <filter id="openmi-mark-glow" x="-80%" y="-80%" width="260%" height="260%">
           <feGaussianBlur stdDeviation="3.2" result="blur" />
-          <feFlood floodColor="#2f6b48" floodOpacity="0.45" />
+          <feFlood floodColor="#f55036" floodOpacity="0.38" />
           <feComposite in2="blur" operator="in" />
           <feMerge>
             <feMergeNode />
@@ -36,7 +38,7 @@ function SparkleMark({ title }: { title: string }) {
       <path
         d="M15.5 29.5V18l8.5 7 8.5-7v11.5"
         fill="none"
-        stroke="#0d1a13"
+        stroke="#1b120f"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="3.2"

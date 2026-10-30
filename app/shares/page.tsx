@@ -115,7 +115,7 @@ function SharesContent() {
     <main className="min-h-dvh bg-[#0b1310] px-5 pb-12 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
       <div className="mx-auto w-full max-w-2xl">
         <Link
-          href="/"
+          href="/chat"
           aria-label="Back to Openmi"
           className="lift mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12] hover:text-white"
         >

@@ -13,10 +13,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { authHeader } from "@/lib/supabase";
+import Spinner from "./Spinner";
 import {
   keyProblem,
   keySourceLabel,
-  USER_KEY_HELP,
   USER_KEY_LABELS,
   USER_KEY_PROVIDERS,
   USER_KEY_SOURCES,
@@ -139,10 +139,7 @@ export default function ApiKeysSection() {
   return (
     <section>
       <h3 className="mb-1.5 text-[13px] font-semibold text-white">API keys</h3>
-      <p className="mb-2.5 text-[11px] leading-relaxed text-white/40">
-        Bring your own key for the models Openmi uses. A saved key is sealed on the server, used only for
-        your own requests, and never sent back to this browser — only the last four characters are shown.
-      </p>
+
 
       <div className="space-y-2">
         {USER_KEY_PROVIDERS.map((provider) => {
@@ -156,13 +153,7 @@ export default function ApiKeysSection() {
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[12.5px] font-medium text-white/90">{USER_KEY_LABELS[provider]}</p>
-                  <p className="mt-0.5 text-[10.5px] leading-relaxed text-white/35">{USER_KEY_HELP[provider]}</p>
-                  <p className="mt-1 text-[10.5px] text-white/45">
-                    {keySourceLabel(source, stored?.hint)}
-                    {source === "missing" && (
-                      <span className="text-white/30"> — this mode cannot answer until a key is added</span>
-                    )}
-                  </p>
+                  <p className="mt-1 text-[10.5px] text-white/45">{keySourceLabel(source, stored?.hint)}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {stored && !open && (
@@ -172,7 +163,10 @@ export default function ApiKeysSection() {
                       disabled={busy !== null}
                       className="rounded-lg px-2 py-1 text-[10.5px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-red-200/80 disabled:opacity-40"
                     >
-                      {busy === provider ? "Removing…" : "Remove"}
+                      <span className="inline-flex items-center gap-1.5">
+                        {busy === provider && <Spinner size={11} />}
+                        {busy === provider ? "Removing…" : "Remove"}
+                      </span>
                     </button>
                   )}
                   {!open && (
@@ -212,7 +206,10 @@ export default function ApiKeysSection() {
                       disabled={busy !== null || !draft.trim() || Boolean(problem)}
                       className="rounded-lg border border-[#a9d8bb]/25 bg-[#a9d8bb]/[0.08] px-2.5 py-1 text-[10.5px] font-medium text-[#a9d8bb] transition hover:bg-[#a9d8bb]/[0.14] disabled:opacity-40"
                     >
-                      {busy === provider ? "Checking…" : "Save key"}
+                      <span className="inline-flex items-center gap-1.5">
+                        {busy === provider && <Spinner size={11} />}
+                        {busy === provider ? "Checking…" : "Save key"}
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -225,7 +222,6 @@ export default function ApiKeysSection() {
                     >
                       Cancel
                     </button>
-                    <span className="ml-auto text-[10px] text-white/25">Checked with the provider before saving</span>
                   </div>
                 </div>
               )}
@@ -234,13 +230,6 @@ export default function ApiKeysSection() {
         })}
       </div>
 
-      {payload?.storeReady === false && (
-        <p className="mt-2 text-[10.5px] leading-relaxed text-amber-100/60">
-          This deployment cannot store a key: it needs <span className="font-mono">GITHUB_TOKEN_KEY</span> (32
-          bytes of hex) set, because the same secret seals every stored credential. Until then, Openmi uses the
-          deployment&apos;s own keys.
-        </p>
-      )}
       {error && <p className="mt-2 text-[11px] leading-relaxed text-red-200/80">{error}</p>}
       {notice && <p className="mt-2 text-[11px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}
     </section>

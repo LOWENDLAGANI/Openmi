@@ -72,7 +72,7 @@ function AboutContent() {
     <div className="app-surface flex min-h-[100dvh] flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-xl px-6 py-10 sm:px-8 sm:py-14">
         <Link
-          href="/"
+          href="/chat"
           className="inline-flex items-center gap-2 text-[12px] text-white/45 transition-colors hover:text-white/80"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -169,11 +169,16 @@ function AboutContent() {
             Openmi · created by <span className="text-white/55">Minetallest</span>
           </p>
           <Link
-            href="/"
+            href="/chat"
             className="mt-4 inline-flex items-center justify-center rounded-full bg-white px-5 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90"
           >
             Open Openmi
           </Link>
+          <p className="mt-4 text-[11.5px] text-white/30">
+            <Link href="/privacy" className="transition-colors hover:text-white/60">
+              Privacy Policy
+            </Link>
+          </p>
         </footer>
       </div>
     </div>

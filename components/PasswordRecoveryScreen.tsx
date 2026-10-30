@@ -1,5 +1,7 @@
 "use client";
 
+import Spinner from "./Spinner";
+
 // ── Set a new password ───────────────────────────────────────────────────────
 //
 // Supabase's recovery mail returns here through the PKCE flow, which signs the
@@ -144,7 +146,7 @@ export default function PasswordRecoveryScreen() {
               ties the link to that browser.
             </Banner>
             <Link
-              href="/"
+              href="/chat"
               className="block w-full rounded-xl bg-white py-3 text-center text-[13px] font-semibold text-black transition hover:opacity-90"
             >
               Back to sign in
@@ -162,7 +164,7 @@ export default function PasswordRecoveryScreen() {
 
             {status === "done" ? (
               <Link
-                href="/"
+                href="/chat"
                 className="block w-full rounded-xl bg-white py-3 text-center text-[13px] font-semibold text-black transition hover:opacity-90"
               >
                 Continue to Openmi
@@ -203,7 +205,10 @@ export default function PasswordRecoveryScreen() {
                   disabled={status === "saving" || !password || !confirmation}
                   className="w-full rounded-xl bg-white py-3 text-[13px] font-semibold text-black transition hover:opacity-90 disabled:opacity-40"
                 >
-                  {status === "saving" ? "Saving…" : "Save new password"}
+                  <span className="inline-flex items-center justify-center gap-2">
+                    {status === "saving" && <Spinner size={13} />}
+                    {status === "saving" ? "Saving…" : "Save new password"}
+                  </span>
                 </button>
 
                 {error && (
@@ -214,9 +219,7 @@ export default function PasswordRecoveryScreen() {
               </form>
             )}
 
-            <p className="mt-3 text-center text-[10.5px] leading-relaxed text-white/25">
-              Secured by Supabase Auth. Openmi never sees or stores your password.
-            </p>
+
           </div>
         )}
       </div>

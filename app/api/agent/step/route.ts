@@ -15,9 +15,14 @@ import { GithubError } from "@/lib/github/client";
 import { runAgentStep } from "@/lib/agent/run";
 import { cleanHistory, cleanTranscript } from "@/lib/agent/transcript";
 import { buildChangeSet, saveChangeSet } from "@/lib/changesets";
-import { canAfford, outOfDewMessage, requestPrice } from "@/lib/dew";
-import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
-import { resolveDew } from "@/lib/serverRedeem";
+import { outOfDewMessage } from "@/lib/dew";
+import {
+  hourModelRefusal,
+  hourRepoRefusal,
+  markHourSessionActivity,
+  readHourSession,
+  refundHourSession,
+} from "@/lib/hourSession";
 
 // ── One agent step, streamed ─────────────────────────────────────────────────
 //
@@ -34,15 +39,15 @@ import { resolveDew } from "@/lib/serverRedeem";
 // — the checks, the balance, the project — still answers with a JSON error and
 // a status code, because those are refusals, not progress.
 //
-// What the client *cannot* choose is the budget. Steps used, tokens spent and
-// "this turn has been paid for" live in a signed blob (lib/agent/turns.ts); the
-// client carries it and can read it, but any edit invalidates it. A new turn
-// starts a new charge, and the charge is flat for the model, not per step.
+// What the client *cannot* choose is the budget. Steps used and tokens spent
+// live in a signed blob (lib/agent/turns.ts); the client carries it and can read
+// it, but any edit invalidates it.
 //
-// The price is `requestPrice("code")` because repository work runs on the Code
-// model. An administrator is exempt, as everywhere else. A proposal is part of
-// the turn that produced it: staging does not cost extra and does not write to
-// GitHub, so the flat charge is unchanged.
+// The agent is not billed per turn. It draws on the account's hour session — the
+// same hour chat uses — so a long turn costs exactly what a short one costs, and
+// nothing is charged while the hour runs. An administrator is exempt, as
+// everywhere else. A proposal is part of the turn that produced it: staging does
+// not cost extra and does not write to GitHub.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,7 +58,12 @@ interface StepBody {
   history?: unknown;
   transcript?: unknown;
   turnToken?: unknown;
+  /** Text the person attached for this turn, already extracted in the browser. */
+  context?: unknown;
 }
+
+/** One turn's attached text may not exceed this, on top of the transcript caps. */
+const MAX_ATTACHMENT_CHARS = 12_000;
 
 export async function POST(req: NextRequest): Promise<Response> {
   const authorization = req.headers.get("authorization");
@@ -125,26 +135,51 @@ export async function POST(req: NextRequest): Promise<Response> {
   // does.
   const accountKeys = await readUserKeys(authorization, identity.uid);
 
-  // ── The Dew ledger ────────────────────────────────────────────────────────
-  // Checked before the model runs, exactly like /api/chat. A turn that is
-  // continuing on a signed token has already been paid for; the balance is only
-  // re-read when this is the first step.
+  // ── The hour ──────────────────────────────────────────────────────────────
+  // Checked before the model runs, exactly like /api/chat. The agent draws on the
+  // same hour as chat — one unit for the whole product — so a step is covered
+  // when the account has one and refused when it does not. No step has a price
+  // of its own, which is what makes a long turn cost the same as a short one.
+  //
+  // The hour remembers what it was bought for, and the agent uses exactly that:
+  // the Code model and the one repository the hour was started on. A different
+  // model, or a different repository, is refused with the active one named —
+  // the buyer either continues with it or ends the hour and starts another.
+  // Silently spending a repository-scoped hour on another repository would give
+  // away a purchase the person did not make.
   const isCallerAdmin = isAdmin(identity);
-  const price = requestPrice("code");
-  const continuing = typeof body.turnToken === "string" && body.turnToken.length > 0;
-  let dewState: DewState | null = null;
 
-  if (!isCallerAdmin && !continuing) {
-    dewState = await resolveDew(authorization, identity.uid);
-    if (!canAfford(dewState.balance, price)) {
+  if (!isCallerAdmin) {
+    const session = await readHourSession(authorization, identity.uid);
+    if (!session) {
       return Response.json({ error: outOfDewMessage() }, { status: 402 });
     }
+    if (session.model !== "code") {
+      return Response.json({ code: "session-model-locked", error: hourModelRefusal(session, "code") }, { status: 409 });
+    }
+    if (session.projectId !== project.id) {
+      return Response.json(
+        { code: "session-repo-locked", error: hourRepoRefusal(session, project.repoFullName) },
+        { status: 409 }
+      );
+    }
+  }
+
+  // Recorded before the model runs, exactly like /api/chat: an hour that never
+  // reached the agent is a different thing from one that failed inside it.
+  if (!isCallerAdmin) {
+    await markHourSessionActivity(authorization, "prompt");
   }
 
   const history = cleanHistory(body.history);
   if (history.length === 0) {
     return Response.json({ error: "A conversation is required." }, { status: 400 });
   }
+
+  // Capped here rather than trusted from the body: this text is concatenated
+  // into the prompt, so an unbounded value would be a way to buy a huge
+  // request on the flat turn price.
+  const attachedContext = typeof body.context === "string" ? body.context.slice(0, MAX_ATTACHMENT_CHARS) : "";
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -167,40 +202,26 @@ export async function POST(req: NextRequest): Promise<Response> {
           token: link.token,
           accountKeys,
           history,
+          context: attachedContext,
           transcript: cleanTranscript(body.transcript),
           turnToken: typeof body.turnToken === "string" ? body.turnToken : undefined,
           signal: req.signal,
           onEvent: send,
         });
 
-        // ── The charge ──────────────────────────────────────────────────────
-        // Once per turn, after the first step actually produced something. A
-        // step that failed before reaching a model was refused above and costs
-        // nothing.
-        if (result.chargedNow && !isCallerAdmin && dewState && (result.content.trim() || result.steps.length > 0)) {
-          const billed = result.usage;
-          const deducted = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
-            (cause: unknown) => ({
-              ok: false,
-              newSpent: dewState!.spent,
-              conflict: false,
-              reason: cause instanceof Error ? cause.message : "threw",
-            })
-          );
-          if (!deducted.ok) {
-            console.warn(
-              `[dew] agent charge of ${price} not recorded for uid ${identity.uid} (conflict=${deducted.conflict}, reason=${deducted.reason ?? "unknown"})`
-            );
+        // The step produced something, so the hour has done its job. An empty
+        // step — no words and no proposal — is the failure the refund exists
+        // for, and it is settled server-side so a closed tab cannot lose it.
+        if (!isCallerAdmin) {
+          if (result.content.trim() || result.proposals.length > 0) {
+            void markHourSessionActivity(authorization, "reply");
           } else {
-            await recordDewTransaction(authorization, identity.uid, {
-              dew: price,
-              model: "code",
-              prompt: billed.prompt,
-              completion: billed.completion,
-              repo: project.repoFullName,
-            }).catch(() => undefined);
+            void refundHourSession(authorization, "empty-step");
           }
         }
+
+        // The step was covered by the account's hour, so nothing is charged per
+        // turn: `result.usage` is recorded with the transcript, not billed.
 
         // ── The proposal, made reviewable ───────────────────────────────────
         // Staging lives in memory for the length of this request, so a proposal
@@ -216,7 +237,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             if (stored) changesetId = changeSet.id;
             else
               changesetWarning =
-                "This change could not be saved for review, so it cannot be committed from here. Check the `change_sets` policies in the Supabase project.";
+                "This change could not be saved for review, so it cannot be committed from here. Check the `changesets` policies in the Supabase project.";
           }
         }
 
@@ -235,11 +256,21 @@ export async function POST(req: NextRequest): Promise<Response> {
           // display only: this route has no path to a GitHub write, and the
           // change set is committed only by the commit endpoint, after approval.
           proposals: result.proposals,
+          // The pre-flight review, live only: it is a report about the diff,
+          // not part of the signed change set, so a reload shows the change
+          // without it rather than claiming a check that is not stored.
+          review: result.review,
           changesetId,
           changesetWarning,
         });
       } catch (error) {
         if (req.signal.aborted) return;
+        // A failed step that never produced an answer gives the hour back. The
+        // database refuses this once the hour has a reply, so a later failure
+        // inside a working hour is not refunded.
+        if (!isCallerAdmin) {
+          await refundHourSession(authorization, "agent-failed");
+        }
         if (error instanceof GithubError) {
           send({ type: "error", error: error.message, status: error.status, resetAt: error.resetAt ?? null });
         } else {

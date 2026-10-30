@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import MaintenanceGate from "@/components/MaintenanceGate";
 import { authHeader } from "@/lib/supabase";
-import { DAILY_FREE_DEW, formatDew, requestPrice } from "@/lib/dew";
+import { DAILY_FREE_DEW, DEW_PER_HOUR, formatDew } from "@/lib/dew";
 import type { DewActivity } from "@/lib/dewActivity";
 
 // ── Where the Dew went ───────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ function ActivityContent() {
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-[12px] text-white/35">
               <p>
-                The price is same for every request
+                {formatDew(DEW_PER_HOUR)} Dew buys an hour — there is no charge per message
               </p>
               <Link href="/plus" className="text-[#a9d8bb]/80 transition-colors hover:text-[#a9d8bb]">
                 Top up Dew →

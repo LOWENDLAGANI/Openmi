@@ -1,14 +1,13 @@
-// ── Which account this browser's copy of the history belongs to ─────────────
+// ── Which account this tab's copy of the history belongs to ─────────────────
 //
-// The local database is one database, not one per account. That is fine while a
-// device has exactly one person on it, and wrong the moment it has two: the
-// second person signed in and the sidebar offered the first person's
-// conversations, while the debounced push uploaded them into the second
+// The history cache lives for the length of an open tab, and a tab can outlive a
+// sign-out: the second person signed in and the sidebar offered the first
+// person's conversations, while the debounced push uploaded them into the second
 // account. The account id is written down here so the handover can be explicit
 // instead of accidental.
 //
 // The rules live in `planHandover` (lib/chatSync.ts) because they are pure and
-// testable; this module is the part that touches storage and Dexie.
+// testable; this module is the part that touches storage.
 //
 // `adoptDeviceAccount` is safe to call from several effects: one promise per
 // account, resolved once. It is deliberately not called on sign-out — the gate
@@ -91,7 +90,7 @@ let readyFor: string | null = null;
  *
  * A failure is not remembered, so the next call tries again rather than
  * replaying a rejection. On failure the caller must not treat the device as
- * adopted: the stale rows are still there.
+ * adopted: the stale rows are still cached.
  */
 export function adoptDeviceAccount(uid: string): Promise<DeviceHandover> {
   if (!uid) return Promise.resolve("switch");

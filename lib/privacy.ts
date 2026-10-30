@@ -1,6 +1,6 @@
 // ── Delete my data ───────────────────────────────────────────────────────────
-// The visitor's own eraser. It clears every local table, tells the account
-// sync that these chats are gone so the next pull cannot hand them back, and
+// The visitor's own eraser. It clears the session cache, tells the account sync
+// that these chats are gone so the next pull cannot hand them back, and
 // removes this identity's rows from the database with the visitor's own token —
 // the policies already allow an owner to write their own rows, so this needs no
 // credential and no admin involvement.
@@ -15,7 +15,7 @@ import { syncChatWipe } from "./cloudHistory";
 import { currentUser, getSupabase } from "./supabase";
 
 export interface DeleteDataResult {
-  /** The local wipe always runs; false only if Dexie itself refused. */
+  /** The cache wipe always runs; false only if it refused outright. */
   local: boolean;
   /** How many remote paths were removed, for the sentence in Settings. */
   remote: number;
@@ -27,9 +27,8 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
   // deleted into a browser that just asked for it to be gone.
   await syncChatWipe().catch(() => undefined);
 
-  // Dexie's transaction type takes at most five tables, so the wipe is two
-  // transactions rather than one. The conversations go first — they are the
-  // thing being deleted — and the trash follows.
+  // The conversations go first — they are the thing being deleted — and the
+  // trash follows, so a partial wipe cannot leave deleted threads addressable.
   await db.transaction("rw", db.chats, db.messages, db.folders, async () => {
     await db.messages.clear();
     await db.chats.clear();
@@ -63,6 +62,11 @@ export async function deleteAllMyData(): Promise<DeleteDataResult> {
       "shared_chats",
       "chat_messages",
       "chats",
+      // Folders and the trash are the account's too: a folder name and a
+      // deleted thread are still the person's data, and erasing everything
+      // except those two would leave both behind.
+      "folders",
+      "trash",
       "memories",
       "github_connections",
       "github_default",

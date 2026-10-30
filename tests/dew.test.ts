@@ -15,8 +15,7 @@ import { join } from "node:path";
 import {
   DAILY_FREE_DEW,
   DEW_PACKS,
-  DEW_PER_HOUR_SESSION,
-  DEW_PER_REQUEST,
+  DEW_PER_HOUR,
   HOUR_SESSION_MS,
   PAID_DAILY_FREE_DEW,
   dailyAllowance,
@@ -33,9 +32,7 @@ import {
   formatDew,
   isSupportedTimeZone,
   nextSpent,
-  requestPrice,
   roundDew,
-  sessionPrice,
   sumCredits,
   toMillidew,
 } from "../lib/dew";
@@ -47,32 +44,13 @@ import {
   localPrice,
 } from "../lib/pricing";
 import { parseRedeemCode } from "../lib/redeemState";
-import type { ModeId } from "../lib/models";
 
-// ── Flat pricing ─────────────────────────────────────────────────────────────
-// A request costs the same whatever the model writes. The price is keyed by
-// model, so adding a model is a pricing decision rather than a formula.
+// ── One price: an hour ───────────────────────────────────────────────────────
+// There is no per-request charge. Three Dew buys an hour of usage on the model it
+// was bought for, in every chat, and the hour is charged once when it starts.
 
-assert.equal(requestPrice("auto"), DEW_PER_REQUEST.auto);
-assert.equal(requestPrice("code"), DEW_PER_REQUEST.code);
-// Every mode has a price and no price is free — a free mode would be a hole in
-// the ledger, not a promotion.
-for (const [mode, price] of Object.entries(DEW_PER_REQUEST)) {
-  assert.ok(price > 0, `${mode} is priced at ${price}`);
-  assert.ok(Number.isFinite(price), `${mode} is priced at a non-number`);
-}
-// The code model is the dearer one: it is the model tuned for repository work.
-assert.ok(DEW_PER_REQUEST.code > DEW_PER_REQUEST.auto);
-// DeepSeek V4.1 Flash: 2 Dew a message, or 3 for a whole hour in one chat.
-assert.equal(DEW_PER_REQUEST.flash, 2);
-assert.equal(sessionPrice("flash"), 3);
-assert.equal(DEW_PER_HOUR_SESSION.flash, 3);
+assert.equal(DEW_PER_HOUR, 3);
 assert.equal(HOUR_SESSION_MS, 3_600_000);
-// A mode with no hourly price is billed per request and offered no session.
-assert.equal(sessionPrice("auto"), null);
-assert.equal(sessionPrice("code"), null);
-// An unknown mode falls back to the cheapest known price rather than zero.
-assert.equal(requestPrice("nonsense" as ModeId), DEW_PER_REQUEST.auto);
 
 // ── Rounding ─────────────────────────────────────────────────────────────────
 
@@ -88,13 +66,13 @@ assert.equal(toMillidew(0), 0);
 // ── Balance derivation ────────────────────────────────────────────────────────
 
 // Credits minus spent, floored at zero
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: 12.375 }), 12.625);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5 }, spent: 12.375 }), 0);
 assert.equal(dewBalanceFrom(null), 0);
 assert.equal(dewBalanceFrom(undefined), 0);
 assert.equal(dewBalanceFrom({}), 0);
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: 30 }), 0);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5 }, spent: 30 }), 0);
 assert.equal(dewBalanceFrom({ spent: 5 }), 0);
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: -3 }), 25);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5 }, spent: -3 }), 5);
 
 // ── Sum credits ───────────────────────────────────────────────────────────────
 //
@@ -104,10 +82,10 @@ assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: -3 }), 25);
 
 assert.equal(sumCredits(null), 0);
 assert.equal(sumCredits({}), 0);
-assert.equal(sumCredits({ TRIAL: 25, CODE1: 100 }), 125_000);
-assert.equal(sumCredits({ TRIAL: 25, bad: "not a number", CODE1: 100 }), 125_000);
-assert.equal(sumCredits({ TRIAL: 25, negative: -10, CODE1: 100 }), 125_000);
-assert.equal(dewBalanceFrom({ credits: { TRIAL: 25, CODE1: 100 }, spent: 0 }), 125);
+assert.equal(sumCredits({ TRIAL: 5, CODE1: 100 }), 105_000);
+assert.equal(sumCredits({ TRIAL: 5, bad: "not a number", CODE1: 100 }), 105_000);
+assert.equal(sumCredits({ TRIAL: 5, negative: -10, CODE1: 100 }), 105_000);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 5, CODE1: 100 }, spent: 0 }), 105);
 
 // ── The daily free allotment ─────────────────────────────────────────────────
 //
@@ -162,9 +140,9 @@ assert.equal(
 assert.equal(dailyDewRemaining({ dailyDay: "2026-10-25", dailySpent: 2 }, today), 8);
 
 // Free Dew rides on top of what was bought and is spent first.
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 0 }, today), 35);
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 24 }, today), 11);
-assert.equal(dewAvailableFrom({ credits: { TRIAL: 25 }, spent: 30 }, today), 10, "paid Dew floors at zero, the bucket does not");
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 5 }, spent: 0 }, today), 15);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 5 }, spent: 24 }, today), 10);
+assert.equal(dewAvailableFrom({ credits: { TRIAL: 5 }, spent: 30 }, today), 10, "paid Dew floors at zero, the bucket does not");
 assert.equal(dewAvailableFrom({ credits: {}, spent: 0, dailyDay: today, dailySpent: 5 }, today), 5);
 // Paid Dew does not expire with the bucket.
 assert.equal(dewAvailableFrom({ credits: { CODE1: 100 }, spent: 0, dailyDay: "2026-10-20", dailySpent: 5 }, today), 110);
@@ -185,11 +163,9 @@ assert.equal(canAfford(DUST_THRESHOLD), true);
 assert.equal(canAfford(0.04), false);
 assert.equal(canAfford(25), true);
 assert.equal(canAfford(0), false);
-assert.equal(canAfford(requestPrice("auto"), requestPrice("auto")), true, "exactly enough is enough");
-assert.equal(canAfford(requestPrice("auto") - 0.001, requestPrice("auto")), false);
-assert.equal(canAfford(requestPrice("code"), requestPrice("code")), true);
-// Someone holding only the auto price cannot start a code request.
-assert.equal(canAfford(requestPrice("auto"), requestPrice("code")), false);
+assert.equal(canAfford(DEW_PER_HOUR, DEW_PER_HOUR), true, "exactly enough for an hour is enough");
+assert.equal(canAfford(DEW_PER_HOUR - 0.001, DEW_PER_HOUR), false);
+assert.equal(canAfford(DEW_PER_HOUR + 10, DEW_PER_HOUR), true);
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -255,23 +231,22 @@ function source(relative: string): string {
 
 const chatSource = source(join("app", "api", "chat", "route.ts"));
 const dewSource = source(join("lib", "serverDew.ts"));
-const deductDewSource = dewSource.slice(dewSource.indexOf("export async function deductDew"), dewSource.indexOf("export interface DewChargeLine"));
 
-// The chat route reads the balance server-side, refuses before the model runs,
-// and charges once the answer is fully known.
-assert.ok(chatSource.includes("resolveDew("), "the chat route must resolve the balance server-side");
-assert.ok(chatSource.includes("canAfford("), "and pre-flight it before any model call");
-assert.ok(chatSource.includes("deductDew("), "and deduct when the answer is done");
+// The chat route requires the account's hour server-side, and refuses before the
+// model runs. A request itself costs nothing.
 assert.ok(
-  chatSource.includes("await deductDew("),
-  "the deduction must be awaited: once the stream closes a serverless deployment may freeze the process, and a charge still in flight never happens"
+  chatSource.includes("readHourSession("),
+  "the chat route must require the caller's hour before answering"
 );
-// The price is flat and comes from the model, not from the tokens.
-assert.ok(chatSource.includes("requestPrice(requested)"), "the route must price the request by its model");
 assert.ok(
-  !chatSource.includes("calcDewCost("),
-  "a per-token calculation is back in the chat route; pricing is flat now"
+  chatSource.includes("outOfDewMessage()"),
+  "a caller with no live hour is refused with the hour's price"
 );
+assert.ok(
+  !chatSource.includes("deductDew("),
+  "no per-request charge: the hour was paid for when it started"
+);
+assert.ok(!chatSource.includes("requestPrice("), "a message has no price of its own any more");
 // Tokens are still reported.
 assert.ok(chatSource.includes("prompt: totalUsage.prompt"), "the token count is no longer reported");
 
@@ -294,12 +269,12 @@ const dewSchema = readFileSync(
 );
 assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
 assert.ok(
-  deductDewSource.includes('rpc("deduct_dew"'),
-  "the deduction must go through the database function, not a client-side total"
+  !dewSource.includes("deductDew"),
+  "usage is billed by the hour, so no per-request charge may survive in the server"
 );
 assert.ok(
-  deductDewSource.includes('rpc("deduct_dew_split"'),
-  "the charge must report how much free and paid Dew paid for it, not only the total"
+  !dewSource.includes('rpc("deduct_dew_split"'),
+  "the only charge is starting an hour; nothing charges a message"
 );
 assert.ok(
   /set spent = public\.dew_wallets\.spent \+ excluded\.spent/.test(dewSchema),
@@ -318,7 +293,6 @@ assert.ok(
     !/grant (update|insert)[^;]*on public\.dew_wallets to authenticated/.test(dewSchema),
   "a caller must be able to read their spend and not write it, or a modified client could reset its own balance"
 );
-assert.ok(deductDewSource.includes("reason:"), "a refusal is reported with its own diagnosis, not just a boolean");
 
 // ── The daily bucket in the database ────────────────────────────────────────
 //
@@ -361,6 +335,60 @@ assert.ok(
     pricingSchema
   ),
   "the pass-sized bucket must live in the one locked charge function"
+);
+
+// ── One charge function, with nothing for a column name to collide with ────
+//
+// The charge had been re-declared four times (`deduct_dew`, `deduct_dew_split`,
+// a patched copy of `deduct_dew_split`, and a jsonb `dew_charge`), and the
+// copies are what broke it. This migration leaves exactly one function — a price
+// in, the new paid spend out — and drops the rest.
+
+const chargeSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000200_charge_dew.sql"),
+  "utf8"
+);
+const chargeCode = chargeSchema.replace(/--.*$/gm, "");
+assert.ok(
+  /create function public\.start_hour_session\(\)\s*\nreturns jsonb/.test(chargeCode),
+  "the one charge must answer jsonb: a RETURNS TABLE column is the variable that made the old charge ambiguous"
+);
+assert.ok(
+  !/returns table/.test(chargeCode),
+  "no charge function may declare an OUT parameter again"
+);
+assert.ok(
+  /drop function if exists public\.deduct_dew_split\(numeric\)/.test(chargeCode),
+  "the table-returning body must be dropped, not patched: create or replace cannot change a return type"
+);
+assert.ok(
+  /drop function if exists public\.deduct_dew\(numeric\)/.test(chargeCode) &&
+    /drop function if exists public\.dew_charge\(numeric\)/.test(chargeCode),
+  "the duplicate doors must be deleted rather than left as a second way to charge"
+);
+assert.ok(
+  /set spent = w\.spent \+ paid_charged/.test(chargeCode),
+  "the wallet increment must name the row alias it reads"
+);
+assert.ok(
+  !/returning\s+spent/.test(chargeCode),
+  "no RETURNING spent: that is the ambiguity itself"
+);
+assert.ok(
+  /for update/.test(chargeCode),
+  "the wallet must still be locked while the bucket and the spend are split"
+);
+assert.ok(
+  /delete from public\.schema_expected/.test(chargeCode),
+  "the audit must stop looking for the functions this file removes, or the banner reports a gap nobody can close"
+);
+assert.ok(
+  /notify pgrst/.test(chargeCode),
+  "PostgREST caches signatures: the return type changed, so it must be told to look again"
+);
+assert.ok(
+  /grant usage on schema public to anon, authenticated/.test(chargeSchema),
+  "EXECUTE without schema USAGE is still permission denied, so the charge must grant it"
 );
 assert.ok(
   /free_charge := least\(charged, free_left\)/.test(timezoneSchema),
@@ -448,15 +476,37 @@ assert.ok(
   activitySchema.includes("deduct_dew_split(numeric)"),
   "the schema audit must know about the new function"
 );
-assert.ok(
-  chatSource.includes("free: deduct.freeCharged"),
-  "the chat route must write the free half it was actually charged"
-);
 
 // ── Hour sessions ───────────────────────────────────────────────────────────
-// The hour is a server-owned row. One account holds at most one at a time, the
-// charge and the row are written together, and a live session only makes a
-// message free when it names the same chat.
+// The hour is a server-owned row and the only thing that costs Dew. One account
+// holds at most one at a time, the charge and the row are written together, and
+// a live hour covers every chat on the one model it was bought for.
+
+const hourSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000200_charge_dew.sql"),
+  "utf8"
+);
+assert.ok(
+  /create function public\.start_hour_session\(\)\s*\nreturns jsonb/.test(hourSchema),
+  "the one charge takes no argument and declares no OUT parameter to be ambiguous with"
+);
+assert.ok(
+  /price numeric := 3/.test(hourSchema),
+  "three Dew is the server's own constant, not something a caller chooses"
+);
+assert.ok(
+  /drop function if exists public\.deduct_dew_split\(numeric\)/.test(hourSchema) &&
+    /drop function if exists public\.deduct_dew\(numeric\)/.test(hourSchema),
+  "no per-request charge may survive this migration"
+);
+assert.ok(
+  /drop table public\.hour_sessions/.test(hourSchema),
+  "the old per-chat table is dropped, guarded so a second run keeps a live hour"
+);
+assert.ok(
+  /owner uuid primary key/.test(hourSchema) && /free_charged := least\(price, free_left\)/.test(hourSchema),
+  "one hour per account, with the free bucket paying first"
+);
 
 assert.ok(
   /create table if not exists public\.hour_sessions[\s\S]*owner uuid primary key/.test(pricingSchema),
@@ -518,12 +568,69 @@ assert.ok(
   "starting an hour must not be callable by an anonymous session"
 );
 assert.ok(
-  chatSource.includes("readHourSessionForChat"),
-  "the chat route must match the session to the chat before it skips the charge"
+  chatSource.includes("readHourSession"),
+  "the chat route must read the account's hour before it answers anything"
 );
 assert.ok(
-  /!coveredBySession && identity/.test(chatSource),
-  "a covered message must not be charged a second time"
+  /!coveredBySession/.test(chatSource) && /outOfDewMessage\(\)/.test(chatSource),
+  "a message with no live hour is refused, and a covered one is not charged again"
+);
+
+// ── The hour is for one model and one repository ────────────────────────────
+// The purchase is not a subscription to everything. The row records the model
+// and repository it was bought for, and both routes refuse a request that asks
+// for another one instead of spending the hour there.
+
+const scopeSchema = readFileSync(
+  join(process.cwd(), "supabase/migrations/20261028000300_session_scope.sql"),
+  "utf8"
+);
+const scopeCode = scopeSchema.replace(/--.*$/gm, "");
+assert.ok(
+  /add column if not exists model text/.test(scopeCode) &&
+    /add column if not exists project_id text/.test(scopeCode) &&
+    /add column if not exists repo_full_name text/.test(scopeCode),
+  "the hour row must remember which model and repository it was bought for"
+);
+assert.ok(
+  /check \(model in \('auto', 'code', 'flash'\)\)/.test(scopeCode),
+  "a model the product does not offer must not be storable as an hour's scope"
+);
+assert.ok(
+  /create function public\.start_hour_session\(p_model text default 'auto', p_project_id text default null\)[\s\S]*security definer/.test(
+    scopeCode
+  ),
+  "the start must take the scope and run server-side, not take a price"
+);
+assert.ok(
+  /from public\.projects p[\s\S]*?p\.owner = auth\.uid\(\)[\s\S]*?p\.id = chosen_project/.test(scopeCode),
+  "a repository scope must be a project this account actually owns"
+);
+assert.ok(
+  /'model', active\.model/.test(scopeCode) && /'project_id', active\.project_id/.test(scopeCode),
+  "a refused second start must carry the live binding, or the interface can only say 'active'"
+);
+
+const sessionSource = source(join("app", "api", "session", "route.ts"));
+const agentSource = source(join("app", "api", "agent", "step", "route.ts"));
+assert.ok(
+  /p_model: requestedModel/.test(sessionSource) && /p_project_id: project\?\.id \?\? null/.test(sessionSource),
+  "the session route must buy the hour for the requested model and repository"
+);
+assert.ok(
+  sessionSource.includes("session-model-locked") &&
+    sessionSource.includes("session-repo-locked") &&
+    sessionSource.includes("hourModelRefusal") &&
+    sessionSource.includes("hourRepoRefusal"),
+  "a live hour for another model or repository must be refused with that binding named"
+);
+assert.ok(
+  /hourSession\.model !== requested/.test(chatSource) && chatSource.includes("hourModelRefusal"),
+  "chat must refuse a model the hour was not bought for before it answers"
+);
+assert.ok(
+  /session\.model !== "code"/.test(agentSource) && /session\.projectId !== project\.id/.test(agentSource),
+  "the agent must run only on the model and repository the hour was bought for"
 );
 
 // ── Paid plans and local prices ─────────────────────────────────────────────
@@ -550,5 +657,40 @@ assert.equal(formatPlanPrice(8, "en-US"), "$8");
 const malaysian = localPrice(8, "en-MY");
 assert.equal(malaysian.currency, "MYR");
 assert.equal(malaysian.approximate, true);
-assert.ok(malaysian.amount >= 30 && malaysian.amount <= 40, "eight dollars is about RM 35");
+assert.equal(malaysian.amount, 35, "the converted figure matches the ringgit price");
+assert.equal(localPrice(4, "en-MY").amount, 18);
 assert.ok(malaysian.formatted.includes("RM"));
+
+// Rounding is a property of the currency, not of its rate. Japan used one rule
+// for both plans — ￥600 and ￥1,200 both became ￥1,000 — so the shorter pass
+// looked exactly as expensive as the longer one.
+assert.equal(currencyForLocale("ja-JP"), "JPY");
+assert.equal(localPrice(4, "ja-JP").amount, 600);
+assert.equal(localPrice(8, "ja-JP").amount, 1_200);
+assert.equal(currencyForLocale("ko-KR"), "KRW");
+assert.equal(localPrice(4, "ko-KR").amount, 5_520, "three significant digits keep the converted figure");
+assert.equal(localPrice(8, "ko-KR").amount, 11_000);
+assert.equal(localPrice(4, "id-ID").amount, 64_000, "rupiah still rounds to the thousand");
+assert.equal(localPrice(8, "id-ID").amount, 128_000);
+
+// A region the map has never heard of is answered in dollars, never in an
+// invented symbol.
+assert.equal(currencyForLocale("en-AQ"), "USD");
+const unmapped = localPrice(4, "en-AQ");
+assert.equal(unmapped.currency, "USD");
+assert.equal(unmapped.amount, 4);
+assert.equal(unmapped.approximate, false);
+
+// The added coverage resolves, and each figure stays the shape of a price card
+// rather than a number a rate happened to produce.
+assert.equal(currencyForLocale("ar-KW"), "KWD");
+assert.ok(localPrice(4, "ar-KW").amount > 0 && localPrice(4, "ar-KW").amount < 5);
+assert.equal(currencyForLocale("hu-HU"), "HUF");
+assert.ok(localPrice(4, "hu-HU").amount >= 1_000 && localPrice(4, "hu-HU").amount <= 2_000);
+assert.equal(currencyForLocale("es-CL"), "CLP");
+assert.ok(localPrice(4, "es-CL").amount >= 3_000 && localPrice(4, "es-CL").amount <= 5_000);
+assert.equal(currencyForLocale("en-KH"), "KHR");
+assert.ok(localPrice(8, "en-KH").amount >= 20_000 && localPrice(8, "en-KH").amount <= 60_000);
+assert.equal(currencyForLocale("is-IS"), "ISK");
+assert.equal(currencyForLocale("en-GH"), "GHS");
+assert.equal(currencyForLocale("fr-RE"), "EUR");

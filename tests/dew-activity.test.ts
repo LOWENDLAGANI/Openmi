@@ -23,7 +23,7 @@ const report = summarizeDewActivity(
     { at: 0, dew: 4, model: "auto", free: 0 },
   ],
   [
-    { at: NOW, code: "TRIAL", amount: 25 },
+    { at: NOW, code: "TRIAL", amount: 5 },
     { at: NOW - 2 * DAY, code: "TOPUP-ABC", amount: 100 },
     { at: NOW - 40 * DAY, code: "OLD", amount: 50 },
   ],
@@ -62,7 +62,7 @@ assert.deepEqual(
   report.credits.map((credit) => credit.code),
   ["TRIAL", "TOPUP-ABC"]
 );
-assert.equal(report.creditTotal, 125);
+assert.equal(report.creditTotal, 105);
 
 // A legacy charge with no recorded split is paid credit, not invented free Dew.
 const legacy = summarizeDewActivity(

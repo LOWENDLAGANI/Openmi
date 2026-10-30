@@ -6,9 +6,8 @@
 // it permanent. Both decisions are written to the account, so the trash and
 // what happens to a chat in it are the same on every device.
 
-import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
-import { db } from "@/lib/db";
+import { db, useLiveQuery } from "@/lib/db";
 import {
   markChatDeleted,
   markTrashDecision,
@@ -179,10 +178,7 @@ export default function TrashOverlay({ open, onClose, onRestored }: TrashOverlay
         </div>
 
         <footer className="border-t border-white/[0.06] px-5 py-3">
-          <p className="text-[10px] leading-relaxed text-white/30">
-            Kept in your account for 30 days. A chat restored here comes back on your other devices
-            too; deleting it forever removes it everywhere.
-          </p>
+
         </footer>
       </section>
     </div>

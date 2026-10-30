@@ -1,6 +1,5 @@
 "use client";
 
-import { useLiveQuery } from "dexie-react-hooks";
 import { useDew } from "@/lib/useDew";
 import { formatDew } from "@/lib/dew";
 import {
@@ -11,6 +10,7 @@ import {
   clearAllData,
   exportBackup,
   importBackup,
+  useLiveQuery,
   type BackupPayload,
 } from "@/lib/db";
 import { moveChatToTrash } from "@/lib/trash";
@@ -26,7 +26,7 @@ import {
 } from "@/lib/cloudHistory";
 import { markFolderDeleted } from "@/lib/deletedFolders";
 import { localStorageOrNull } from "@/lib/deletedChats";
-import { nameInitial } from "@/lib/visitorName";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import OpenmiMark from "@/components/OpenmiMark";
 import SearchOverlay from "@/components/SearchOverlay";
@@ -37,14 +37,15 @@ interface SidebarProps {
   activeChatId: string | null;
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
-  temporary: boolean;
-  onToggleTemporary: () => void;
+  draftId: string | null;
+  onToggleDraft: () => void;
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
   onOpenRepo: () => void;
   displayName: string;
-  avatarUrl?: string;
+  /** The account id the generated profile picture is derived from. */
+  avatarSeed?: string | null;
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -146,14 +147,14 @@ export default function Sidebar({
   activeChatId,
   onSelectChat,
   onNewChat,
-  temporary,
-  onToggleTemporary,
+  draftId,
+  onToggleDraft,
   open,
   onClose,
   onOpenSettings,
   onOpenRepo,
   displayName,
-  avatarUrl,
+  avatarSeed,
 }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
@@ -417,7 +418,6 @@ export default function Sidebar({
         <div className="px-4">
           <button
             onClick={onNewChat}
-            data-tutorial="sidebar-new-chat"
             className="flex w-full items-center gap-3 rounded-2xl bg-white/[0.075] px-4 py-3 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.11]"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -431,11 +431,11 @@ export default function Sidebar({
               not to this device, not to the account — so it is a switch rather
               than a chat of its own in the list below. */}
           <button
-            onClick={onToggleTemporary}
-            aria-pressed={temporary}
-            title={temporary ? "Leave temporary chat" : "Start a temporary chat that is not saved"}
+            onClick={onToggleDraft}
+            aria-pressed={draftId !== null}
+            title={draftId ? "Stop drafting and save the chat" : "Start a chat that is not saved until you create it"}
             className={`mt-2 flex w-full items-center gap-3 rounded-2xl border px-4 py-2.5 text-[14px] font-medium transition-colors ${
-              temporary
+              draftId
                 ? "border-[#2f6b48]/40 bg-[#2f6b48]/[0.14] text-white"
                 : "border-white/[0.07] bg-white/[0.03] text-white/70 hover:bg-white/[0.06] hover:text-white"
             }`}
@@ -449,18 +449,18 @@ export default function Sidebar({
               strokeWidth="1.7"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={temporary ? "text-[#a9d8bb]" : "text-white/50"}
+              className={draftId ? "text-[#a9d8bb]" : "text-white/50"}
             >
               <circle cx="12" cy="12" r="9" />
               <path d="M12 7v5l3 2" />
             </svg>
-            <span className="flex-1 text-left">Temporary chat</span>
+            <span className="flex-1 text-left">Draft chat</span>
             <span
               className={`shrink-0 text-[9px] font-semibold uppercase tracking-wide ${
-                temporary ? "text-[#a9d8bb]" : "text-white/30"
+                draftId ? "text-[#a9d8bb]" : "text-white/30"
               }`}
             >
-              {temporary ? "On" : "Not saved"}
+              {draftId ? "Drafting" : "Not saved"}
             </span>
           </button>
         </div>
@@ -472,7 +472,6 @@ export default function Sidebar({
           className="mt-4 flex items-center justify-between px-4"
           role="toolbar"
           aria-label="Openmi tools"
-          data-tutorial="sidebar-utilities"
         >
           <ToolbarButton label="Search chats and messages (Ctrl+K)" onClick={() => setSearchOpen(true)}>
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -599,7 +598,7 @@ export default function Sidebar({
           </div>
         )}
 
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-4" data-tutorial="sidebar-recent">
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-4">
           <div className="mb-2 flex items-center justify-between gap-2 px-2">
             <span className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">
               {folderFilter
@@ -847,7 +846,7 @@ export default function Sidebar({
           )}
         </div>
 
-        <div className="border-t border-white/[0.07] px-4 pb-4 pt-3" data-tutorial="sidebar-data">
+        <div className="border-t border-white/[0.07] px-4 pb-4 pt-3">
           {notice && <div className="mb-2 rounded-xl bg-white/[0.07] px-3 py-2 text-[11px] text-white/65 animate-rise">{notice}</div>}
           <div className="flex items-center gap-1">
             <button onClick={handleExport} className="flex flex-1 items-center justify-center rounded-lg px-2 py-2 text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white">Export</button>
@@ -874,15 +873,7 @@ export default function Sidebar({
               className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               aria-label="Open settings"
             >
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={displayName || "You"}
-                  className="h-8 w-8 shrink-0 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
-              )}
+              <ProfileAvatar name={displayName || "You"} seed={avatarSeed} size={32} />
               <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "You"}</span>
             </button>
             <span className="flex shrink-0 items-center gap-1">

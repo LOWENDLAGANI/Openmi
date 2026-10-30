@@ -8,27 +8,20 @@
 // computes from the same node the server read is the same balance the server
 // enforced with.
 //
-// ── Flat pricing ──────────────────────────────────────────────────────────────
-// A request costs a fixed number of Dew for the model it runs on. Tokens are
-// still counted, reported to the client and stored on the message; they are
-// telemetry now, not the bill. Two reasons for the change:
+// ── Billing by the hour ───────────────────────────────────────────────────────
+// Usage is bought in one-hour sessions, not per message. Three Dew opens an hour
+// that covers every answer in every chat on the one model it was bought for —
+// and, when it is started in a repository, on that repository only. A request
+// itself costs nothing, so the price of a conversation is known before it
+// starts. Tokens are still counted and reported, but they are telemetry, not the
+// bill.
 //
-//   1. Predictability. A chat whose price depends on how much the model decided
-//      to write is impossible to budget for, and users read a falling balance as
-//      a bug rather than as usage.
-//   2. A coding agent's turns vary by an order of magnitude. Billing by token
-//      makes the cheap turns subsidise nothing and the expensive ones feel like
-//      an accident; a flat price per model makes the trade-off legible up front.
-//
-// The price is per *completed request*, not per model call inside it. An agent
-// loop that takes several internal steps is still one request to the person who
-// sent one message — but the loop is capped elsewhere, so the flat price cannot
-// buy an unbounded number of calls. See MAX_STEPS in the agent specification.
-
-import type { ModeId } from "./models";
+// One unit for everything is deliberate: chat and the repository agent draw on the
+// same hour, so there is one number to understand and one place it is charged —
+// `start_hour_session()`.
 
 export const DEW_PER_UNIT = 100; // 100 Dew = $1.00 of value
-export const TRIAL_DEW = 25; // granted once at account creation
+export const TRIAL_DEW = 5; // granted once at account creation
 /**
  * Free Dew every account is given at the start of each day.
  *
@@ -73,58 +66,37 @@ export const DEW_PACKS: readonly DewPack[] = [
   { id: "500", dew: 500, ringgit: 20 },
   { id: "1000", dew: 1000, ringgit: 35 },
 ] as const;
-/** Same DuitNow QR the rest of the product already uses. */
-export const DEW_QR = "/openmi-donate-qr.png";
-export const DEW_QR_CAPTION = "Scan with your banking app · DuitNow";
+/**
+ * Where a payment is actually made.
+ *
+ * Payment used to be a DuitNow QR printed inside the app. It is now a link to
+ * the project's payment page, which is the only place the amount and the
+ * provider's own instructions are correct; nothing here pretends to be a
+ * checkout, and the buyer returns to send a receipt from the top-up page.
+ */
+export const PAYMENT_URL = "https://sociabuzz.com/minetallestmc/tribe";
+export const PAYMENT_HOST = "sociabuzz.com";
+export const PAYMENT_LINK_LABEL = "Open the payment page";
 /** Rounding: three decimals is the finest a Dew figure is ever kept. */
 export const DEW_PRECISION = 3;
 
 /**
- * The flat price of one completed request, per model.
+ * The one price: three Dew buys an hour of usage.
  *
- * Adding a model means adding one line here. The number is what the request
- * costs, full stop: not a rate, not a per-1,000-token figure, and not something
- * a longer answer changes. `code` is dearer because it is the model tuned for
- * reading and changing a repository, which is the more expensive request to
- * serve. `flash` is the premium model and is priced accordingly; it is also the
- * one model with an hourly session, which costs more than a single message but
- * covers every answer in that chat for the next hour.
+ * There is no per-request charge. An hour covers every answer in every chat on
+ * the model it was bought for, so a person pays for time and not for how much
+ * the model writes — which is the one price that is predictable before a
+ * conversation starts. Changing the model or the repository is a new purchase,
+ * never a toggle inside a live hour.
  */
-export const DEW_PER_REQUEST: Record<ModeId, number> = {
-  auto: 0.25,
-  code: 0.5,
-  flash: 2,
-};
-
-/**
- * The models that can be bought by the hour, and the price of that hour.
- *
- * A session is a different product from a message: it pays for every answer in
- * one chat for an hour, so it is only offered for a model whose hourly price is
- * deliberately set. A mode absent here has no session price and is always
- * billed per request.
- */
-export const DEW_PER_HOUR_SESSION: Partial<Record<ModeId, number>> = {
-  flash: 3,
-};
+export const DEW_PER_HOUR = 3;
 
 /** One session lasts this long from the moment the server starts it. */
 export const HOUR_SESSION_MS = 60 * 60 * 1000;
 
-/** The hourly price of a model, or null when it has no session option. */
-export function sessionPrice(mode: ModeId): number | null {
-  const price = DEW_PER_HOUR_SESSION[mode];
-  return typeof price === "number" && price > 0 ? price : null;
-}
-
 export interface TokenUsage {
   prompt: number;
   completion: number;
-}
-
-/** The flat price of one request in a given mode. */
-export function requestPrice(mode: ModeId): number {
-  return DEW_PER_REQUEST[mode] ?? DEW_PER_REQUEST.auto;
 }
 
 const DAY_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
@@ -245,7 +217,7 @@ export interface DewLedger {
  * One account's paid Dew: credits minus spend, floored at zero.
  *
  * The stored shape is a map of credits and a spent total:
- *   { credits: { TRIAL: 25, CODE1: 100 }, spent: 12.375 }
+ *   { credits: { TRIAL: 5, CODE1: 100 }, spent: 12.375 }
  * The balance is always derived — credits minus spent — never read from a
  * single scalar a client could have written. Free daily Dew is deliberately
  * not folded in here: what somebody bought must not expire at midnight. Use
@@ -324,5 +296,5 @@ export function canAfford(balance: number, price: number = DUST_THRESHOLD): bool
 
 /** The sentence the chat shows when somebody has run dry. */
 export function outOfDewMessage(): string {
-  return `**You're out of Dew.** You get ${formatDew(DAILY_FREE_DEW)} free Dew every day (${formatDew(PAID_DAILY_FREE_DEW)} with a paid pass) — it refills at midnight in your account's timezone, and whatever is left does not carry over. Top up on the /plus page, or redeem a Dew code. Each message or hour session costs a fixed amount of Dew for the model you pick, so you can see the price before you send it.`;
+  return `**You need an hour to keep chatting.** Openmi charges for time, not per message: ${formatDew(DEW_PER_HOUR)} Dew covers every answer in every chat for one hour, on the one model you pick. You get ${formatDew(DAILY_FREE_DEW)} free Dew every day (${formatDew(PAID_DAILY_FREE_DEW)} with a paid pass), refilled at midnight in your account's timezone, so those free Dew already buy ${formatDew(DAILY_FREE_DEW / DEW_PER_HOUR)} hours a day. Start an hour from the composer, top up on the /plus page, or redeem a Dew code.`;
 }

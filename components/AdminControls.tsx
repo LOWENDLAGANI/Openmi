@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_CONFIG, isBanActive, subscribeAppConfig, type AppConfig, type BanRecord } from "@/lib/appConfig";
 import { endAdminSession, listUsage, saveAppConfig, type AdminUsage, type AdminUser } from "@/lib/cloudAdmin";
 import { authHeader } from "@/lib/supabase";
+import Spinner from "./Spinner";
 // ── Runtime controls ────────────────────────────────────────────────────────
 // These are enforced by the server, not by this screen. A switch here closes
 // the door for everyone including anyone running a modified bundle; the
@@ -210,7 +211,10 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Controls</h3>
         {saving ? (
-          <span className="text-[10px] text-white/35">Saving…</span>
+          <span className="inline-flex items-center gap-1.5 text-[10px] text-white/35">
+            <Spinner size={10} />
+            Saving…
+          </span>
         ) : saved ? (
           <span className="text-[10px] text-emerald-300/80">Saved</span>
         ) : null}

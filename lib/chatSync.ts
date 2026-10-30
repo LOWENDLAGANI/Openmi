@@ -1,7 +1,7 @@
 // ── How two devices' chat histories are reconciled ───────────────────────────
-// Pure logic only. Nothing here touches the network or IndexedDB, so the rules
-// that decide what a sync keeps, drops, and overwrites can be tested without a
-// browser or a network.
+// Pure logic only. Nothing here touches the network or the session cache, so the
+// rules that decide what a sync keeps, drops, and overwrites can be tested
+// without a browser or a network.
 //
 // The whole point of this file is that a sync is a **union**. Openmi writes chat
 // history to the account so it follows the person to another browser, and it
@@ -16,19 +16,19 @@ import type { AgentStep, Chat, ChatMessage } from "./types";
 
 // ── Whose history this browser is holding ────────────────────────────────────
 //
-// IndexedDB is not scoped by an account: every chat this browser has ever held
-// sits in one database, and the sidebar reads it without asking who is signed
-// in. So when a second person signed in on the same device they found the first
-// person's conversations in the list — and the push then wrote those rows into
-// the second account. Nothing about that was ambiguous: the local copy belongs
-// to exactly one account, and it has to say which.
+// The cache is not scoped by an account: every chat this tab has loaded sits in
+// one place, and the sidebar reads it without asking who is signed in. So when a
+// second person signed in without a reload they found the first person's
+// conversations in the list — and the push then wrote those rows into the second
+// account. Nothing about that was ambiguous: the cache belongs to exactly one
+// account, and it has to say which.
 //
 // The rule below is the whole decision, kept pure so it can be tested without a
 // browser. "Unknown owner" is treated as foreign on purpose: a cache written
 // before this rule existed cannot be proved to belong to whoever is signing in,
 // and the account's own copy is the one that survives the handover.
 
-/** What to do when this browser's stored history meets the account signed in. */
+/** What to do when this tab's cached history meets the account signed in. */
 export type DeviceHandover =
   /** The cache is this account's. Nothing is thrown away. */
   | "keep"
@@ -52,7 +52,7 @@ export function planHandover(input: {
 }
 
 /** The tools a stored step may name. Anything else is not one of ours. */
-const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "propose_edits"]);
+const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "read_issue", "propose_edits"]);
 /** A change-set id, as lib/changesets.ts mints it — checked without importing
  *  that server module into a client bundle. */
 const CHANGESET_ID = /^[0-9a-f]{20}$/;

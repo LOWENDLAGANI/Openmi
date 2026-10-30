@@ -209,7 +209,7 @@ export function accountExplanation(view: AccountView): string {
     case "unconfigured":
       return "Add the NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY values and redeploy. Openmi needs an account service to sign anyone in.";
     case "unreachable":
-      return "Nothing has changed. Your chats stay on this device — check the connection and try again in a moment.";
+      return "Nothing has changed. Your chats are read from your account — check the connection and try again in a moment.";
     case "signed-in":
       return `Signed in with ${providerLabel(view.provider)}. Your chats and preferences follow you to any browser you sign in from.`;
     case "signed-out":
@@ -312,6 +312,27 @@ export function isDismissed(cause: unknown): boolean {
   // A closed tab never reaches a callback, so the only other shape this takes is
   // the provider's own words in the redirect.
   return /access_denied|user (cancelled|denied)|cancelled/i.test(error?.message ?? "");
+}
+
+// ── The address ──────────────────────────────────────────────────────────────
+
+/**
+ * Why this address cannot be requested, or null when it can.
+ *
+ * Deliberately the shape of the form's question rather than a validator library:
+ * the only two mistakes worth catching before a mail is sent are "that is not an
+ * address" and "that is the address I already have". Everything else — an
+ * address on another account, a project that refuses the domain — is the
+ * provider's answer, and it arrives with a code `describeLinkError` can name.
+ */
+export function emailChangeProblem(currentEmail: string | null, nextEmail: string): string | null {
+  const address = nextEmail.trim();
+  if (!address) return "Enter the address you want to sign in with.";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) return "That is not a valid email address.";
+  if (currentEmail && address.toLowerCase() === currentEmail.trim().toLowerCase()) {
+    return "That is already the address on this account.";
+  }
+  return null;
 }
 
 // ── The name ─────────────────────────────────────────────────────────────────

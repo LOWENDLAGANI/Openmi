@@ -6,9 +6,8 @@
 // sidebar list on purpose — a search box that pushes the chat list down is a
 // search box that costs the space it needs to show results.
 
-import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
-import { db, searchMessages, type MessageSearchHit } from "@/lib/db";
+import { db, searchMessages, useLiveQuery, type MessageSearchHit } from "@/lib/db";
 import type { Chat } from "@/lib/types";
 
 interface SearchOverlayProps {
@@ -85,10 +84,7 @@ export default function SearchOverlay({ open, onClose, onSelectChat }: SearchOve
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {needle.length < 2 ? (
-            <p className="px-3 py-4 text-[12px] leading-relaxed text-white/35">
-              Type at least two letters. Everything here stays on this device — message text is
-              never sent anywhere to be searched.
-            </p>
+            <span className="px-3 py-4 text-[12px] leading-relaxed text-white/35" />
           ) : !hasResults ? (
             <p className="px-3 py-4 text-[12px] leading-relaxed text-white/35">
               No matching chats or messages.

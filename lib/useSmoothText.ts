@@ -8,7 +8,8 @@ import { useEffect, useRef, useState } from "react";
  *
  * The answer arrives in provider-chosen chunks: some models emit a token at a
  * time, others hand over a whole paragraph at once, and every chunk is written
- * through IndexedDB before it is rendered. That makes the text visibly jump —
+ * through the session cache before it is rendered. That makes the text visibly
+ * jump —
  * long pauses, then a wall of words. The real text is never delayed or altered;
  * this only decides how much of it the reader has been shown so far, and it
  * catches up as fast as the backlog allows.

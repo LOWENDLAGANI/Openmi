@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { authHeader } from "@/lib/supabase";
+import Spinner from "./Spinner";
 
 // ── Admin: model health ──────────────────────────────────────────────────────
 // One row per model the deployment can reach, each with its own Test button.
@@ -118,7 +119,10 @@ export default function ModelHealthSection() {
       {listError ? (
         <p className="text-[11px] leading-relaxed text-white/40">{listError}</p>
       ) : models === null ? (
-        <p className="text-[11px] text-white/35">Loading…</p>
+        <p className="flex items-center gap-1.5 text-[11px] text-white/35">
+          <Spinner size={12} className="text-[#a9d8bb]" />
+          Loading…
+        </p>
       ) : models.length === 0 ? (
         <p className="text-[11px] text-white/35">No models are configured on this deployment.</p>
       ) : (
@@ -164,7 +168,10 @@ function ModelRow({
           disabled={testing}
           className="shrink-0 rounded-full border border-white/[0.1] px-2.5 py-1 text-[10px] font-medium text-white/70 transition-colors hover:border-white/25 hover:text-white disabled:opacity-40"
         >
-          {testing ? "Checking…" : "Test"}
+          <span className="inline-flex items-center gap-1.5">
+            {testing && <Spinner size={10} className="text-white/70" />}
+            {testing ? "Checking…" : "Test"}
+          </span>
         </button>
       </div>
 

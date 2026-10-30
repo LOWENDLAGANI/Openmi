@@ -65,10 +65,10 @@ async function main(): Promise<void> {
   });
 
   await test("the empty screen is the only place Focus replaces the thread", () => {
-    const page = read("app/page.tsx");
+    const page = read("app/chat/page.tsx");
     assert.match(
       page,
-      /const focusHome = homeLayout === "focus" && !temporary && messages\.length === 0;/,
+      /const focusHome = homeLayout === "focus" && messages\.length === 0;/,
       "Focus does not stop at the empty screen"
     );
     assert.match(page, /<FocusHome project=\{project\} onOpenRepo=\{\(\) => setRepoOpen\(true\)\} \/>/, "the screen is not rendered");

@@ -27,11 +27,12 @@ const STROKE = 3;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-/** Ring and bar agree on the colour for each band. */
+/** Ring and bar agree on the colour for each band. The healthy band is the
+ *  theme's accent rather than a fixed sage, so the ring follows the palette. */
 function toneColor(level: ContextUsage["level"]): string {
   if (level === "full") return "#ef6b6b";
   if (level === "warn") return "#f5b544";
-  return "#7fd1a1";
+  return "var(--accent)";
 }
 
 export default function ContextRing({
@@ -99,7 +100,7 @@ export default function ContextRing({
             cy={SIZE / 2}
             r={RADIUS}
             fill="none"
-            stroke={color}
+            style={{ stroke: color }}
             strokeWidth={STROKE}
             strokeLinecap="round"
             strokeDasharray={CIRCUMFERENCE}

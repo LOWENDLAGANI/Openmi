@@ -1,13 +1,14 @@
 "use client";
 
 // ── Settings → Your data ─────────────────────────────────────────────────────
-// The local-first promise needs a visible end: a backup anyone can take, and
-// an eraser anyone can pull. Both run on this device; the eraser additionally
-// clears this identity's database nodes with the visitor's own token, and it
+// History lives on the account, so both promises here point at the account: a
+// backup anyone can take of what is loaded, and an eraser that clears the rows
+// with the visitor's own token. The eraser also clears the tab's cache, and it
 // keeps the paid plan — a purchase is not chat history.
 
 import { useState } from "react";
 import Link from "next/link";
+import Spinner from "./Spinner";
 import { exportBackup } from "@/lib/db";
 import { deleteAllMyData } from "@/lib/privacy";
 
@@ -48,8 +49,8 @@ export default function DataControls() {
       setConfirmDelete(false);
       setNotice(
         result.remote > 0
-          ? "Deleted on this device and from your account. Your Dew balance was kept."
-          : "Deleted on this device. Your Dew balance was kept."
+          ? "Deleted from your account and this tab. Your Dew balance was kept."
+          : "Deleted from this tab. The account copy could not be reached — try again."
       );
       // The page listens for this and resets to a fresh chat, because the
       // thread that was just erased cannot keep standing in front of anyone.
@@ -65,11 +66,7 @@ export default function DataControls() {
   return (
     <section>
       <h3 className="mb-1.5 text-[13px] font-semibold text-white">Your data</h3>
-      <p className="mb-2.5 text-[11px] leading-relaxed text-white/40">
-        Chats live in this browser first. Export keeps a copy you own; deleting removes every
-        chat, folder and trashed conversation from this device, and clears the saved name, usage
-        log and GitHub connection held by the account. Your Dew balance is never touched.
-      </p>
+
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <button
@@ -90,16 +87,29 @@ export default function DataControls() {
               : "border-red-400/15 bg-red-500/[0.06] text-red-200/80 hover:bg-red-500/[0.12]"
           }`}
         >
-          {busy ? "Deleting…" : confirmDelete ? "Tap again to erase everything" : "Delete all my data"}
+          <span className="inline-flex items-center justify-center gap-1.5">
+            {busy && <Spinner size={12} />}
+            {busy ? "Deleting…" : confirmDelete ? "Tap again to erase everything" : "Delete all my data"}
+          </span>
         </button>
       </div>
 
-      <Link
-        href="/shares"
-        className="mt-2 inline-flex text-[11px] font-medium text-[#a9d8bb]/75 transition-colors hover:text-[#a9d8bb]"
-      >
-        Manage shared links →
-      </Link>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Link
+          href="/shares"
+          className="inline-flex text-[11px] font-medium text-[#a9d8bb]/75 transition-colors hover:text-[#a9d8bb]"
+        >
+          Manage shared links →
+        </Link>
+        {/* The eraser above is only half the promise; the page that explains
+            what is kept and why is the other half. */}
+        <Link
+          href="/privacy"
+          className="inline-flex text-[11px] font-medium text-white/40 transition-colors hover:text-white/70"
+        >
+          Privacy Policy →
+        </Link>
+      </div>
 
       {notice && (
         <p role="status" className="animate-rise mt-2 text-[11px] leading-relaxed text-white/55">

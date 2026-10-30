@@ -339,10 +339,10 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 test("the agent can read and propose, and no tool can write", () => {
-  assert.deepEqual([...READ_ONLY_TOOLS], ["list_files", "read_file", "search_code"]);
+  assert.deepEqual([...READ_ONLY_TOOLS], ["list_files", "read_file", "search_code", "read_issue"]);
   assert.deepEqual(
     AGENT_TOOL_SCHEMAS.map((schema) => schema.function.name),
-    ["list_files", "read_file", "search_code", "propose_edits"]
+    ["list_files", "read_file", "search_code", "read_issue", "propose_edits"]
   );
   for (const forbidden of ["write_file", "commit", "delete_file", "run_command", "merge_pull_request", "create_pull_request"]) {
     assert.equal(
@@ -702,7 +702,23 @@ later("a step runs the proposal the model asked for and returns it for review", 
         { status: 200, headers: { "content-type": "application/json" } }
       );
     }
-    modelBodies.push(JSON.parse(String(init?.body ?? "{}")) as (typeof modelBodies)[number]);
+    const body = JSON.parse(String(init?.body ?? "{}")) as (typeof modelBodies)[number];
+    modelBodies.push(body);
+    // The pre-flight reviewer is called without tools, and its usage is added
+    // to the step's own. It answers with a verdict, not with a tool call.
+    if (!Array.isArray(body.tools) || body.tools.length === 0) {
+      const verdict = JSON.stringify({
+        verdict: "pass",
+        summary: "The diff changes one constant.",
+        findings: [],
+      });
+      const wire = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: verdict } }] })}\n\n`,
+        `data: ${JSON.stringify({ usage: { prompt_tokens: 40, completion_tokens: 10 } })}\n\n`,
+        "data: [DONE]\n\n",
+      ].join("");
+      return new Response(wire, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }
     // A tool call arrives the way the wire sends one: as deltas, with the
     // provider's thought signature on the first fragment and the arguments
     // dribbled out across the rest.
@@ -763,10 +779,16 @@ later("a step runs the proposal the model asked for and returns it for review", 
     assert.equal(result.transcript.at(-1)?.name, "propose_edits");
     assert.deepEqual(
       modelBodies[0]?.tools?.map((tool) => tool.function?.name),
-      ["list_files", "read_file", "search_code", "propose_edits"]
+      ["list_files", "read_file", "search_code", "read_issue", "propose_edits"]
     );
     assert.equal(modelBodies[0]?.stream, true, "a step streams, so the reader sees it work");
-    assert.deepEqual(result.usage, { prompt: 120, completion: 30 }, "reported usage is kept as reported");
+    // The step's usage is what the model reported, plus the review's own call:
+    // a check that costs tokens has to be visible in what the turn spent.
+    assert.deepEqual(result.usage, { prompt: 160, completion: 40 }, "reported usage is kept and the review is counted");
+    assert.equal(result.review?.verdict, "pass");
+    assert.equal(result.review?.repaired, false);
+    assert.equal(result.review?.modelChecked, true, "the reviewer answered, so the card may say so");
+    assert.match(result.review?.summary ?? "", /one constant/);
 
     // The two wire requirements that made every tool loop fail on its second
     // request: the assistant turn needs content, and the call needs its
@@ -934,7 +956,7 @@ test("the step route streams its progress instead of answering once", () => {
   assert.match(source, /onEvent: send/, "the route forwards every event as it happens");
   assert.match(source, /cleanTranscript\(body\.transcript\)/);
   // And the client reads that stream rather than waiting for a whole answer.
-  assert.match(read("app/page.tsx"), /readAgentStream\(response\.body/);
+  assert.match(read("app/chat/page.tsx"), /readAgentStream\(response\.body/);
 });
 
 // ── turn state ──────────────────────────────────────────────────────────────
@@ -1834,13 +1856,18 @@ test("the GitHub client only ever GETs", () => {
   assert.doesNotMatch(source, /\/git\/blobs`?\s*,\s*\{[\s\S]{0,40}method/, "no blob writes");
 });
 
-test("the step route charges before it reads a model", () => {
+test("the step route requires a live hour before it reads a model", () => {
   const source = read("app/api/agent/step/route.ts");
-  // Call sites, not imports: both names appear in the import block above.
-  const charge = source.indexOf("canAfford(dewState.balance");
+  // Call sites, not imports: the name appears in the import block above too.
+  const hour = source.indexOf("readHourSession(authorization");
   const step = source.lastIndexOf("await runAgentStep(");
-  assert.ok(charge > 0, "the route must check the balance");
-  assert.ok(step > charge, "the balance check must come before the model call");
+  assert.ok(hour > 0, "the route must require the account's hour");
+  assert.ok(step > hour, "the hour check must come before the model call");
+  assert.doesNotMatch(
+    source,
+    /deductDew|requestPrice/,
+    "a step is covered by the hour that was already paid for, not billed per turn"
+  );
   assert.match(source, /isSameOriginRequest/);
 });
 
@@ -1910,6 +1937,35 @@ test("the repository panel cannot stay on a bare \"checking\" forever", () => {
   assert.match(source, /Reading your repositories/);
 });
 
+test("the repository panel offers GitHub sign-in when no repository is set", () => {
+  const source = read("components/RepoPanel.tsx");
+  // An account the server will not verify has no repository and no way to get
+  // one from here: "Check again" cannot produce a session, so the panel has to
+  // offer the OAuth door itself.
+  assert.match(source, /signInWithProvider\("github"\)/, "the panel cannot sign in with GitHub");
+  assert.match(source, /Continue with GitHub/, "the sign-in button has no label");
+  // And an empty repository list is recoverable without closing the panel.
+  assert.match(source, /No repository came back/, "an empty list still dead-ends");
+  assert.match(source, /onClick=\{\(\) => void connect\(\)\}/, "the empty list cannot re-authorise");
+});
+
+test("the panel says why the one-click GitHub door is not there", () => {
+  const source = read("components/RepoPanel.tsx");
+  // The OAuth button only exists when the deployment has the app
+  // (`githubOAuthConfigured()`: both client values and the sealing key). Without
+  // it the panel used to fall straight through to the token form, so the missing
+  // button read as "Openmi cannot do this" instead of "this deployment has not
+  // created the app" — and the only way to learn which was to read the source.
+  assert.match(source, /status\?\.oauth \?/, "the panel no longer branches on the OAuth flag");
+  assert.ok(source.includes("GITHUB_CLIENT_ID"), "the missing client id is not named");
+  assert.ok(source.includes("GITHUB_CLIENT_SECRET"), "the missing client secret is not named");
+  assert.ok(source.includes("GITHUB_TOKEN_KEY"), "the sealing key is not named");
+  assert.ok(
+    source.includes("A pasted token works without any of them"),
+    "the token door is not offered as the way through"
+  );
+});
+
 test("the OAuth start route requires a verified account", () => {
   const source = read("app/api/github/oauth/start/route.ts");
   assert.match(source, /isSameOriginRequest/);
@@ -1921,10 +1977,43 @@ test("the OAuth start route requires a verified account", () => {
 test("editing a message in a repository chat goes through the agent", () => {
   // Ordinary chat has no repository access. An edit routed there would answer
   // the same words with a different, worse capability and no sign of it.
-  const source = read("app/page.tsx");
+  const source = read("app/chat/page.tsx");
   assert.match(source, /sendAgentMessage\(content, \{ editMessageId: messageId \}\)/);
   assert.match(source, /editMessageId\?: string/);
   assert.match(source, /options\?\.editMessageId/);
+});
+
+test("the first turn of a repository chat becomes a real chat", () => {
+  // `chatId` on the agent side is never null — it falls back to the placeholder
+  // id — so the `if (!chatId)` that was meant to create the chat never ran. The
+  // turn was written under an id no chat has: no sidebar row, and nothing for
+  // the live query to return while no chat is open. The composer emptied and
+  // the page stayed empty, with the answer (or the server's refusal) written
+  // into the same invisible place.
+  const source = read("app/chat/page.tsx");
+  const agent = source.slice(source.indexOf("const sendAgentMessage = useCallback"));
+  assert.match(
+    agent,
+    /if \(!chatId \|\| chatId === DRAFT_CHAT_ID\)/,
+    "the placeholder id is never replaced by a chat that exists"
+  );
+  assert.match(
+    agent,
+    /if \(!chatId \|\| chatId === DRAFT_CHAT_ID\) \{\s*\n\s*const chat = await createChat\(\)/,
+    "the placeholder branch does not create a chat"
+  );
+  assert.match(
+    agent,
+    /if \(!chatId \|\| chatId === DRAFT_CHAT_ID\)[\s\S]{0,200}setActiveChatId\(chatId\)/,
+    "the new chat is not opened, so the thread query keeps returning nothing"
+  );
+  // The ordinary send path has had this branch from the start; both paths need
+  // it, because both are reached from the same composer.
+  const chat = source.slice(
+    source.indexOf("const sendMessage = useCallback"),
+    source.indexOf("const sendAgentMessage = useCallback")
+  );
+  assert.match(chat, /chatId === DRAFT_CHAT_ID/, "the ordinary send path lost its placeholder branch");
 });
 
 test("the proposal module cannot reach GitHub", () => {

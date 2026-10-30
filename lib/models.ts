@@ -19,8 +19,6 @@ export interface ModeOption {
    * continuing the current conversation under a different model.
    */
   separateSession: boolean;
-  /** Short explanation shown in the mode menu. */
-  blurb: string;
 }
 
 export const OPENMI_MODES: ModeOption[] = [
@@ -29,14 +27,12 @@ export const OPENMI_MODES: ModeOption[] = [
     name: "Auto",
     display: "Openmi Auto",
     separateSession: false,
-    blurb: "Routes each message to the best available model",
   },
   {
     id: "code",
     name: "code",
     display: "GPT-OSS 120B",
     separateSession: true,
-    blurb: "GPT-OSS 120B only — tuned for reading and changing a repository",
   },
   {
     // The id names the capability, like "code" does, rather than the vendor:
@@ -46,11 +42,87 @@ export const OPENMI_MODES: ModeOption[] = [
     name: "Flash",
     display: "DeepSeek V4.1 Flash",
     separateSession: true,
-    blurb: "DeepSeek V4.1 Flash only — fast answers for a very long conversation",
   },
 ];
 
+// ── The picker's categories ───────────────────────────────────────────────────
+//
+// The menu no longer leads with three model names. A person choosing a model is
+// really choosing how much they want spent on an answer, so the menu asks that
+// question first: Efficient, Balanced, Advanced. Each category holds exactly one
+// model today, and picking the category reveals it rather than applying it —
+// the model is still the thing that runs, and it stays visible so the choice is
+// never a label with an unnamed engine behind it.
+//
+// The mapping lives here, next to the models themselves, because it is product
+// copy and pricing shaped as data: the composer, the menu and the tests all read
+// one list instead of three that can drift.
+
+export type ModeCategoryId = "efficient" | "balanced" | "advanced";
+
+export interface ModeCategory {
+  id: ModeCategoryId;
+  /** The word the menu shows first. */
+  label: string;
+  /** The one model this category offers. */
+  mode: ModeId;
+}
+
+export const MODE_CATEGORIES: ModeCategory[] = [
+  {
+    id: "efficient",
+    label: "Efficient",
+    mode: "auto",
+  },
+  {
+    id: "balanced",
+    label: "Balanced",
+    mode: "code",
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    mode: "flash",
+  },
+];
+
+/** The category a model belongs to, so the menu can open on the current one. */
+export function categoryOfMode(id: string): ModeCategory {
+  const mode = getMode(id).id;
+  return MODE_CATEGORIES.find((category) => category.mode === mode) ?? MODE_CATEGORIES[0];
+}
+
 export const DEFAULT_MODE_ID: ModeId = "auto";
+
+/**
+ * What a mode's model accepts as input besides text.
+ *
+ * Declared in this catalog rather than beside the provider config because the
+ * composer has to answer "may I attach this?" before a request exists, and this
+ * module is the only model catalog the browser is allowed to import.
+ *
+ * Auto routes to a multimodal model first, so it keeps image input. Code and
+ * Flash are pinned to text-only models: an image offered to them is either
+ * rejected upstream or silently ignored, and both are worse than refusing it
+ * with a reason the person can read.
+ */
+export interface ModeCapabilities {
+  /** Image input, i.e. vision. */
+  images: boolean;
+  /** Text and code files, extracted to text in the browser. */
+  documents: boolean;
+}
+
+export const MODE_CAPABILITIES: Record<ModeId, ModeCapabilities> = {
+  auto: { images: true, documents: true },
+  code: { images: false, documents: true },
+  flash: { images: false, documents: true },
+};
+
+/** The attachment contract for a mode id, defaulting to Auto's. */
+export function modeCapabilities(id: string): ModeCapabilities {
+  return MODE_CAPABILITIES[getMode(id).id];
+}
 
 export function getMode(id: string): ModeOption {
   return OPENMI_MODES.find((m) => m.id === id) ?? OPENMI_MODES[0];

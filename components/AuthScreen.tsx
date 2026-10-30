@@ -1,5 +1,7 @@
 "use client";
 
+import Spinner from "./Spinner";
+
 // ── The sign-in screen ───────────────────────────────────────────────────────
 //
 // Openmi has no guest mode: this screen is the whole interface until a session
@@ -13,6 +15,7 @@
 // chat, preference and connection belongs to that account from the first click.
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import OpenmiMark from "./OpenmiMark";
 import EmailAuthForm from "./EmailAuthForm";
 import { signInWithProvider, type OAuthProvider } from "@/lib/account";
@@ -24,6 +27,8 @@ interface AuthScreenProps {
   initialError?: string | null;
   /** Why sign-in cannot be offered, when it cannot. */
   unavailable?: "unconfigured" | "unreachable" | null;
+  /** The page behind this screen, linked as the way back. */
+  backHref?: string;
 }
 
 const PROVIDERS: Array<{
@@ -66,7 +71,7 @@ const PROVIDERS: Array<{
   },
 ];
 
-export default function AuthScreen({ initialError = null, unavailable = null }: AuthScreenProps) {
+export default function AuthScreen({ initialError = null, unavailable = null, backHref }: AuthScreenProps) {
   const [busy, setBusy] = useState<OAuthProvider | null>(null);
   const [error, setError] = useState<string | null>(initialError);
 
@@ -91,17 +96,24 @@ export default function AuthScreen({ initialError = null, unavailable = null }: 
   const canSignIn = supabaseConfigured && unavailable !== "unconfigured";
 
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-[#060a08] px-5 py-10 text-white">
+    <div className="relative flex min-h-[100dvh] items-center justify-center bg-[#060a08] px-5 py-10 text-white">
+      {backHref && (
+        <Link
+          href={backHref}
+          className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full border border-white/[0.09] bg-white/[0.03] px-3 py-1.5 text-[11.5px] text-white/55 transition hover:text-white"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M15 5l-7 7 7 7" />
+          </svg>
+          Back to home
+        </Link>
+      )}
       <div className="w-full max-w-[420px]">
         <div className="flex flex-col items-center text-center">
           <OpenmiMark className="h-11 w-11" />
           <h1 className="mt-4 text-[24px] font-semibold tracking-[-0.03em]">
             Sign in to Openmi
           </h1>
-          <p className="mt-2 max-w-[320px] text-[12.5px] leading-relaxed text-white/45">
-            An account keeps your chats, preferences and repository connections with you on every
-            browser.
-          </p>
         </div>
 
         {unavailable && (
@@ -109,9 +121,7 @@ export default function AuthScreen({ initialError = null, unavailable = null }: 
             role="status"
             className="mt-6 rounded-[16px] border border-amber-300/20 bg-amber-400/[0.05] px-3.5 py-3 text-[11.5px] leading-relaxed text-amber-100/85"
           >
-            {unavailable === "unconfigured"
-              ? "This deployment has no Supabase project configured, so accounts cannot be used yet. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY and rebuild."
-              : "Openmi cannot reach the account service right now. Your local data is safe — check the connection and reload."}
+            {unavailable === "unconfigured" ? "Accounts are not configured." : "Account service unreachable."}
           </div>
         )}
 
@@ -126,7 +136,10 @@ export default function AuthScreen({ initialError = null, unavailable = null }: 
                 className="flex w-full items-center justify-center gap-2.5 rounded-[14px] border border-white/[0.09] bg-white/[0.04] py-3 text-[13px] font-medium text-white transition hover:bg-white/[0.08] disabled:opacity-50"
               >
                 {provider.icon}
-                {busy === provider.id ? "Opening…" : provider.label}
+                <span className="inline-flex items-center justify-center gap-1.5">
+                  {busy === provider.id && <Spinner size={13} />}
+                  {busy === provider.id ? "Opening…" : provider.label}
+                </span>
               </button>
             ))}
           </div>
@@ -148,9 +161,15 @@ export default function AuthScreen({ initialError = null, unavailable = null }: 
           </p>
         )}
 
-        <p className="mt-6 text-center text-[10.5px] leading-relaxed text-white/25">
-          New here? The provider buttons create your account. Your data is stored in this
-          project&apos;s Supabase database and only your account can read it.
+
+
+        <p className="mt-2 text-center text-[10.5px] text-white/30">
+          <Link
+            href="/privacy"
+            className="text-[#a9d8bb]/80 underline decoration-[#a9d8bb]/25 underline-offset-2 transition-colors hover:text-[#a9d8bb]"
+          >
+            Privacy Policy
+          </Link>
         </p>
       </div>
     </div>
