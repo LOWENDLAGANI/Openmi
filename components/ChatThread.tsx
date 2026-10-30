@@ -816,6 +816,7 @@ export default function ChatThread({  messages,
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
   const [showSourceHistory, setShowSourceHistory] = useState(false);
   // Seeded deterministically for SSR, then randomized after mount.
@@ -841,7 +842,15 @@ export default function ChatThread({  messages,
   const handleScroll = () => {
     const el = containerRef.current;
     if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    stickRef.current = near;
+    setAtBottom(near);
+  };
+
+  const jumpToLatest = () => {
+    stickRef.current = true;
+    setAtBottom(true);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   };
 
   const allSources = messages.flatMap((message) => message.sources ?? []);
@@ -926,6 +935,23 @@ export default function ChatThread({  messages,
           <div ref={bottomRef} className="h-px" />
         </div>
       </div>
+      {/* Only while reading back: a sticky element whose normal place is the
+          end of the thread, so it surfaces exactly when that end is offscreen. */}
+      {!atBottom && messages.length > 0 && (
+        <div className="pointer-events-none sticky bottom-3 -mt-10 flex justify-center">
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card text-text-mid shadow-lg transition-colors hover:text-text-hi"
+            aria-label="Jump to latest"
+            title="Jump to latest"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12l7 7 7-7" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -875,6 +875,19 @@ export default function HomePage() {
     abortRef.current?.abort();
   }, []);
 
+  // Escape is the keyboard's Stop: the same action as the button, without
+  // moving the pointer off the answer the reader wants to keep. Only while a
+  // stream is live, and never when something else already claimed the key.
+  useEffect(() => {
+    if (!streamingId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      stopStreaming();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [streamingId, stopStreaming]);
+
   // Turning the server's own refusal into a countdown the composer can show.
   // `retryAfterSeconds` from the body is authoritative when it is there; the
   // sentence is the fallback for an older server, a proxy that rewrote the
