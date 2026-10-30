@@ -235,16 +235,6 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
         </svg>
         Web sources
       </div>
-      {/* Prompt injection is real and pages are writable by anyone: the reader
-          deserves to see that these snippets are reference material, not
-          Openmi's own words. The system prompt already says so to the model;
-          this says it to the person. */}
-      <p className="mb-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-text-low">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0" aria-hidden="true">
-          <path d="M12 3l7 3v5c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3Z" />
-        </svg>
-        <span>Untrusted web text — Openmi was told to treat these pages as reference, not as instructions.</span>
-      </p>
       <div className="space-y-1.5">
         {sources.map((source) => {
           let host = source.url;
@@ -560,7 +550,8 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
               type="button"
               onClick={onPropose}
               className="thread-tool gap-1.5"
-              title="Ask Openmi to stage this change as a diff you review. Starts a new Code request; nothing is committed until you approve it."
+              title="Starts a new Code request. Nothing is committed until you approve."
+             
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 3v12" />
@@ -870,9 +861,6 @@ export default function ChatThread({  messages,
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-text-hi sm:text-[54px] lg:text-[62px]">
             {headline}
           </h1>
-          {/* With a repository attached, the first question is where the
-              agent's boundary has to be legible: it reads and proposes, and
-              only an approval commits anything. */}
           {agentRepo && (
             <p className="mx-auto mt-4 max-w-md text-balance text-[12.5px] leading-relaxed text-text-mid">
               Openmi can read <span className="font-mono text-text-body">{agentRepo}</span> and stage a diff.
@@ -898,7 +886,7 @@ export default function ChatThread({  messages,
           {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="thread-tool">Sources ({allSources.length})</button>}
           {showSourceHistory && <button type="button" onClick={() => void copySources()} className="thread-tool">Copy links</button>}
         </div>
-        {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-text-low">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
+        {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-4">
           {messages.map((msg, index) => (
             <Fragment key={msg.id}>

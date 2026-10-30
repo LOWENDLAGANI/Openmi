@@ -94,13 +94,6 @@ export default function SetupStatus() {
           </span>
         )}
       </div>
-      {report.missing.length > 0 && (
-        <p className="mt-1 text-[11.5px] leading-relaxed text-amber-100/65">
-          Openmi runs without them — each one shows a setup notice rather than crashing — but every
-          item below takes a feature away until it is set.
-        </p>
-      )}
-
       {database?.checked && (
         <div
           className={`mt-3 rounded-lg border px-3 py-2.5 ${
@@ -110,21 +103,12 @@ export default function SetupStatus() {
           }`}
         >
           {!database.reachable ? (
-            <>
-              <p className="text-[12px] font-medium text-red-100">Database schema could not be checked</p>
-              <p className="mt-1 text-[11.5px] leading-relaxed text-white/55">
-                {database.message ?? "The schema check did not answer."} Confirm that
-                NEXT_PUBLIC_SUPABASE_URL points at the project you migrated, then check again.
-              </p>
-            </>
+            <p className="text-[12px] font-medium text-red-100">
+              {database.message ?? "The schema check did not answer."}
+            </p>
           ) : gaps.length > 0 ? (
             <>
-              <p className="text-[12px] font-medium text-red-100">Missing database migrations</p>
-              <p className="mt-1 text-[11.5px] leading-relaxed text-white/55">
-                Apply these with <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[10.5px]">supabase db push</code>,
-                then reload the API schema cache and check again. Until then the features they carry
-                are not running.
-              </p>
+              <p className="text-[12px] font-medium text-red-100">Missing migrations</p>
               <ul className="mt-2 space-y-1.5">
                 {gaps.map((gap) => (
                   <li key={gap.migration} className="rounded-md bg-black/20 px-2 py-1.5">
@@ -137,9 +121,7 @@ export default function SetupStatus() {
               </ul>
             </>
           ) : (
-            <p className="text-[11.5px] leading-relaxed text-emerald-100/70">
-              Database schema is up to date — {database.checkedObjects} objects present.
-            </p>
+            <p className="text-[11.5px] leading-relaxed text-emerald-100/70">Schema up to date.</p>
           )}
         </div>
       )}
@@ -163,20 +145,12 @@ export default function SetupStatus() {
                 <span className="text-[12px] font-medium text-white/80">{item.label}</span>
               </div>
               <p className="mt-1.5 text-[11.5px] leading-relaxed text-white/55">{item.missing}</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-white/35">
-                <span className="text-white/45">Where:</span> {item.where}
-              </p>
             </li>
           ))}
         </ul>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[10.5px] leading-relaxed text-white/30">
-          {report.missing.length > 0
-            ? "Values live in the deployment environment, then the site is rebuilt — the NEXT_PUBLIC_ ones are inlined into the bundle at build time."
-            : "The audit reads table, column and function names only — never a row and never a value."}
-        </p>
+      <div className="mt-3 flex justify-end">
         <button
           type="button"
           onClick={() => void load()}

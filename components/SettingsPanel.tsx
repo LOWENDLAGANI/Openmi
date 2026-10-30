@@ -26,11 +26,10 @@ interface SettingsPanelProps {
   onHomeLayoutChange: (value: HomeLayout) => void;
 }
 
-const HOME_OPTIONS: Array<{ id: HomeLayout; label: string; description: string; preview: React.ReactNode }> = [
+const HOME_OPTIONS: Array<{ id: HomeLayout; label: string; preview: React.ReactNode }> = [
   {
     id: "classic",
     label: "Classic",
-    description: "Headline over the composer",
     preview: (
       <svg width="44" height="28" viewBox="0 0 44 28" fill="none" aria-hidden="true">
         <rect x="6" y="5" width="32" height="3" rx="1.5" fill="currentColor" opacity="0.75" />
@@ -42,7 +41,6 @@ const HOME_OPTIONS: Array<{ id: HomeLayout; label: string; description: string; 
   {
     id: "focus",
     label: "Focus · ink",
-    description: "Mark, repository, composer",
     preview: (
       <svg width="44" height="28" viewBox="0 0 44 28" fill="none" aria-hidden="true">
         <path d="M18 4h2.6v10H18zM18 4h7v2.6h-7zM21.5 8.5h2.6v9.5h-2.6zM21.5 8.5h6v2.6h-6z" fill="currentColor" opacity="0.8" />
@@ -52,11 +50,10 @@ const HOME_OPTIONS: Array<{ id: HomeLayout; label: string; description: string; 
   },
 ];
 
-const SEARCH_OPTIONS: Array<{ id: SearchMode; label: string; description: string; icon: React.ReactNode }> = [
+const SEARCH_OPTIONS: Array<{ id: SearchMode; label: string; icon: React.ReactNode }> = [
   { 
     id: "auto", 
     label: "Auto", 
-    description: "Smart search when needed",
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
     </svg>
@@ -64,7 +61,6 @@ const SEARCH_OPTIONS: Array<{ id: SearchMode; label: string; description: string
   { 
     id: "always", 
     label: "On", 
-    description: "Search every message",
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
     </svg>
@@ -72,24 +68,22 @@ const SEARCH_OPTIONS: Array<{ id: SearchMode; label: string; description: string
   { 
     id: "off", 
     label: "Off", 
-    description: "Never search",
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
     </svg>
   },
 ];
 
-const LENGTH_OPTIONS: Array<{ id: ResponseLength; label: string; description: string }> = [
-  { id: "short", label: "Short", description: "Lead with the answer" },
-  { id: "balanced", label: "Balanced", description: "Default amount of detail" },
-  { id: "detailed", label: "Detailed", description: "Thorough with examples" },
+const LENGTH_OPTIONS: Array<{ id: ResponseLength; label: string }> = [
+  { id: "short", label: "Short" },
+  { id: "balanced", label: "Balanced" },
+  { id: "detailed", label: "Detailed" },
 ];
 
-const EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; description: string; icon: React.ReactNode }> = [
+const EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; icon: React.ReactNode }> = [
   { 
     id: "low", 
     label: "Low", 
-    description: "Fastest, cheapest",
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
@@ -97,7 +91,6 @@ const EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; description: s
   { 
     id: "medium", 
     label: "Medium", 
-    description: "Thinks a little harder",
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
@@ -105,7 +98,6 @@ const EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; description: s
   { 
     id: "high", 
     label: "High", 
-    description: "Slowest, most careful",
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
@@ -223,7 +215,6 @@ export default function SettingsPanel({
                   >
                     <span className={homeLayout === option.id ? "text-[#a9d8bb]" : "text-white/40"}>{option.preview}</span>
                     <span className="text-[13px] font-medium">{option.label}</span>
-                    <span className="text-[10px] leading-tight text-white/30">{option.description}</span>
                   </button>
                 ))}
               </div>
@@ -236,7 +227,7 @@ export default function SettingsPanel({
                   </svg>
                   Web search
                   {!searchAvailable && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="No search key in the deployment environment" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" />
                   )}
                 </h3>
               </div>
@@ -251,7 +242,6 @@ export default function SettingsPanel({
                   >
                     <span className="text-xl">{option.icon}</span>
                     <span className="text-[13px] font-medium">{option.label}</span>
-                    <span className="text-[10px] text-white/30">{option.description}</span>
                   </button>
                 ))}
               </div>
@@ -277,7 +267,6 @@ export default function SettingsPanel({
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="block text-[13px] font-medium text-white/90">{option.label}</span>
-                      <span className="mt-0.5 block text-[11px] text-white/40">{option.description}</span>
                     </div>
                   </button>
                 ))}
@@ -293,7 +282,6 @@ export default function SettingsPanel({
               </h3>
               <div className="grid grid-cols-3 gap-2">
                 {EFFORT_OPTIONS.map((option) => {
-                  const isPro = option.id !== "low";
                   return (
                     <button
                       key={option.id}
@@ -303,9 +291,6 @@ export default function SettingsPanel({
                     >
                       <span className="text-lg">{option.icon}</span>
                       <span className="text-[13px] font-medium">{option.label}</span>
-                      <span className="text-[10px] text-white/30">
-                        {isPro ? "Pro tier" : option.description}
-                      </span>
                     </button>
                   );
                 })}
