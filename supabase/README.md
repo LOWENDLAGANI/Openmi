@@ -47,6 +47,12 @@ supabase db push          # runs every migration in order
 supabase db execute --file supabase/seed.sql   # or paste seed.sql into the SQL editor
 ```
 
+To check this directory before it touches a hosted project, run
+`bun run check:migrations`: it applies every file twice to a throwaway Postgres
+(Postgres compiled to WebAssembly, so no Docker) and fails on the first file a
+second run cannot apply, naming the file and the pass. CI runs the same command,
+so a migration that would stop `supabase db push` fails the pull request first.
+
 Or paste the migrations in filename order, then `seed.sql`, into the project's
 SQL editor. Nothing in the app can create these tables for you, and the one
 privileged key it holds (`SUPABASE_SERVICE_ROLE_KEY`, read only by
