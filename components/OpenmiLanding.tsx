@@ -178,10 +178,7 @@ function ScrollStatement() {
                 index += 1;
                 return (
                   <span className="lp-word" data-lp-word data-on="0" key={key}>
-                    {/* The space rides inside the span: the words are separate
-                        elements, so without it the whole line renders as one
-                        run of letters, and copied text reads the same way. */}
-                    {word}{" "}
+                    {word}
                   </span>
                 );
               })}

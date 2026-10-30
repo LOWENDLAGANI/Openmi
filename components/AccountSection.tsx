@@ -11,9 +11,9 @@ import {
   type OAuthProvider,
 } from "@/lib/account";
 import { changePassword } from "@/lib/emailAuth";
-import { pendingEmailChange, requestEmailChange } from "@/lib/emailChange";
 import Spinner from "@/components/Spinner";
 import {
+  accountExplanation,
   accountHeadline,
   describeLinkError,
   linkableProviders,
@@ -125,10 +125,18 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
             <p className="truncate text-[13px] font-medium text-white/90">
               {accountHeadline(view, displayName)}
             </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-white/40">
+              {accountExplanation(view)}
+            </p>
             {signedIn && (
               <p className="mt-1 text-[10.5px] text-white/30">
                 Signed in with {providerLabel(view.provider)}
                 {view.emailVerified ? "" : " · address not confirmed"}
+              </p>
+            )}
+            {signedIn && view.provider === "email" && !view.emailVerified && (
+              <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
+                Email not confirmed yet. Nothing is blocked — confirm it whenever the link arrives.
               </p>
             )}
           </div>
@@ -140,6 +148,9 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
               <ProfileAvatar name={name || displayName || "Openmi user"} seed={avatarSeed} size={56} />
               <div className="min-w-0 flex-1">
                 <p className="text-[12px] text-white/80">Profile picture</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-white/35">
+                  Generated from this account — no upload needed.
+                </p>
               </div>
             </div>
             <label className="block">
@@ -163,11 +174,9 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
               </div>
             </label>
 
-            <ChangeEmail current={view.email} />
-
             {view.provider === "email" && <PasswordForm />}
 
-            <SignInMethods email={view.email} />
+            <SignInMethods />
 
             <button
               type="button"
@@ -185,7 +194,9 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
 
         {(unconfigured || unreachable) && (
           <p className="mt-2 text-[10.5px] leading-relaxed text-amber-100/60">
-            {unconfigured ? "Accounts are not configured." : "Account service unreachable."}
+            {unconfigured
+              ? "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for this deployment, then rebuild."
+              : "Sign-in is unavailable while the account service is unreachable."}
           </p>
         )}
 
@@ -196,135 +207,6 @@ export default function AccountSection({ displayName, onDisplayNameChange, avata
       {/* Collapsed by default: it is a diagnostic, not part of the account row. */}
       <AuthDiagnostics />
     </section>
-  );
-}
-
-/**
- * The address this account signs in with, and the way to move it.
- *
- * Supabase does the moving, not this screen: it mails a link to the new address
- * — and, when the project has secure email change on, to the old one as well —
- * and the account changes only when they are opened. So success here means
- * "confirmation sent" and the row keeps showing the current address until a
- * refreshed session reports the new one. Saying "changed" early would leave
- * somebody believing they had moved an account they can still only reach with
- * the old address.
- */
-function ChangeEmail({ current }: { current: string | null }) {
-  const [open, setOpen] = useState(false);
-  const [next, setNext] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
-
-  // A confirmation started in another tab or on another device is still one
-  // change, so the pending address is read from the session rather than stored
-  // here.
-  useEffect(() => {
-    let cancelled = false;
-    void pendingEmailChange().then((address) => {
-      if (!cancelled) setPending(address);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const change = await requestEmailChange(next);
-      setPending(change.to);
-      setNext("");
-      setOpen(false);
-      setNotice(`Confirmation sent to ${change.to}. The address changes once the link is opened.`);
-    } catch (cause) {
-      setError(describeLinkError(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!current) return null;
-
-  return (
-    <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-medium text-white/80">Sign-in address</p>
-          <p className="mt-0.5 break-all text-[11px] text-white/45">{current}</p>
-          {pending && (
-            <p className="mt-1 text-[10.5px] leading-relaxed text-amber-100/60">
-              Waiting for confirmation of {pending}.
-            </p>
-          )}
-        </div>
-        {!open && (
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(true);
-              setError(null);
-              setNotice(null);
-            }}
-            disabled={busy}
-            className="shrink-0 rounded-lg border border-white/[0.12] px-2.5 py-1 text-[10.5px] font-medium text-white/70 transition hover:bg-white/[0.06] disabled:opacity-40"
-          >
-            Change
-          </button>
-        )}
-      </div>
-
-      {open && (
-        <form onSubmit={submit} className="mt-2 space-y-1.5">
-          <label className="block">
-            <span className="mb-1 block text-[10.5px] text-white/35">New address</span>
-            <input
-              type="email"
-              value={next}
-              onChange={(event) => setNext(event.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              spellCheck={false}
-              required
-              className="w-full rounded-lg border border-white/[0.09] bg-black/25 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
-            />
-          </label>
-          <div className="flex gap-1.5">
-            <button
-              type="submit"
-              disabled={busy || !next.trim()}
-              className="rounded-lg border border-white/[0.12] px-3 py-2 text-[11.5px] font-medium text-white/75 transition hover:bg-white/[0.06] disabled:opacity-40"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                {busy && <Spinner size={11} />}
-                {busy ? "Sending…" : "Send confirmation"}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                setNext("");
-                setError(null);
-              }}
-              disabled={busy}
-              className="rounded-lg px-2 py-1 text-[10.5px] text-white/45 transition hover:bg-white/[0.06] disabled:opacity-40"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-
-      {error && <p className="mt-2 text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}
-      {notice && <p className="mt-2 text-[10.5px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}
-    </div>
   );
 }
 
@@ -342,15 +224,12 @@ function ChangeEmail({ current }: { current: string | null }) {
  * prevented on screen — the control is not offered — and still refused by the
  * server if it is reached some other way.
  */
-function SignInMethods({ email }: { email: string | null }) {
+function SignInMethods() {
   const [methods, setMethods] = useState<SignInMethod[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // The password being added to an account that signed in through a provider.
-  const [passwordOpen, setPasswordOpen] = useState(false);
-  const [password, setPassword] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -404,41 +283,6 @@ function SignInMethods({ email }: { email: string | null }) {
       setBusy(null);
     }
   }, [load]);
-
-
-  /**
-   * Adds the email credential to this account.
-   *
-   * An account that signed in with Google has no password, and the only way to
-   * get one used to be a second account — which loses the chats attached to the
-   * first. Supabase adds an `email` identity when a password is set on a user
-   * whose address is already confirmed, so `changePassword` is the whole write:
-   * the address is the one the account already has, nothing is re-addressed, and
-   * no second confirmation mail is involved.
-   */
-  const addPassword = useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault();
-      if (busy || password.length < 6) return;
-      setBusy("email");
-      setError(null);
-      setNotice(null);
-      try {
-        await changePassword(password);
-        setPassword("");
-        setPasswordOpen(false);
-        // Supabase created the identity slightly after the call returned, so the
-        // list is read back rather than patched with a guess.
-        await load();
-        setNotice(`${email ?? "Your address"} can now sign in with this password too.`);
-      } catch (cause) {
-        setError(describeLinkError(cause));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [busy, email, load, password]
-  );
 
   const missing = linkableProviders((methods ?? []).map((method) => method.provider));
 
@@ -523,62 +367,6 @@ function SignInMethods({ email }: { email: string | null }) {
       )}
 
 
-
-      {/* An OAuth account has no password at all. Setting one is what turns the
-          address it already owns into a second door, so the same account keeps
-          its chats and can still sign in without the provider. Offered only
-          while that credential is missing, and only when there is an address to
-          attach it to. */}
-      {methods && email && !methods.some((method) => method.provider === "email") && (
-        <div className="mt-2 border-t border-white/[0.06] pt-2">
-          {passwordOpen ? (
-            <form onSubmit={addPassword} className="space-y-1.5">
-              <div className="flex gap-1.5">
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="6+ characters"
-                  autoComplete="new-password"
-                  minLength={6}
-                  required
-                  className="min-w-0 flex-1 rounded-lg border border-white/[0.09] bg-black/25 px-2.5 py-2 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
-                />
-                <button
-                  type="submit"
-                  disabled={busy !== null || password.length < 6}
-                  className="shrink-0 rounded-lg border border-white/[0.12] px-3 py-2 text-[11.5px] font-medium text-white/75 transition hover:bg-white/[0.06] disabled:opacity-40"
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    {busy === "email" && <Spinner size={11} />}
-                    {busy === "email" ? "Adding…" : "Add"}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPasswordOpen(false);
-                    setPassword("");
-                  }}
-                  disabled={busy !== null}
-                  className="shrink-0 rounded-lg px-2 py-1 text-[10.5px] text-white/45 transition hover:bg-white/[0.06] disabled:opacity-40"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setPasswordOpen(true)}
-              disabled={busy !== null}
-              className="text-[11px] text-white/45 transition-colors hover:text-white/75 disabled:opacity-40"
-            >
-              Add email and password
-            </button>
-          )}
-        </div>
-      )}
 
       {error && <p className="mt-2 text-[10.5px] leading-relaxed text-red-200/80">{error}</p>}
       {notice && <p className="mt-2 text-[10.5px] leading-relaxed text-[#a9d8bb]/75">{notice}</p>}

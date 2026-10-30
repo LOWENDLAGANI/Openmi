@@ -31,11 +31,6 @@ carry the rules it used to hold.
 | `migrations/20261028000400_email_guard.sql` | `blocked_email_domains`, the `email_domain_is_blocked()` check, and the `reject_disposable_signup` trigger on `auth.users`: a disposable address cannot create an account, even from a modified client, while an existing account on one can still sign in. The list mirrors `lib/emailGuard.ts`; both are compared by the tests. |
 | `migrations/20261029000000_agent_runs.sql` | `agent_runs`: one row per repository turn. `authenticated` is granted SELECT on its own rows and no write at all — a run is created and advanced through the service key, because it has no caller by design. |
 | `migrations/20261029000100_agent_runs_health.sql` | Registers `agent_runs` in `schema_expected`, so a deployment that skipped the migration is named by `/api/setup` instead of failing at the first run. |
-| `migrations/20261029000200_receipts_and_deduct.sql` | `payment_receipts`, the private `receipts` bucket behind the top-up page's receipt form, and `admin_deduct_dew()`, the owner-side deduction. Without this file a receipt cannot be sent or listed, and the console cannot take Dew back. |
-| `migrations/20261029000300_hour_refunds.sql` | The charge split on `hour_sessions` (`free_charged`, `paid_charged`, `charge_day`), `refund_hour_session()`, `auto_refund_idle_hour()` and `mark_hour_session_activity()`: an hour that produced nothing is given back, once, and only while it was unused. |
-| `migrations/20261029000400_deduct_wallet_fix.sql` | Recreates `admin_deduct_dew()` so a deduction works on an account that has credit but no wallet row yet — the state every freshly topped-up buyer is in — and gives the owner a sentence instead of an empty failure. |
-| `migrations/20261029000500_receipt_states.sql` | Receipt states become `pending`, `approved` and `rejected` (with existing rows migrated), `saved_at`/`saved_by` become `decided_at`/`decided_by`, and the ledger gains `rejectReceipt` so a refusal is recorded as its own answer. |
-| `migrations/20261029000600_agent_runs_service_grants.sql` | Grants `service_role` the SELECT/INSERT/UPDATE/DELETE the run tick performs on `agent_runs`, and the same on `changesets`, explicitly instead of through the project's default privileges. Without it, a project whose defaults were reset (or whose table already existed) answers every turn with `42501 permission denied for table agent_runs` while `/api/setup` stays quiet. |
 | `seed.sql` | The administrator's address and the default config row. |
 
 ## Apply it
@@ -48,74 +43,19 @@ supabase db push          # runs every migration in order
 supabase db execute --file supabase/seed.sql   # or paste seed.sql into the SQL editor
 ```
 
-To check this directory before it touches a hosted project, run
-`bun run check:migrations`: it applies every file twice to a throwaway Postgres
-(Postgres compiled to WebAssembly, so no Docker) and fails on the first file a
-second run cannot apply, naming the file and the pass. CI runs the same command,
-so a migration that would stop `supabase db push` fails the pull request first.
-
 Or paste the migrations in filename order, then `seed.sql`, into the project's
 SQL editor. Nothing in the app can create these tables for you, and the one
 privileged key it holds (`SUPABASE_SERVICE_ROLE_KEY`, read only by
 `lib/supabaseAdmin.ts`) is not a schema tool: a table it has no grant on is a
 table it cannot make.
 
-### When the folder and the project's history disagree
-
-`supabase db push` compares these files with the project's own
-`supabase_migrations.schema_migrations` table. Two different histories produce
-two different symptoms, and neither is fixed by deleting rows by hand:
-
-| Symptom | What it means |
-| --- | --- |
-| `Found local migration files to be inserted before the last migration on remote database` | the project has a version this folder does not, or a file was renamed after it was pushed |
-| a route answers `PGRST202` / `relation "…" does not exist` | a migration was never applied, so the build is newer than the schema |
-| starting a run answers `503 run-table-missing` | `20261029000000_agent_runs.sql` has not been applied |
-| starting a run answers `503 run-denied` (`42501 permission denied`) | the table exists but `service_role` has no write privilege on it: apply `20261029000600_agent_runs_service_grants.sql`, and check that `SUPABASE_SERVICE_ROLE_KEY` is the service-role key, not the anon key |
-
-Use `supabase migration list` to see both sides, then `supabase migration
-repair` to record what is actually true — `applied` only for a version whose
-objects are really in the database, `reverted` only for one that never ran — and
-push again:
-
-```bash
-supabase migration list
-supabase migration repair --status applied 20261029000000
-supabase db push
-```
-
-Every file here is safe to run more than once. Policies are dropped before they
-are created, constraints are dropped or guarded by a catalog check, `alter
-table` adds use `if not exists`, and the column renames in
-`20261029000500_receipt_states.sql` check for the old name first. That makes the
-other honest repair — pasting `migrations/*.sql` in filename order, then
-`seed.sql`, into the SQL editor — produce the same schema without stopping at
-"already exists". `tests/migrations.test.ts` enforces those properties, so a new
-migration cannot quietly break the repair path.
-
-After either route, ask the database what is still missing:
-
-```sql
-select object_name, migration
-from public.openmi_schema_health()
-where not present
-order by migration;
-```
-
-An empty result is the finished state. A row naming `20261029000000_agent_runs`
-is exactly the one behind "This run could not be recorded".
-
 ## Enable background runs (optional)
 
 A repository turn normally stops when the tab that asked for it closes. With two
 extras it outlives the tab.
 
-1. **Apply `20261029000000_agent_runs.sql` and
-   `20261029000600_agent_runs_service_grants.sql`.** Without the table, starting a
-   run answers 503 with `detail: run-table-missing` and names the migration;
-   without the grant (and with a service key that is present), it answers 503
-   with `detail: run-denied` and names the grant. The in-tab step loop works in
-   both cases.
+1. **Apply `20261029000000_agent_runs.sql`.** Without the table, starting a run
+   answers 503 and names the migration; the in-tab step loop still works.
 2. **Set `SUPABASE_SERVICE_ROLE_KEY`** on the deployment. This is what
    `lib/supabaseAdmin.ts` reads, and the run routes are its only importer: a
    tick has no caller, so it cannot borrow a JWT. Unset means background runs

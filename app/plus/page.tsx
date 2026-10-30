@@ -7,7 +7,6 @@ import RedeemCodeBox from "@/components/RedeemCodeBox";
 import DewPayDialog from "@/components/DewPayDialog";
 import PassPayDialog from "@/components/PassPayDialog";
 import ReceiptUpload from "@/components/ReceiptUpload";
-import PaymentsSetupNotice from "@/components/PaymentsSetupNotice";
 import { watchAccount } from "@/lib/account";
 import type { AccountView } from "@/lib/accountState";
 import { authHeader, getSupabase } from "@/lib/supabase";
@@ -488,9 +487,6 @@ export default function OpenmiPlusPage() {
             </section>
           )}
 
-          {/* Before the form, not inside it: a deployment that cannot store a
-              receipt must say so above the payment it cannot honour. */}
-          {canShowWallet && <PaymentsSetupNotice className="mt-5" />}
           {canShowWallet && <ReceiptUpload defaultName={account?.name ?? null} />}
 
           {canShowWallet && (

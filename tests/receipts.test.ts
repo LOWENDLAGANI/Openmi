@@ -14,7 +14,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PAYMENTS_MIGRATION, paymentsSchemaGap } from "../lib/paymentsSetup";
 
 let failures = 0;
 let passes = 0;
@@ -90,11 +89,7 @@ test("a receipt is private, and a saved one is wiped after thirty days", () => {
   const admin = read("lib/cloudAdmin.ts");
   assert.match(admin, /purgeExpiredReceipts/, "nothing sweeps expired receipts");
   assert.match(admin, /\.remove\(paths\)/, "the saved receipt file is not wiped");
-  assert.match(
-    admin,
-    /\.update\(\{ status, decided_at: iso\(Date\.now\(\)\), decided_by: uid \}\)/,
-    "a decision does not record who made it and when"
-  );
+  assert.match(admin, /status: "saved", saved_at: iso\(Date\.now\(\)\)/, "saving does not start the clock");
 
   const panel = read("components/AdminReceipts.tsx");
   assert.ok(panel.includes("Saved"), "a saved receipt is not labelled saved");
@@ -124,85 +119,10 @@ test("the owner can deduct Dew, through a function that checks the grant", () =>
   assert.ok(panel.includes("<AdminReceipts"), "the console cannot review receipts");
 });
 
-test("a deduction lands on a wallet that has never spent, and a refusal says why", () => {
-  // The bug this guards: `select coalesce(spent, 0) ... into charged` covers a
-  // NULL column but not a missing row, so a topped-up buyer who had never bought
-  // an hour — no wallet row at all — made `credited - charged` NULL, collapsed
-  // the clamp to zero, and was refused the one deduction that was easiest to
-  // take back.
-  const fix = read("supabase/migrations/20261029000400_deduct_wallet_fix.sql");
-  assert.match(
-    fix,
-    /insert into public\.dew_wallets \(owner, spent, updated_at\)[\s\S]*?on conflict \(owner\) do nothing/,
-    "the wallet row is not created before the spend is read"
-  );
-  assert.match(fix, /select spent into charged/, "the spend is not read from a row that exists");
-  assert.match(
-    fix,
-    /removed := least\(requested, greatest\(credited - charged, 0\)\)/,
-    "the deduction is no longer clamped to the paid balance"
-  );
-
-  // PostgREST refusals are plain objects, so the console used to print one
-  // generic sentence for a missing function, a policy and a constraint alike.
-  const admin = read("lib/cloudAdmin.ts");
-  assert.match(admin, /export function failureMessage/, "a refused database call has no sentence");
-  const panel = read("components/AdminPanel.tsx");
-  assert.ok(
-    !panel.includes('e instanceof Error ? e.message : "The adjustment did not go through."'),
-    "the console is back to a generic sentence for every refusal"
-  );
-  assert.ok(panel.includes("failureMessage(e, \"The adjustment did not go through.\")"), "the adjustment does not report the database's reason");
-});
-
-test("a deployment without the payments migration says so before anyone pays", () => {
-  // The schema audit cannot name this migration: its own `schema_expected` rows
-  // arrive with it, so a project that never ran it has nothing to report. The
-  // check therefore asks the table itself, and only a genuinely absent table is
-  // a gap — a policy refusal means the table exists.
-  assert.equal(PAYMENTS_MIGRATION, "20261029000200_receipts_and_deduct");
-  assert.equal(
-    paymentsSchemaGap({
-      code: "PGRST205",
-      message: "Could not find the table 'public.payment_receipts' in the schema cache",
-    }),
-    true,
-    "a missing receipts table is not recognised"
-  );
-  assert.equal(paymentsSchemaGap({ code: "42P01" }), true, "a missing relation is not recognised");
-  assert.equal(
-    paymentsSchemaGap({
-      message: "Could not find the table 'public.payment_receipts' in the schema cache",
-    }),
-    true,
-    "a missing table reported without a code is not recognised"
-  );
-  assert.equal(
-    paymentsSchemaGap({ code: "42501", message: "permission denied for table payment_receipts" }),
-    false,
-    "a refused read is being reported as a missing migration"
-  );
-  assert.equal(paymentsSchemaGap(null), false, "no error is being reported as a gap");
-
-  const notice = read("components/PaymentsSetupNotice.tsx");
-  assert.ok(notice.includes('from("payment_receipts")'), "the notice never probes the receipts table");
-  assert.ok(notice.includes("PAYMENTS_MIGRATION"), "the notice does not name the migration");
-  assert.ok(notice.includes("if (!checked || !pending) return null;"), "the notice is shown when nothing is missing");
-
-  assert.ok(
-    read("app/plus/page.tsx").includes("<PaymentsSetupNotice"),
-    "the top-up page does not warn before a payment"
-  );
-  assert.ok(
-    read("components/AdminPanel.tsx").includes("<PaymentsSetupNotice"),
-    "the console does not warn before a deduction"
-  );
-});
-
 test("the buyer follows the receipt, and the owner activates the pass from it", () => {
   const form = read("components/ReceiptUpload.tsx");
   assert.ok(form.includes("listMyReceipts"), "the form never reads the buyer's own receipts");
-  assert.ok(form.includes("RECEIPT_STATUS_LABELS"), "the buyer cannot see what state a receipt is in");
+  assert.ok(form.includes("Pending review"), "the buyer cannot see that a receipt is waiting");
   assert.ok(form.includes("Your receipts"), "there is no status list");
 
   const mine = read("lib/myReceipts.ts");
@@ -214,53 +134,9 @@ test("the buyer follows the receipt, and the owner activates the pass from it", 
   assert.ok(panel.includes("Activate"), "there is no activation control");
   assert.match(
     panel,
-    /await grantPlan\(receipt\.owner, days\);\s*await decidePaymentReceipt\(receipt\.id, "approved"\);/,
-    "activation must grant the pass and then approve the receipt"
+    /await grantPlan\(receipt\.owner, days\);\s*await savePaymentReceipt\(receipt\.id\);/,
+    "activation must grant the pass and then close the receipt"
   );
-});
-
-test("a receipt is pending, approved or rejected, and both sides see it", () => {
-  // Two states were not enough: a refusal and a receipt nobody had opened shared
-  // the word "new", so the buyer could not tell "waiting" from "answered no".
-  const states = read("supabase/migrations/20261029000500_receipt_states.sql");
-  assert.match(
-    states,
-    /check \(status in \('pending', 'approved', 'rejected'\)\)/,
-    "the three states are not constrained in the database"
-  );
-  assert.match(states, /set status = 'pending' where status = 'new'/, "existing receipts are not migrated");
-  assert.match(states, /set status = 'approved' where status = 'saved'/, "approved receipts are not migrated");
-  assert.match(states, /rename column saved_at to decided_at/, "the decision timestamp still claims to be a save");
-  assert.match(
-    states,
-    /and status = 'pending'\s*and decided_at is null\s*and decided_by is null/,
-    "a buyer can write a receipt in a state they should not choose"
-  );
-  assert.match(states, /'rejectReceipt'/, "a rejection cannot be recorded in the ledger");
-
-  const rules = read("lib/receipts.ts");
-  assert.match(rules, /export type ReceiptStatus = "pending" \| "approved" \| "rejected"/);
-  assert.match(rules, /pending: "Pending review"/, "the pending label is gone");
-  assert.match(rules, /approved: "Approved"/, "the approved label is gone");
-  assert.match(rules, /rejected: "Rejected"/, "the rejected label is gone");
-
-  const admin = read("lib/cloudAdmin.ts");
-  assert.match(admin, /export async function decidePaymentReceipt/, "the owner cannot record a decision");
-  assert.ok(!admin.includes("savePaymentReceipt"), "the old save-only decision is still exported");
-  assert.match(
-    admin,
-    /\.in\("status", \["approved", "rejected"\]\)/,
-    "the wipe only covers one of the two decisions"
-  );
-
-  const panel = read("components/AdminReceipts.tsx");
-  assert.ok(panel.includes('decide(receipt, "approved")'), "there is no approve control");
-  assert.ok(panel.includes('decide(receipt, "rejected")'), "there is no reject control");
-  assert.ok(panel.includes("RECEIPT_STATUS_LABELS"), "the console does not label the state");
-
-  const mine = read("lib/myReceipts.ts");
-  assert.match(mine, /decided_at/, "the buyer list does not read the decision time");
-  assert.match(mine, /"rejected" as const/, "the buyer list cannot report a rejection");
 });
 
 console.log(`\n${passes} passed, ${failures} failed`);

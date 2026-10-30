@@ -51,7 +51,6 @@ import {
 } from "@/lib/preferences";
 import { DEFAULT_MODE_ID, getMode, modeCapabilities, type ModeId } from "@/lib/models";
 import { readAgentStream } from "@/lib/agentStream";
-import { sanitizeError } from "@/lib/chatErrors";
 import { refreshDew, useDew } from "@/lib/useDew";
 import { DEW_PER_HOUR } from "@/lib/dew";
 // getMode is used for the assistant message engine label below.
@@ -343,11 +342,6 @@ export default function HomePage() {
   // thread. Set while a tool is announced or the model is thinking, cleared the
   // moment text starts arriving, so it never competes with the answer itself.
   const [agentActivity, setAgentActivity] = useState<string | null>(null);
-  // The reasoning a thinking model streams before its answer, for the one
-  // message that is being written. Live-only on purpose: it is the model's
-  // scratchpad, not part of the answer, and persisting it would put vendor
-  // thoughts in every backup a user downloads.
-  const [thinking, setThinking] = useState<{ messageId: string; text: string } | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
@@ -876,19 +870,6 @@ export default function HomePage() {
     abortRef.current?.abort();
   }, []);
 
-  // Escape is the keyboard's Stop: the same action as the button, without
-  // moving the pointer off the answer the reader wants to keep. Only while a
-  // stream is live, and never when something else already claimed the key.
-  useEffect(() => {
-    if (!streamingId) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      stopStreaming();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [streamingId, stopStreaming]);
-
   // Turning the server's own refusal into a countdown the composer can show.
   // `retryAfterSeconds` from the body is authoritative when it is there; the
   // sentence is the fallback for an older server, a proxy that rewrote the
@@ -962,9 +943,38 @@ export default function HomePage() {
     async (id: string, content: string): Promise<void> => patchMessage(id, { content }),
     [patchMessage]
   );
+  const sanitizeError = useCallback((error: unknown): string => {
+    if (typeof error === "string") {
+      const msg = error.trim();
+      if (!msg) return "Something went wrong. Please try again.";
+      // Make technical errors more user-friendly
+      if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
+        return "Connection issue. Please check your internet and try again.";
+      }
+      if (msg.toLowerCase().includes("timeout")) {
+        return "The request timed out. Please try again.";
+      }
+      if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("401")) {
+        return "Something went wrong with authentication. Please try signing in again.";
+      }
+      if (msg.toLowerCase().includes("rate limit")) {
+        return "Too many requests. Please wait a moment and try again.";
+      }
+      // If it's very technical/long, make it simpler
+      if (msg.length > 200 || msg.includes("{\"")) {
+        return "Something went wrong. Please try again.";
+      }
+      return msg;
+    }
+    if (error instanceof Error) {
+      return sanitizeError(error.message);
+    }
+    return "Something went wrong. Please try again.";
+  }, []);
+
   const markError = useCallback(
     async (id: string, error: string | unknown): Promise<void> => patchMessage(id, { error: sanitizeError(error) }),
-    [patchMessage]
+    [patchMessage, sanitizeError]
   );
   const writeUsage = useCallback(
     async (
@@ -1126,7 +1136,6 @@ export default function HomePage() {
       // appended after the transcript is built and never persisted into a
       // previous user message.
       setModelNotice(null);
-      setThinking(null);
       // The Openmi name is stored rather than a provider id, so nothing vendor-
       // specific ends up in the local database or in an exported backup.
       const assistantMsg: ChatMessage =
@@ -1178,7 +1187,7 @@ export default function HomePage() {
           const data = trimmed.slice(5).trim();
           if (!data || data === "[DONE]") return;
           try {
-            const evt = JSON.parse(data) as { content?: string; reasoning?: string; error?: string; retryAfterSeconds?: number; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
+            const evt = JSON.parse(data) as { content?: string; error?: string; retryAfterSeconds?: number; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await patchMessage(assistantMsg.id, { model: evt.model });
             }
@@ -1200,17 +1209,6 @@ export default function HomePage() {
             if (evt.content) {
               full += evt.content;
               await writeContent(assistantMsg.id, full);
-            }
-            if (evt.reasoning) {
-              // Kept beside the message rather than inside it: the answer is
-              // what gets stored and billed, and the panel only has to outlive
-              // the stream it arrived on.
-              const piece = evt.reasoning;
-              setThinking((current) =>
-                current && current.messageId === assistantMsg.id
-                  ? { ...current, text: current.text + piece }
-                  : { messageId: assistantMsg.id, text: piece }
-              );
             }
             if (evt.usage) await writeUsage(assistantMsg.id, evt.usage);
             if (evt.search) {
@@ -1311,15 +1309,7 @@ export default function HomePage() {
         });
         assistantId = assistant.id;          if (!draftId) setActiveChatId(chatId);
       } else {
-        // The first turn of a new chat arrives with the placeholder id, never
-        // with nothing: the line above can only fall through to DRAFT_CHAT_ID,
-        // so `if (!chatId)` below never ran. The whole turn was written into a
-        // chat that does not exist — no row in the sidebar, no thread (the live
-        // query returns nothing while no chat is open), and the answer, or the
-        // server's refusal, landed in the same invisible place. The composer
-        // emptied and the page stayed empty, which is exactly what it looked
-        // like. It becomes a real chat here, as the ordinary send path does.
-        if (!chatId || chatId === DRAFT_CHAT_ID) {
+        if (!chatId) {
           const chat = await createChat();
           chatId = chat.id;
           setActiveChatId(chatId);
@@ -2170,7 +2160,6 @@ export default function HomePage() {
                 onCopyConversation={handleCopyConversation}
                 onSwitchVariant={handleSwitchVariant}
                 activity={agentActivity}
-                thinking={thinking}
                 onPropose={handlePropose}
                 agentRepo={project?.repoFullName ?? null}
               />

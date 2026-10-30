@@ -62,7 +62,7 @@ assistant; set all three and Auto gets genuinely resilient.
 
 | Variable | Notes |
 | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Your production origin, **no trailing slash**, e.g. `https://openmi.space`. Drives share previews, `sitemap.xml` and `robots.txt`. Without it Open Graph URLs resolve against `localhost` and every shared link renders with no image. |
+| `NEXT_PUBLIC_SITE_URL` | Your production origin, **no trailing slash**, e.g. `https://openmi-ai.vercel.app`. Drives share previews, `sitemap.xml` and `robots.txt`. Without it Open Graph URLs resolve against `localhost` and every shared link renders with no image. |
 
 ### Administrator (1)
 

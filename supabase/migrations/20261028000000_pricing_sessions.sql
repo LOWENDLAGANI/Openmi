@@ -388,32 +388,12 @@ grant execute on function public.admin_grant_plan(uuid, integer) to authenticate
 -- The original check was inline and therefore unnamed, so it is dropped by the
 -- name Postgres generated and replaced with a named constraint.
 
--- Both generated names are dropped before the named constraint is added, so
--- re-running this file cannot fail on one it already created. The list is the
--- full ledger vocabulary rather than this file's five words: a later migration
--- widens it (receipts, deductions), and narrowing it back here would make the
--- console's writes fail after an operator re-ran the migrations by hand.
 alter table public.admin_audit
   drop constraint if exists admin_audit_action_check;
 
 alter table public.admin_audit
-  drop constraint if exists admin_audit_action_allowed;
-
-alter table public.admin_audit
   add constraint admin_audit_action_allowed
-  check (
-    action in (
-      'createCode',
-      'deleteCode',
-      'toggleCode',
-      'grantDew',
-      'grantPlan',
-      'deductDew',
-      'saveReceipt',
-      'rejectReceipt',
-      'deleteReceipt'
-    )
-  );
+  check (action in ('createCode', 'deleteCode', 'toggleCode', 'grantDew', 'grantPlan'));
 
 -- ── The audit learns about the new objects ─────────────────────────────────
 --

@@ -1505,12 +1505,7 @@ html.light .typing-waiter-glow {
   padding-bottom: clamp(64px, 10vw, 132px);
 }
 .lp-fill {
-  /* `ch` is measured against this element's own type, so the statement's size
-     is set here and inherited by its lines. Declared on the lines instead, the
-     column would be counted in 16px body ch and squeeze 60px type into a few
-     characters per line. */
-  font-size: clamp(32px, 5.4vw, 60px);
-  max-width: 24ch;
+  max-width: 22ch;
 }
 @media (min-width: 900px) {
   .lp-fill {
@@ -1525,7 +1520,7 @@ html.light .typing-waiter-glow {
 }
 .lp-line {
   display: block;
-  font-size: inherit;
+  font-size: clamp(32px, 5.4vw, 60px);
   line-height: 1.07;
   letter-spacing: -0.038em;
   font-weight: 450;
@@ -1703,42 +1698,6 @@ html.light .typing-waiter-glow {
 .lp-copyright {
   margin: 0;
   color: rgba(21, 19, 15, 0.4);
-}
-
-/* ── Phones ───────────────────────────────────────────────────────────────
-   The type is set for a wide sheet: hairline leading and negative tracking are
-   what give an 80px headline its weight, and both are what make the same
-   sentence, wrapped over four lines at 34px, feel squeezed together. On a phone
-   the tracking eases off, the leading opens up, and the display sizes come down
-   far enough that the hard line breaks in the hero and the closing panel stay
-   inside the shell instead of running past its edge. */
-@media (max-width: 767px) {
-  .lp-display {
-    font-size: clamp(28px, 9vw, 52px);
-    line-height: 1.08;
-    letter-spacing: -0.026em;
-  }
-  .lp-lede {
-    line-height: 1.62;
-  }
-  .lp-line {
-    line-height: 1.2;
-    letter-spacing: -0.024em;
-  }
-  .lp-block + .lp-block {
-    margin-top: 28px;
-  }
-  .lp-h2,
-  .lp-cta-title {
-    line-height: 1.16;
-    letter-spacing: -0.024em;
-  }
-  .lp-step-body {
-    line-height: 1.7;
-  }
-  .lp-rule-list li {
-    line-height: 1.55;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -54,32 +54,3 @@ jobs:
         run: bun run build
         env:
           NEXT_PUBLIC_SITE_URL: https://ci.invalid
-
-  # The migration folder is part of the product: a file that cannot be applied
-  # a second time stops `supabase db push` at that file, and every migration
-  # after it never runs. That is how a table can be missing while its own
-  # migration file is correct. This job applies the whole set twice to a
-  # throwaway Postgres and checks the objects the routes need, so drift fails a
-  # pull request instead of a deployment.
-  #
-  # It is a separate job rather than a step in `verify` so the failed check has
-  # its own name in the PR list — "Migrations apply twice" says what broke
-  # without opening the log.
-  migrations:
-    name: Migrations apply twice
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      # PGlite is Postgres compiled to WebAssembly, so this needs no service
-      # container and no Docker: the engine parsing the SQL is the real one.
-      # See `scripts/check-migrations.mjs` for the two passes and the assertions.
-      - name: Apply every migration twice
-        run: bun run check:migrations

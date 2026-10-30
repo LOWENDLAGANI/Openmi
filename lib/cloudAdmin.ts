@@ -26,12 +26,7 @@ import {
   roundDew,
 } from "./dew";
 import type { AppConfig } from "./appConfig";
-import {
-  RECEIPT_BUCKET,
-  RECEIPT_RETENTION_MS,
-  type PaymentReceipt,
-  type ReceiptStatus,
-} from "./receipts";
+import { RECEIPT_BUCKET, RECEIPT_RETENTION_MS, type PaymentReceipt } from "./receipts";
 import {
   isValidCode,
   normalizeCode,
@@ -75,39 +70,8 @@ function unauthorized(): Error & { code?: string } {
   return error;
 }
 
-/**
- * A sentence for a failure, including the ones Supabase does not throw as an `Error`.
- *
- * PostgREST and Storage reject with a plain `{ message, code, details, hint }`
- * object, so `cause instanceof Error ? cause.message : "…"` printed a generic
- * sentence for every database refusal — a missing function, a policy, a
- * constraint — and the owner was left with "The adjustment did not go through."
- * and nothing to act on. This reads either shape and keeps the code, which is
- * the part that names the fix.
- */
-export function failureMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message) {
-    const code = codeOf(cause);
-    return code ? `${cause.message} (${code})` : cause.message;
-  }
-  if (cause && typeof cause === "object") {
-    const record = cause as { message?: unknown; code?: unknown };
-    const message = typeof record.message === "string" ? record.message.trim() : "";
-    const code = typeof record.code === "string" ? record.code : "";
-    if (message) return code ? `${message} (${code})` : message;
-    if (code) return `${fallback} (${code})`;
-  }
-  if (typeof cause === "string" && cause.trim()) return cause.trim();
-  return fallback;
-}
-
 function rethrow(cause: unknown): never {
   if (isPermissionDenied(cause)) throw unauthorized();
-  // Anything else is wrapped: the caller gets a real message, and an error the
-  // console can show, instead of an object it can only render as a default.
-  if (!(cause instanceof Error)) {
-    throw new Error(failureMessage(cause, "The database refused the request."));
-  }
   throw cause;
 }
 
@@ -556,12 +520,6 @@ export async function grantDew(uid: string, dew: number): Promise<DewGrant> {
   const client = requireClient();
   const visitor = uid.replace(/[^A-Za-z0-9-]/g, "");
   if (!visitor) throw new Error("Enter the visitor id first.");
-  // The wallet keys on a real account. A mistyped id used to reach the insert
-  // and come back as a foreign-key error, which reads as "the database is
-  // broken" rather than "that is not a visitor id".
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(visitor)) {
-    throw new Error("That is not a visitor id.");
-  }
 
   const amount = roundDew(dew);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) {
@@ -825,42 +783,22 @@ export async function listUsageHistory(limitDays = 60): Promise<UsageHistoryDay[
 
 /** Saves the runtime controls. The admin's own token is what makes it allowed. */
 export async function saveAppConfig(config: AppConfig): Promise<void> {
-  // The controls are saved through the verified route, not by upserting the
-  // table from here. Two reasons, both of which used to be bugs:
-  //
-  //   1. PostgreSQL filters a refused UPDATE instead of raising, so a write the
-  //      policies rejected came back with no error and the console said
-  //      "Saved". The route reads the row back and answers 403 when it is not
-  //      there, which is the only way this can tell the truth.
-  //   2. `ads_enabled` was never in this payload, so the Ads switch was a
-  //      no-op. The route maps every column from `storedConfigFrom`, and stamps
-  //      the bans' author and date from the token it verified.
   const client = requireClient();
-  const { data } = await client.auth.getSession();
-  const token = data.session?.access_token;
-
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (token) headers.authorization = `Bearer ${token}`;
-
-  const response = await fetch("/api/admin/config", {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(config),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    // The route's message is the useful one (a missing admin grant names the
-    // table to check), so it is preferred over a status code.
-    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
-    const message =
-      typeof body?.error === "string" && body.error.trim()
-        ? body.error
-        : `The controls were not saved (${response.status}).`;
-    const error = new Error(message) as Error & { code?: string };
-    error.code = response.status === 403 ? "app/permission-denied" : "app/save-failed";
-    throw error;
-  }
+  const { error } = await client.from("app_config").upsert(
+    {
+      id: 1,
+      chat_enabled: config.chatEnabled,
+      search_enabled: config.searchEnabled,
+      announcement: config.announcement,
+      daily_chat_cap: config.dailyChatCap,
+      bans: config.bans,
+      maintenance_enabled: config.maintenanceEnabled,
+      maintenance_message: config.maintenanceMessage,
+      updated_at: iso(config.updatedAt),
+    },
+    { onConflict: "id" }
+  );
+  if (error) rethrow(error);
 }
 
 // ── Audit ──────────────────────────────────────────────────────────────────
@@ -876,7 +814,6 @@ export interface AdminAuditEntry {
     | "grantPlan"
     | "deductDew"
     | "saveReceipt"
-    | "rejectReceipt"
     | "deleteReceipt";
   /** The word the entry is about. */
   code?: string;
@@ -920,8 +857,7 @@ export async function appendAdminAudit(
 
 function receiptFromRow(row: Record<string, unknown>): PaymentReceipt | null {
   if (typeof row.id !== "string" || typeof row.storage_path !== "string") return null;
-  const status: ReceiptStatus =
-    row.status === "approved" ? "approved" : row.status === "rejected" ? "rejected" : "pending";
+  const status = row.status === "saved" ? "saved" : "new";
   return {
     id: row.id,
     owner: typeof row.owner === "string" ? row.owner : "",
@@ -936,7 +872,7 @@ function receiptFromRow(row: Record<string, unknown>): PaymentReceipt | null {
     mimeType: typeof row.mime_type === "string" ? row.mime_type : "",
     status,
     createdAt: ms(row.created_at),
-    decidedAt: row.decided_at ? ms(row.decided_at) : null,
+    savedAt: row.saved_at ? ms(row.saved_at) : null,
     previewUrl: null,
   };
 }
@@ -951,14 +887,12 @@ function receiptFromRow(row: Record<string, unknown>): PaymentReceipt | null {
  */
 async function purgeExpiredReceipts(client: ReturnType<typeof requireClient>): Promise<void> {
   const cutoff = iso(Date.now() - RECEIPT_RETENTION_MS);
-  // Both answers keep their proof for the same month: a rejection can be
-  // disputed just as easily as an approval.
   const { data } = await client
     .from("payment_receipts")
     .select("id, storage_path")
-    .in("status", ["approved", "rejected"])
-    .not("decided_at", "is", null)
-    .lt("decided_at", cutoff)
+    .eq("status", "saved")
+    .not("saved_at", "is", null)
+    .lt("saved_at", cutoff)
     .limit(500);
   const stale = (data ?? []) as Array<{ id?: unknown; storage_path?: unknown }>;
   if (stale.length === 0) return;
@@ -983,7 +917,7 @@ export async function listPaymentReceipts(): Promise<PaymentReceipt[]> {
   const { data, error } = await client
     .from("payment_receipts")
     .select(
-      "id, owner, name, plan, plan_label, amount, reference, note, storage_path, file_name, mime_type, status, created_at, decided_at"
+      "id, owner, name, plan, plan_label, amount, reference, note, storage_path, file_name, mime_type, status, created_at, saved_at"
     )
     .order("created_at", { ascending: false })
     .limit(200);
@@ -1016,24 +950,13 @@ export async function listPaymentReceipts(): Promise<PaymentReceipt[]> {
   return receipts;
 }
 
-/**
- * Records the owner's answer: approved or rejected, with who and when.
- *
- * One function for both, because the row is the same shape either way and a
- * rejection is not a special case of saving. Only the administrator's token can
- * make this write — the policy on the table is the guard, not this code — and
- * `pending` is deliberately unreachable from here: a decision is not undone by
- * clearing it, it is changed by pressing the other button.
- */
-export async function decidePaymentReceipt(
-  id: string,
-  status: "approved" | "rejected"
-): Promise<void> {
+/** Marks a receipt saved: the pass is active, and the wipe clock starts. */
+export async function savePaymentReceipt(id: string): Promise<void> {
   const client = requireClient();
   const uid = await currentUid();
   const { error } = await client
     .from("payment_receipts")
-    .update({ status, decided_at: iso(Date.now()), decided_by: uid })
+    .update({ status: "saved", saved_at: iso(Date.now()), saved_by: uid })
     .eq("id", id);
   if (error) rethrow(error);
 }

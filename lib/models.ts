@@ -19,6 +19,8 @@ export interface ModeOption {
    * continuing the current conversation under a different model.
    */
   separateSession: boolean;
+  /** Short explanation shown in the mode menu. */
+  blurb: string;
 }
 
 export const OPENMI_MODES: ModeOption[] = [
@@ -27,12 +29,14 @@ export const OPENMI_MODES: ModeOption[] = [
     name: "Auto",
     display: "Openmi Auto",
     separateSession: false,
+    blurb: "Routes each message to the best available model",
   },
   {
     id: "code",
     name: "code",
     display: "GPT-OSS 120B",
     separateSession: true,
+    blurb: "GPT-OSS 120B only — tuned for reading and changing a repository",
   },
   {
     // The id names the capability, like "code" does, rather than the vendor:
@@ -42,6 +46,7 @@ export const OPENMI_MODES: ModeOption[] = [
     name: "Flash",
     display: "DeepSeek V4.1 Flash",
     separateSession: true,
+    blurb: "DeepSeek V4.1 Flash only — fast answers for a very long conversation",
   },
 ];
 
@@ -64,6 +69,8 @@ export interface ModeCategory {
   id: ModeCategoryId;
   /** The word the menu shows first. */
   label: string;
+  /** One line saying what the category buys. */
+  blurb: string;
   /** The one model this category offers. */
   mode: ModeId;
 }
@@ -72,16 +79,19 @@ export const MODE_CATEGORIES: ModeCategory[] = [
   {
     id: "efficient",
     label: "Efficient",
+    blurb: "Quick answers at the lowest spend",
     mode: "auto",
   },
   {
     id: "balanced",
     label: "Balanced",
+    blurb: "Strong everyday answers for chat and code",
     mode: "code",
   },
   {
     id: "advanced",
     label: "Advanced",
+    blurb: "The heaviest reasoning for long, hard work",
     mode: "flash",
   },
 ];

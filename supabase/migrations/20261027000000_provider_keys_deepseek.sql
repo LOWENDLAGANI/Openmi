@@ -7,14 +7,8 @@
 -- generated name; it is dropped by that name and replaced with a named one so
 -- the next provider to be added can be a one-line change here.
 
--- Both names are dropped: the inline constraint's generated name and the
--- named one this file adds. A re-run that only dropped the first would stop at
--- "constraint already exists" and leave every later migration unapplied.
 alter table public.provider_keys
   drop constraint if exists provider_keys_provider_check;
-
-alter table public.provider_keys
-  drop constraint if exists provider_keys_provider_allowed;
 
 alter table public.provider_keys
   add constraint provider_keys_provider_allowed

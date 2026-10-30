@@ -1,5 +1,4 @@
 import type { MetadataRoute } from "next";
-import { siteOrigin } from "@/lib/siteUrl";
 
 // ── robots.txt ───────────────────────────────────────────────────────────────
 // Generated rather than static so the sitemap's URL and the robots entry can
@@ -24,7 +23,7 @@ import { siteOrigin } from "@/lib/siteUrl";
 // Note that this route is prerendered at build time, so the variable has to
 // be set when the deployment is built rather than only when it starts. Vercel
 // supplies it to both, so a build there already has the right origin in it.
-const base = siteOrigin();
+const base = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "") || "https://example.com";
 
 export default function robots(): MetadataRoute.Robots {
   return {

@@ -903,29 +903,7 @@ export default function RepoPanel({ open, onClose, project, onSelectProject, loc
                     {busy === "connect" ? "Waiting for GitHub…" : "Continue with GitHub"}
                   </button>
                 ) : (
-                  <>
-                    {/* Why there is no one-click button. Falling straight through
-                        to the token form read as "Openmi does not do GitHub
-                        sign-in" rather than "this deployment has not created
-                        the app", and the only way to tell was to read the
-                        source. The panel's own header promises this sentence. */}
-                    <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-400/[0.05] px-3 py-2.5 text-[11.5px] leading-relaxed text-amber-100/80">
-                      The one-click GitHub connection needs an OAuth App on this deployment. Set{" "}
-                      <code className="rounded bg-black/35 px-1 py-0.5 font-mono text-[10.5px]">
-                        GITHUB_CLIENT_ID
-                      </code>
-                      ,{" "}
-                      <code className="rounded bg-black/35 px-1 py-0.5 font-mono text-[10.5px]">
-                        GITHUB_CLIENT_SECRET
-                      </code>{" "}
-                      and{" "}
-                      <code className="rounded bg-black/35 px-1 py-0.5 font-mono text-[10.5px]">
-                        GITHUB_TOKEN_KEY
-                      </code>{" "}
-                      in the deployment, then redeploy. A pasted token works without any of them.
-                    </div>
-                    <div className="mt-3">{tokenForm}</div>
-                  </>
+                  <div className="mt-4">{tokenForm}</div>
                 )}
               </div>
               {status?.oauth &&

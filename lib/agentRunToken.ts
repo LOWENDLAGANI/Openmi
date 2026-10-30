@@ -35,38 +35,6 @@ export function signTick(input: { run: string; uid: string; attempt: number }, n
 }
 
 /**
- * The origin a tick is dispatched to.
- *
- * `req.nextUrl.origin` is built from the request's `Host` header, so a caller
- * who can set that header can make this server POST a signed tick token to a
- * host of their choosing — an SSRF primitive with a bearer-like value attached.
- * The configured public origin is used when it names a real deployment; the
- * request origin is only the fallback for a deployment that has not set one,
- * which is the same state that leaves GitHub's OAuth callback unbuildable.
- *
- * The old placeholder from `.env.example` is still ignored rather than obeyed:
- * a deployment that copied that file before the move to openmi.space carries
- * `example.com` in it, and a run that silently points at somebody else's host
- * is worse than the weaker fallback.
- */
-export function internalOrigin(req: { nextUrl: { origin: string } }): string {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim() ?? "";
-  if (configured) {
-    try {
-      const url = new URL(configured);
-      if (url.protocol !== "https:" && url.protocol !== "http:") return req.nextUrl.origin;
-      if (url.hostname === "example.com" || url.hostname === "www.example.com") {
-        return req.nextUrl.origin;
-      }
-      return url.origin;
-    } catch {
-      // A malformed value contributes nothing, exactly as it does in next.config.
-    }
-  }
-  return req.nextUrl.origin;
-}
-
-/**
  * Fires one tick at our own origin.
  *
  * Never awaited by its caller: the request that fired it is finished, and the

@@ -4,14 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import Spinner from "./Spinner";
 import {
   appendAdminAudit,
-  decidePaymentReceipt,
   deletePaymentReceipt,
   grantPlan,
   listPaymentReceipts,
+  savePaymentReceipt,
 } from "@/lib/cloudAdmin";
 import {
   RECEIPT_RETENTION_DAYS,
-  RECEIPT_STATUS_LABELS,
   receiptDaysLeft,
   type PaymentReceipt,
 } from "@/lib/receipts";
@@ -22,16 +21,16 @@ import { PAID_PLANS } from "@/lib/pricing";
 // end of it: the name the payment was made under, the pass it was for, the
 // amount, and the file itself through a short-lived signed link.
 //
-// There are two answers, not one: approve the payment, or reject it. Both are a
-// decision, both record who made it and when, and both are visible to the buyer
-// on the top-up page — a refusal the buyer cannot see is a payment they will
-// keep asking about. Either answer starts the thirty-day wipe clock. The sweep
-// runs when this list is read, so the promise holds without a scheduler.
+// "Saved" is the one decision. It means the receipt is no longer waiting; the
+// row is labelled saved and the file is scheduled to be wiped thirty days from
+// that moment. The sweep runs when this list is read, so the promise holds
+// without a scheduler — a saved receipt past its month is gone by the time the
+// console next opens.
 //
 // Activating the pass is the other half, and it happens on the same row: the
 // receipt already names the pass and the buyer, so making the owner copy a uid
 // into another form was the step where a payment got lost. Activation grants the
-// days, then approves the receipt — one decision, one click, one wipe clock.
+// days, then marks the receipt saved — one decision, one click, one wipe clock.
 //
 // "Wipe" is for the other case: a receipt that should never have been kept —
 // wrong person, wrong file, a payment that was never made. It deletes the file
@@ -66,37 +65,21 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
     void load();
   }, [load]);
 
-  /**
-   * Records the answer, either way.
-   *
-   * The list is re-read after the write instead of patched in place: the sweep
-   * may have removed other rows in the same pass, and a stale list is how a
-   * wiped receipt reappears after a refresh. A rejection is its own ledger
-   * word, so the log can still answer "who refused this payment".
-   */
-  const decide = async (receipt: PaymentReceipt, status: "approved" | "rejected") => {
+  const markSaved = async (receipt: PaymentReceipt) => {
     if (busy) return;
-    setBusy(`decision:${receipt.id}`);
+    setBusy(`save:${receipt.id}`);
     setError(null);
     setNotice(null);
     try {
-      await decidePaymentReceipt(receipt.id, status);
-      await appendAdminAudit({
-        at: Date.now(),
-        action: status === "approved" ? "saveReceipt" : "rejectReceipt",
-        uid: receipt.owner,
-        note: receipt.name,
-      }).catch(() => undefined);
+      await savePaymentReceipt(receipt.id);
+      // Read back rather than patching one row: the sweep may have removed
+      // others in the same pass, and a stale list is how a wiped receipt
+      // reappears after a refresh.
       await load();
-      setNotice(
-        status === "approved"
-          ? `${receipt.name} approved. The receipt is wiped in ${RECEIPT_RETENTION_DAYS} days.`
-          : `${receipt.name} rejected. The buyer sees it as rejected, and the file is wiped in ${RECEIPT_RETENTION_DAYS} days.`
-      );
+      setNotice(`${receipt.name} marked saved. The receipt is wiped in ${RECEIPT_RETENTION_DAYS} days.`);
     } catch (cause) {
-      console.error("[openmi] Failed to record the receipt decision", cause);
-      const message =
-        cause instanceof Error ? cause.message : "The receipt could not be updated.";
+      console.error("[openmi] Failed to save receipt", cause);
+      const message = cause instanceof Error ? cause.message : "The receipt could not be saved.";
       setError(message);
       onError?.(message);
     } finally {
@@ -119,7 +102,7 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
     setNotice(null);
     try {
       const grant = await grantPlan(receipt.owner, days);
-      await decidePaymentReceipt(receipt.id, "approved");
+      await savePaymentReceipt(receipt.id);
       // Best effort: a policy that refuses the ledger must not undo the pass.
       await appendAdminAudit({
         at: Date.now(),
@@ -135,7 +118,7 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
       }).catch(() => undefined);
       await load();
       setNotice(
-        `${receipt.name}: ${days}-day pass active until ${new Date(grant.until).toLocaleDateString()}. Receipt approved — wiped in ${RECEIPT_RETENTION_DAYS} days.`
+        `${receipt.name}: ${days}-day pass active until ${new Date(grant.until).toLocaleDateString()}. Receipt marked saved — wiped in ${RECEIPT_RETENTION_DAYS} days.`
       );
     } catch (cause) {
       console.error("[openmi] Failed to activate pass from receipt", cause);
@@ -170,9 +153,8 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
   return (
     <div className="space-y-3">
       <p className="text-[10px] leading-relaxed text-white/35">
-        Proof of a payment sent from the top-up page. Approving or rejecting it answers the buyer on
-        the top-up page; either answer starts the {RECEIPT_RETENTION_DAYS}-day wipe, and activating a pass
-        approves the receipt as well.
+        Proof of a payment sent from the top-up page. Activating a pass marks the receipt saved as
+        well; its file is wiped {RECEIPT_RETENTION_DAYS} days after that.
       </p>
 
       {error && (
@@ -198,9 +180,8 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
       ) : (
         <ul className="space-y-2">
           {receipts.map((receipt) => {
-            const status = receipt.status;
-            const decided = status !== "pending";
-            const left = receiptDaysLeft(receipt.decidedAt);
+            const saved = receipt.status === "saved";
+            const left = receiptDaysLeft(receipt.savedAt);
             const isImage = receipt.mimeType.startsWith("image/");
             const expanded = openId === receipt.id;
             const plan = PAID_PLANS.find((entry) => entry.id === receipt.plan);
@@ -208,11 +189,9 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
               <li
                 key={receipt.id}
                 className={`rounded-[14px] border px-3 py-2.5 ${
-                  status === "pending"
-                    ? "border-[#a9d8bb]/25 bg-[#a9d8bb]/[0.05]"
-                    : status === "rejected"
-                      ? "border-red-400/20 bg-red-500/[0.04]"
-                      : "border-white/[0.07] bg-white/[0.02]"
+                  saved
+                    ? "border-white/[0.07] bg-white/[0.02]"
+                    : "border-[#a9d8bb]/25 bg-[#a9d8bb]/[0.05]"
                 }`}
               >
                 <div className="flex items-start gap-2">
@@ -221,14 +200,12 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
                       <span className="truncate">{receipt.name}</span>
                       <span
                         className={`rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${
-                          status === "approved"
-                            ? "bg-[#a9d8bb]/20 text-[#a9d8bb]"
-                            : status === "rejected"
-                              ? "bg-red-400/15 text-red-200/90"
-                              : "bg-amber-400/15 text-amber-100/90"
+                          saved
+                            ? "bg-white/[0.07] text-white/45"
+                            : "bg-[#a9d8bb]/20 text-[#a9d8bb]"
                         }`}
                       >
-                        {RECEIPT_STATUS_LABELS[status]}
+                        {saved ? "Saved" : "New"}
                       </span>
                     </p>
                     <p className="mt-0.5 text-[10px] text-white/35">
@@ -246,12 +223,12 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
                         {receipt.note}
                       </p>
                     )}
-                    {decided && (
+                    {saved && (
                       <p className="mt-1 text-[10px] text-white/30">
                         {left === null
-                          ? `Wipes ${RECEIPT_RETENTION_DAYS} days after the decision.`
+                          ? `Wipes ${RECEIPT_RETENTION_DAYS} days after saving.`
                           : left > 0
-                            ? `${RECEIPT_STATUS_LABELS[status]} ${when(receipt.decidedAt)} · wipes in ${left} day${left === 1 ? "" : "s"}.`
+                            ? `Saved ${when(receipt.savedAt)} · wipes in ${left} day${left === 1 ? "" : "s"}.`
                             : "Due to be wiped."}
                       </p>
                     )}
@@ -331,19 +308,11 @@ export default function AdminReceipts({ onError }: { onError?: (message: string)
                   )}
                   <button
                     type="button"
-                    onClick={() => void decide(receipt, "approved")}
-                    disabled={status === "approved" || busy !== null}
+                    onClick={() => void markSaved(receipt)}
+                    disabled={saved || busy !== null}
                     className="rounded-[9px] bg-[#2f6b48]/30 px-2.5 py-1.5 text-[10.5px] font-semibold text-[#d7f0e1] transition-colors hover:bg-[#2f6b48]/45 disabled:opacity-40"
                   >
-                    {busy === `decision:${receipt.id}` ? "Saving…" : "Approve"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void decide(receipt, "rejected")}
-                    disabled={status === "rejected" || busy !== null}
-                    className="rounded-[9px] px-2.5 py-1.5 text-[10.5px] font-semibold text-red-200/75 transition-colors hover:bg-red-500/10 hover:text-red-200 disabled:opacity-40"
-                  >
-                    Reject
+                    {busy === `save:${receipt.id}` ? "Saving…" : "Saved"}
                   </button>
                   <button
                     type="button"

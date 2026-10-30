@@ -7,8 +7,6 @@
 // configured, or the call fails or is slow, the original prompt is passed
 // through unchanged so image generation keeps working.
 
-import { siteOrigin } from "./siteUrl";
-
 /** Cloudflare FLUX truncates around this; keep the optimized text well inside it. */
 const MAX_PROMPT_LENGTH = 400;
 
@@ -114,7 +112,7 @@ function optimizerProviders(): OptimizerProvider[] {
       url: "https://openrouter.ai/api/v1/chat/completions",
       key: openrouterKey,
       model: "openai/gpt-oss-20b",
-      headers: { "HTTP-Referer": siteOrigin(), "X-Title": "Openmi" },
+      headers: { "HTTP-Referer": "https://openmi-ai.vercel.app", "X-Title": "Openmi" },
     });
   }
   return providers;

@@ -163,7 +163,7 @@ function items(): SetupItem[] {
       keys: ["NEXT_PUBLIC_SITE_URL"],
       label: "Public address",
       missing:
-        "Share previews, the sitemap and the robots file fall back to the built-in domain instead of this deployment's, and GitHub's OAuth callback has to be guessed from the request's host.",
+        "Share previews, the sitemap and the robots file point at example.com, and GitHub's OAuth callback cannot be built.",
       where: "The exact public origin of the deployment, with no trailing slash.",
       severity: "optional",
       configured: present(process.env.NEXT_PUBLIC_SITE_URL),
