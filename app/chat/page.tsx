@@ -1326,7 +1326,15 @@ export default function HomePage() {
         });
         assistantId = assistant.id;          if (!draftId) setActiveChatId(chatId);
       } else {
-        if (!chatId) {
+        // The first turn of a new chat arrives with the placeholder id, never
+        // with nothing: the line above can only fall through to DRAFT_CHAT_ID,
+        // so `if (!chatId)` below never ran. The whole turn was written into a
+        // chat that does not exist — no row in the sidebar, no thread (the live
+        // query returns nothing while no chat is open), and the answer, or the
+        // server's refusal, landed in the same invisible place. The composer
+        // emptied and the page stayed empty, which is exactly what it looked
+        // like. It becomes a real chat here, as the ordinary send path does.
+        if (!chatId || chatId === DRAFT_CHAT_ID) {
           const chat = await createChat();
           chatId = chat.id;
           setActiveChatId(chatId);
