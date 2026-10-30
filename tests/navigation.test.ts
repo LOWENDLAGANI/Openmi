@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   });
 
   await test("the repository door is in the chat header, with a dot when one is attached", () => {
-    const page = read("app/chat/page.tsx");
+    const page = read("app/page.tsx");
     assert.ok(
       page.includes('aria-label={project ? `Repository: ${project.repoFullName}` : "Choose a repository"}'),
       "the header has no repository button"
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
   });
 
   await test("the mobile header keeps its controls instead of truncating the name", () => {
-    const page = read("app/chat/page.tsx");
+    const page = read("app/page.tsx");
     assert.match(
       page,
       /hidden truncate text-\[17px\] font-medium tracking-\[-0\.02em\] text-white sm:block/,

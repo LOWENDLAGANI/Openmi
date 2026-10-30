@@ -1,342 +1,70 @@
-"use client";
-
-import { useEffect, useState, useSyncExternalStore } from "react";
-import type { AgentStep, Chat, ChatFolder, ChatMessage } from "./types";
+import Dexie, { type Table } from "dexie";
+import type { Chat, ChatFolder, ChatMessage } from "./types";
 import type { TrashEntry } from "./trash";
 import { displayedContent } from "./variants";
-import { DEFAULT_MODE_ID, OPENMI_MODES, type ModeId } from "./models";
 
-// ── The chat session cache ───────────────────────────────────────────────────
+// ── Openmi — zero-login client-side persistence (IndexedDB via Dexie) ─────────
 //
-// Chat history lives on the server. This module is the tab's view of it for as
-// long as the tab is open — nothing here is written to IndexedDB, localStorage
-// or any other durable store on the device.
-//
-// That is a deliberate reversal. History used to be created in IndexedDB first
-// and copied to the account afterwards, which meant every browser accumulated a
-// second, private copy of every conversation: a copy that survived sign-out,
-// that a different account on the same device could see for a moment during the
-// handover, and that could not be trusted as the current answer once two devices
-// disagreed. The account is now the only copy. A reload starts from the server,
-// a new browser starts from the server, and nothing about a conversation stays
-// behind on a machine after the tab closes.
-//
-// The sync partner is `lib/cloudHistory.ts`: it pulls the account's chats,
-// folders and trash into this cache when a session starts, and pushes each write
-// back. Its merge logic is unchanged — the change is only that the cache it
-// merges into is memory, so a failed write is a failed write rather than a
-// silent local copy that pretends the server agreed.
-//
-// ── What this is not ────────────────────────────────────────────────────────
-// It is not an offline store. With no network there is no history to read, and
-// an unsent message is an error the person can see rather than a row waiting for
-// the next sync. `exportBackup` still produces a file from whatever is loaded,
-// which is the honest shape of a backup when the device holds nothing.
+// Client-side only. Anything the server keeps private — the identity system
+// prompt, provider keys, wire model ids — lives in a separate module so it is
+// never compiled into the page bundle. See lib/systemPrompt.ts.
 
-/** A repository turn that was still running when the tab went away. */
-export interface AgentRunRecord {
-  /** The assistant message the turn is writing into. */
-  id: string;
-  chatId: string;
-  projectId: string;
-  /** The loop's own wire state, so step N+1 can be asked for after a reload. */
-  transcript: unknown[];
-  turnToken: string;
-  /** The turn's attached text, re-sent with every step. */
-  context: string;
-  content: string;
-  steps: AgentStep[];
-  /**
-   * The server-side run this message is following.
-   *
-   * The run — its transcript, token and budget — lives in `agent_runs`, so this
-   * record is only the pointer that says which message to render it into.
-   */
-  runId?: string;
-  updatedAt: number;
-}
+export class OpenmiDB extends Dexie {
+  chats!: Table<Chat, string>;
+  messages!: Table<ChatMessage, string>;
+  folders!: Table<ChatFolder, string>;
+  trash!: Table<TrashEntry, string>;
 
-/** Anything this cache stores has a primary key. */
-interface Identified {
-  id: string;
-}
-
-// ── Reactivity ───────────────────────────────────────────────────────────────
-// One version counter for the whole cache. Every mutation bumps it, and every
-// live query re-runs. That is coarse on purpose: the alternative is per-table
-// dependency tracking, and the cost of re-running a few in-memory filters after
-// a write is smaller than the bug surface of getting the tracking wrong.
-
-let version = 0;
-const listeners = new Set<() => void>();
-
-function bump(): void {
-  version += 1;
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function currentVersion(): number {
-  return version;
-}
-
-/** The subset of the old collection API the app actually calls. */
-class Collection<T extends Identified> {
-  private readonly orderField: string | null;
-  private reverseOrder = false;
-  private limitCount: number | null = null;
-
-  constructor(
-    private readonly table: Table<T>,
-    private readonly predicate: (row: T) => boolean = () => true,
-    orderField: string | null = null
-  ) {
-    this.orderField = orderField;
-  }
-
-  private clone(): Collection<T> {
-    const next = new Collection<T>(this.table, this.predicate, this.orderField);
-    next.reverseOrder = this.reverseOrder;
-    next.limitCount = this.limitCount;
-    return next;
-  }
-
-  private rows(): T[] {
-    let list = this.table.snapshot().filter(this.predicate);
-    if (this.orderField) {
-      const field = this.orderField;
-      list = [...list].sort((a, b) => compareValues(a as Record<string, unknown>, b as Record<string, unknown>, field));
-    }
-    if (this.reverseOrder) list = [...list].reverse();
-    if (this.limitCount !== null) list = list.slice(0, this.limitCount);
-    return list;
-  }
-
-  filter(predicate: (row: T) => boolean): Collection<T> {
-    const next = new Collection<T>(this.table, (row) => this.predicate(row) && predicate(row), this.orderField);
-    next.reverseOrder = this.reverseOrder;
-    next.limitCount = this.limitCount;
-    return next;
-  }
-
-  reverse(): Collection<T> {
-    const next = this.clone();
-    next.reverseOrder = !this.reverseOrder;
-    return next;
-  }
-
-  limit(count: number): Collection<T> {
-    const next = this.clone();
-    next.limitCount = Math.max(0, Math.trunc(count));
-    return next;
-  }
-
-  async toArray(): Promise<T[]> {
-    return this.rows();
-  }
-
-  async first(): Promise<T | undefined> {
-    return this.rows()[0];
-  }
-
-  async count(): Promise<number> {
-    return this.rows().length;
-  }
-
-  async sortBy(field: string): Promise<T[]> {
-    return [...this.rows()].sort((a, b) =>
-      compareValues(a as Record<string, unknown>, b as Record<string, unknown>, field)
-    );
-  }
-
-  async delete(): Promise<number> {
-    const rows = this.rows();
-    for (const row of rows) this.table.deleteRow(row.id);
-    if (rows.length > 0) bump();
-    return rows.length;
-  }
-
-  async modify(changes: Partial<T>): Promise<number> {
-    const rows = this.rows();
-    for (const row of rows) this.table.setRow({ ...row, ...changes });
-    if (rows.length > 0) bump();
-    return rows.length;
+  constructor() {
+    super("openmi-db");
+    this.version(1).stores({
+      chats: "id, updatedAt, pinned",
+      messages: "id, chatId, createdAt",
+    });
+    // Added in a later version rather than inside version 1. Dexie upgrades
+    // existing databases from whatever version they were left at, so editing
+    // the original declaration would not reach a browser that already has one.
+    this.version(2).stores({
+      chats: "id, updatedAt, pinned",
+      messages: "id, chatId, createdAt",
+      memories: "id, createdAt",
+    });
+    // Folders, and the index that lets the sidebar ask "everything in this
+    // folder" of Dexie rather than of JavaScript. Declared as a new version
+    // for the same reason as version 2: an existing browser has to be upgraded,
+    // not re-declared.
+    this.version(3).stores({
+      chats: "id, updatedAt, pinned, folder",
+      messages: "id, chatId, createdAt",
+      memories: "id, createdAt",
+      folders: "id, name",
+    });
+    // Scheduled messages and the trash. Both are device-local by design: a
+    // scheduled send fires from this browser's own open tab, and a deleted
+    // chat is recoverable here without the account ever holding a copy it
+    // would then sync back.
+    this.version(4).stores({
+      chats: "id, updatedAt, pinned, folder",
+      messages: "id, chatId, createdAt",
+      memories: "id, createdAt",
+      folders: "id, name",
+      scheduled: "id, sendAt",
+      trash: "id, deletedAt",
+    });
+    // The overhaul removed two device-local features — the memory list and
+    // queued sends — so their tables are dropped. Omitting a store from a later
+    // version is how Dexie deletes a table; leaving them declared would keep
+    // dead data on every existing browser for ever.
+    this.version(5).stores({
+      chats: "id, updatedAt, pinned, folder",
+      messages: "id, chatId, createdAt",
+      folders: "id, name",
+      trash: "id, deletedAt",
+    });
   }
 }
 
-function compareValues(a: Record<string, unknown>, b: Record<string, unknown>, field: string): number {
-  const left = a[field];
-  const right = b[field];
-  if (typeof left === "number" && typeof right === "number") return left - right;
-  return String(left ?? "").localeCompare(String(right ?? ""));
-}
-
-/**
- * One in-memory table.
- *
- * The method names mirror the persistence layer this replaced so the rest of the
- * app did not have to be rewritten around a different vocabulary; what changed is
- * that none of it touches a disk.
- */
-class Table<T extends Identified> {
-  private readonly rows = new Map<string, T>();
-
-  constructor(readonly name: string) {}
-
-  snapshot(): T[] {
-    return [...this.rows.values()];
-  }
-
-  setRow(row: T): void {
-    this.rows.set(row.id, row);
-    bump();
-  }
-
-  deleteRow(id: string): boolean {
-    return this.rows.delete(id);
-  }
-
-  async add(row: T): Promise<string> {
-    if (this.rows.has(row.id)) {
-      throw new Error(`A row with id ${row.id} already exists in this session cache.`);
-    }
-    this.setRow(row);
-    return row.id;
-  }
-
-  async put(row: T): Promise<string> {
-    this.setRow(row);
-    return row.id;
-  }
-
-  async bulkPut(rows: T[]): Promise<void> {
-    for (const row of rows) this.rows.set(row.id, row);
-    if (rows.length > 0) bump();
-  }
-
-  async bulkAdd(rows: T[]): Promise<void> {
-    for (const row of rows) {
-      if (this.rows.has(row.id)) throw new Error(`A row with id ${row.id} already exists in this session cache.`);
-    }
-    for (const row of rows) this.rows.set(row.id, row);
-    if (rows.length > 0) bump();
-  }
-
-  async get(id: string): Promise<T | undefined> {
-    return this.rows.get(id);
-  }
-
-  async update(id: string, changes: Partial<T>): Promise<number> {
-    const existing = this.rows.get(id);
-    if (!existing) return 0;
-    this.setRow({ ...existing, ...changes });
-    return 1;
-  }
-
-  async delete(id: string): Promise<void> {
-    if (this.rows.delete(id)) bump();
-  }
-
-  async bulkDelete(ids: string[]): Promise<void> {
-    let changed = false;
-    for (const id of ids) changed = this.rows.delete(id) || changed;
-    if (changed) bump();
-  }
-
-  async clear(): Promise<void> {
-    if (this.rows.size > 0) {
-      this.rows.clear();
-      bump();
-    }
-  }
-
-  async toArray(): Promise<T[]> {
-    return this.snapshot();
-  }
-
-  async count(): Promise<number> {
-    return this.rows.size;
-  }
-
-  filter(predicate: (row: T) => boolean): Collection<T> {
-    return new Collection<T>(this, predicate);
-  }
-
-  orderBy(field: string): Collection<T> {
-    return new Collection<T>(this, () => true, field);
-  }
-
-  where(field: string): { equals: (value: unknown) => Collection<T> } {
-    return {
-      equals: (value: unknown) =>
-        new Collection<T>(this, (row) => (row as Record<string, unknown>)[field] === value),
-    };
-  }
-}
-
-/** The signed-in tab's cache. Nothing in it is persisted. */
-export const db = {
-  chats: new Table<Chat>("chats"),
-  messages: new Table<ChatMessage>("messages"),
-  folders: new Table<ChatFolder>("folders"),
-  trash: new Table<TrashEntry>("trash"),
-  agentRuns: new Table<AgentRunRecord>("agentRuns"),
-  /**
-   * Runs the callback. There is nothing to roll back — the rows are one object's
-   * memory and the callback is synchronous in practice — so this exists to keep
-   * the call sites that grouped a chat and its messages together readable.
-   */
-  async transaction(_mode: string, ...args: unknown[]): Promise<void> {
-    const callback = args[args.length - 1];
-    if (typeof callback === "function") await (callback as () => Promise<unknown>)();
-  },
-};
-
-/**
- * Re-runs a query when the cache changes.
- *
- * The signature matches the hook this replaced, including the initial value, so
- * both direct table reads and `where(...)` chains keep working. A query that
- * throws leaves the previous answer on screen rather than blanking it.
- */
-export function useLiveQuery<T>(query: () => T | Promise<T>): T | undefined;
-export function useLiveQuery<T>(
-  query: () => T | Promise<T>,
-  deps: unknown[],
-  initial: T
-): T;
-export function useLiveQuery<T>(
-  query: () => T | Promise<T>,
-  deps: unknown[] = [],
-  initial?: T
-): T | undefined {
-  const [value, setValue] = useState<T | undefined>(initial);
-  const cacheVersion = useSyncExternalStore(subscribe, currentVersion, currentVersion);
-
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.resolve()
-      .then(query)
-      .then((result) => {
-        if (!cancelled) setValue(result);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-    // `cacheVersion` is the subscription; the caller's deps are what the query
-    // reads, and both must trigger a re-run.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheVersion, ...deps]);
-
-  return value;
-}
+export const db = new OpenmiDB();
 
 export function uid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -369,19 +97,16 @@ export async function maybeAutoTitle(chatId: string, firstUserText: string): Pro
 }
 
 export async function deleteChat(chatId: string): Promise<void> {
-  await db.transaction("rw", db.chats, db.messages, db.agentRuns, async () => {
+  await db.transaction("rw", db.chats, db.messages, async () => {
     await db.messages.where("chatId").equals(chatId).delete();
-    // A turn for a chat that no longer exists has nothing to write into.
-    await db.agentRuns.where("chatId").equals(chatId).delete();
     await db.chats.delete(chatId);
   });
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction("rw", db.chats, db.messages, db.folders, db.trash, db.agentRuns, async () => {
+  await db.transaction("rw", db.chats, db.messages, db.folders, db.trash, async () => {
     await db.messages.clear();
     await db.chats.clear();
-    await db.agentRuns.clear();
     // "Clear" means clear: the trash goes with the rest, or a wiped browser is
     // one restore away from being unwiped.
     await db.folders.clear();
@@ -405,7 +130,9 @@ export function nextMessageTime(previous: number, now = Date.now()): number {
   return Math.max(now, previous + 1);
 }
 
-/** The last timestamp this tab handed to a chat, so a burst cannot regress. */
+/** The last timestamp this browser handed to a chat, so a reload mid-burst
+ *  cannot regress. Kept in memory only: persisted rows are always older than
+ *  `Date.now()` by the time anything is appended again. */
 const lastMessageAt = new Map<string, number>();
 
 export async function addMessage(msg: Omit<ChatMessage, "id" | "createdAt">): Promise<ChatMessage> {
@@ -432,35 +159,6 @@ export async function setMessageUsage(
   await db.messages.update(id, { usage, updatedAt: Date.now() });
 }
 
-// ── A turn that outlived its tab ─────────────────────────────────────────────
-
-/** Records the loop's state after a step, so the next one can be resumed. */
-export async function saveAgentRun(run: Omit<AgentRunRecord, "updatedAt">): Promise<void> {
-  await db.agentRuns.put({ ...run, updatedAt: Date.now() });
-}
-
-export async function readAgentRun(id: string): Promise<AgentRunRecord | undefined> {
-  return db.agentRuns.get(id);
-}
-
-export async function clearAgentRun(id: string): Promise<void> {
-  await db.agentRuns.delete(id);
-}
-
-/**
- * The next turn worth picking up, for the repository that is attached now.
- *
- * Oldest first, so two turns waiting are resumed in the order they were asked
- * for. A run for another repository is skipped: the hour session is bound to one
- * repository, so the server would refuse it anyway.
- */
-export async function nextResumableAgentRun(projectId: string): Promise<AgentRunRecord | undefined> {
-  const runs = await db.agentRuns.toArray();
-  return runs
-    .filter((run) => run.projectId === projectId)
-    .sort((a, b) => a.updatedAt - b.updatedAt)[0];
-}
-
 // ── Backup / restore ─────────────────────────────────────────────────────────
 
 export interface BackupPayload {
@@ -484,9 +182,9 @@ export async function exportBackup(): Promise<BackupPayload> {
 
 /**
  * A restore is a union, not a replace: rows from the file are put back and
- * anything already loaded is kept, so importing a backup into a session with
- * newer conversations cannot delete them. The bound is about a hostile or
- * accidental huge file, not about overwriting.
+ * anything this browser already holds is kept, so importing a backup into a
+ * browser with newer conversations cannot delete them. The bound below is
+ * therefore about a hostile or accidental huge file, not about overwriting.
  */
 const MAX_IMPORT_CHATS = 2000;
 const MAX_IMPORT_MESSAGES = 50000;
@@ -535,7 +233,7 @@ export async function renameFolder(id: string, name: string): Promise<void> {
  *
  * The chats are kept. A folder is a label on conversations somebody wrote, and
  * deleting the label by accident must not be able to delete the writing — the
- * rows it held simply return to the main list.
+ * row of chats it held simply returns to the main list.
  */
 export async function deleteFolder(id: string): Promise<void> {
   await db.transaction("rw", db.folders, db.chats, async () => {
@@ -551,9 +249,6 @@ export async function setChatFolder(chatId: string, folderId: string | undefined
 }
 
 // ── Full-text search ─────────────────────────────────────────────────────────
-// Runs over what the session has loaded. There is no device copy to scan while
-// signed out any more, which is the point; the loaded account history is
-// whatever the server returned.
 
 export interface MessageSearchHit {
   chatId: string;
@@ -578,8 +273,15 @@ function snippetFor(text: string, needle: string): string {
 /**
  * Finds messages whose text contains the query, newest first.
  *
- * Answers the *displayed* variant, because a search that returns text you cannot
- * then find on screen is worse than no search at all.
+ * IndexedDB has no full-text index, so this filters the whole message store —
+ * which is fine precisely because the store is one person's own history on
+ * their own device: tens of thousands of rows at the outside, scanned in
+ * memory in a few milliseconds. The moment this ever became a server query it
+ * would need an index, and it is deliberately not a server query: message text
+ * never leaves the device to be searched.
+ *
+ * Answers the *displayed* variant, because a search that returns text you
+ * cannot then find on screen is worse than no search at all.
  */
 export async function searchMessages(query: string): Promise<MessageSearchHit[]> {
   const needle = query.trim().toLowerCase();
@@ -605,21 +307,23 @@ export async function searchMessages(query: string): Promise<MessageSearchHit[]>
   }));
 }
 
-// ── Mode preference ──────────────────────────────────────────────────────────
-// A preference is not history: it is one small string that makes the next visit
-// feel like the same person, and it carries nothing anybody wrote. It stays on
-// the device.
+// ── Mode preference (persisted outside Dexie to survive before DB open) ─────
+
+import { DEFAULT_MODE_ID, OPENMI_MODES, type ModeId } from "./models";
 
 const MODE_KEY = "openmi:selected-mode";
 
 export function loadSelectedMode(): ModeId {
   if (typeof window === "undefined") return DEFAULT_MODE_ID;
   try {
-    let value = window.localStorage.getItem(MODE_KEY);
+    let v = window.localStorage.getItem(MODE_KEY);
     // "dev" is the pre-rename id of Code mode, so an existing browser that
     // selected it before the rename keeps its choice.
-    if (value === "dev") value = "code";
-    if (value && OPENMI_MODES.some((mode) => mode.id === value)) return value as ModeId;
+    if (v === "dev") v = "code";
+    // Any mode currently in the catalog is a valid stored choice — including
+    // Azure, Opus and Fable. An older build only recognised "auto" and "code",
+    // which dropped every other selection on reload.
+    if (v && OPENMI_MODES.some((m) => m.id === v)) return v as ModeId;
     return DEFAULT_MODE_ID;
   } catch {
     return DEFAULT_MODE_ID;

@@ -30,9 +30,7 @@ const HOME_LAYOUT_KEY = "openmi:home-layout";
 /** The colour of the browser's own chrome, per theme. It cannot follow a CSS
     class, so the meta tag is written here whenever the theme changes. */
 const THEME_COLORS = {
-  // The paper theme is the landing page's canvas; the two dark appearances and
-  // the ink Focus home keep the canvases they were designed on.
-  light: "#f3f1e9",
+  light: "#f8f9fa",
   dark: "#0b1310",
   ink: "#1b1826",
 } as const;

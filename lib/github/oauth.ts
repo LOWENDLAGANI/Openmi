@@ -169,20 +169,6 @@ export function requestOrigin(req: {
   url: string;
   headers: Headers;
 }): string {
-  // The configured origin wins. Forwarded headers describe what a proxy was
-  // told, and whoever can set them can choose where the browser goes after the
-  // GitHub round trip — an open redirect that arrives with a token attached.
-  const configuredOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (configuredOrigin) {
-    try {
-      const parsed = new URL(configuredOrigin);
-      if (parsed.protocol === "https:" || parsed.protocol === "http:") return parsed.origin;
-    } catch {
-      // A malformed value falls through to the headers rather than breaking the
-      // flow; the deployment has a bigger problem to report elsewhere.
-    }
-  }
-
   const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const forwardedHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const hostHeader = req.headers.get("host")?.split(",")[0]?.trim();

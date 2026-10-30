@@ -55,7 +55,7 @@ export default function ErrorBoundary({
           Try again
         </button>
         <Link
-          href="/chat"
+          href="/"
           className="rounded-full border border-white/10 px-5 py-2.5 text-[13px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
           Back to chat

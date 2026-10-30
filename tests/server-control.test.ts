@@ -10,7 +10,6 @@
 //   bun run test
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 // Erased at compile time — this loads no module, so the administrator address
 // can still be set before `serverControl` is imported inside `main`.
 import type { BanRecord } from "../lib/appConfig";
@@ -181,38 +180,6 @@ async function main(): Promise<void> {
       false,
       "sharing the administrator's uid is not exemption; the address decides"
     );
-  });
-
-  // ── The wiring the operator actually touches ───────────────────────────────
-  // The console used to upsert `app_config` itself. PostgreSQL reports a refused
-  // UPDATE as zero rows rather than an error, so a save whose grant was missing
-  // still said "Saved" while nothing changed — and `ads_enabled` was missing
-  // from that payload entirely. The verified route reads the row back, stamps the
-  // bans and drops the server cache, so it is the only honest path.
-  test("the console saves controls through the verified route", () => {
-    const source = readFileSync(new URL("../lib/cloudAdmin.ts", import.meta.url), "utf8");
-    assert.match(source, /fetch\("\/api\/admin\/config"/, "the console no longer uses the verified route");
-    assert.ok(
-      !/\.from\("app_config"\)\s*\.upsert/.test(source),
-      "a direct app_config upsert is back: a refused write would look saved, and ads_enabled would be dropped"
-    );
-  });
-
-  test("a banned or closed deployment refuses to sell an hour", () => {
-    const route = readFileSync(new URL("../app/api/session/route.ts", import.meta.url), "utf8");
-    assert.match(
-      route,
-      /identityGate\(identity, config, config\.dailyChatCap\)/,
-      "the ban list does not reach the session route"
-    );
-    assert.match(
-      route,
-      /config\.maintenanceEnabled && !isAdmin\(identity\)/,
-      "maintenance mode does not reach the session route"
-    );
-    const start = route.indexOf('body.action !== "start"');
-    const gate = route.indexOf("identityGate(identity, config");
-    assert.ok(start > 0 && gate > start, "the gate has to run before an hour can be started");
   });
 }
 

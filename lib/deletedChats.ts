@@ -2,8 +2,7 @@
 //
 // A pull from the account must never resurrect a conversation somebody just
 // deleted here, so the ids are recorded locally and honoured on the way in. The
-// list is kept in localStorage rather than in the session cache because it must
-// survive the
+// list is kept in localStorage rather than Dexie because it must survive the
 // very database it is guarding.
 //
 // It is also the reason a *restore* needs a matching "unmark": a chat put back

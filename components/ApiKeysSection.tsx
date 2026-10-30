@@ -13,7 +13,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { authHeader } from "@/lib/supabase";
-import Spinner from "./Spinner";
 import {
   keyProblem,
   keySourceLabel,
@@ -140,7 +139,10 @@ export default function ApiKeysSection() {
   return (
     <section>
       <h3 className="mb-1.5 text-[13px] font-semibold text-white">API keys</h3>
-
+      <p className="mb-2.5 text-[11px] leading-relaxed text-white/40">
+        Bring your own key for the models Openmi uses. A saved key is sealed on the server, used only for
+        your own requests, and never sent back to this browser — only the last four characters are shown.
+      </p>
 
       <div className="space-y-2">
         {USER_KEY_PROVIDERS.map((provider) => {
@@ -170,10 +172,7 @@ export default function ApiKeysSection() {
                       disabled={busy !== null}
                       className="rounded-lg px-2 py-1 text-[10.5px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-red-200/80 disabled:opacity-40"
                     >
-                      <span className="inline-flex items-center gap-1.5">
-                        {busy === provider && <Spinner size={11} />}
-                        {busy === provider ? "Removing…" : "Remove"}
-                      </span>
+                      {busy === provider ? "Removing…" : "Remove"}
                     </button>
                   )}
                   {!open && (
@@ -213,10 +212,7 @@ export default function ApiKeysSection() {
                       disabled={busy !== null || !draft.trim() || Boolean(problem)}
                       className="rounded-lg border border-[#a9d8bb]/25 bg-[#a9d8bb]/[0.08] px-2.5 py-1 text-[10.5px] font-medium text-[#a9d8bb] transition hover:bg-[#a9d8bb]/[0.14] disabled:opacity-40"
                     >
-                      <span className="inline-flex items-center gap-1.5">
-                        {busy === provider && <Spinner size={11} />}
-                        {busy === provider ? "Checking…" : "Save key"}
-                      </span>
+                      {busy === provider ? "Checking…" : "Save key"}
                     </button>
                     <button
                       type="button"

@@ -137,10 +137,10 @@ export function accountViewOf(user: User | null): AccountView {
 
 const viewOf = accountViewOf;
 
-/** Where the OAuth round trip comes back to: the product, not the front door. */
+/** Where the OAuth round trip comes back to. */
 function oauthReturnUrl(): string {
   if (typeof window === "undefined") return "";
-  return `${window.location.origin}/chat`;
+  return window.location.origin;
 }
 
 /**

@@ -7,10 +7,9 @@ import { isShareId, shareUrl, type ShareMessage, type ShareSnapshot } from "@/li
 import Link from "next/link";
 import Markdown from "./Markdown";
 import OpenmiMark from "./OpenmiMark";
-import Spinner from "./Spinner";
 import ChangeReview from "./ChangeReview";
 import { useSmoothText } from "@/lib/useSmoothText";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ChatThreadProps {
   messages: ChatMessage[];
@@ -27,15 +26,6 @@ interface ChatThreadProps {
    * runs, so a turn that takes half a minute never looks like it stopped.
    */
   activity?: string | null;
-  /**
-   * The reasoning the model streamed before its answer.
-   *
-   * Live-only and deliberately not a field on `ChatMessage`: it is the model's
-   * scratchpad, it arrives only from a thinking model, and storing it would put
-   * it in every backup the user exports. The panel opens only when text arrived,
-   * so a model that exposes nothing is never given an empty "Thinking…" box.
-   */
-  thinking?: { messageId: string; text: string } | null;
   /**
    * Asks the agent to stage the change it just described. This is a new Code
    * turn, not a free add-on: the button says so in its title.
@@ -437,11 +427,13 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
       {/* The answer is a card: white on the gray canvas, a hairline border and
           the softest shadow that still lifts it off the page. The model badge
           sits at the top of the card rather than floating above it, so the
-          whole turn is one object. */}          <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
+          whole turn is one object. */}
+      <div className="msg-ai-card max-w-[92%] md:max-w-[85%]">
         {/* Header only when there is an answer to head. A turn that produced
             no text has already returned above as a bare alert. */}
         {msg.content && (
           <div className="mb-2.5 flex items-center gap-2">
+            <ModelBadge model={msg.model} />
             {msg.usage && (
               <span
                 className="text-[10px] text-text-low"
@@ -508,7 +500,7 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage, onSwitchVaria
             directly under the text that explains it. It reads the stored change
             set rather than the step response, so a reload keeps a reviewable
             change instead of losing the only diff the browser ever held. */}
-        {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} review={msg.review} />}
+        {msg.changesetId && !streaming && <ChangeReview changesetId={msg.changesetId} />}
 
         {msg.sources && <SearchSources sources={msg.sources} />}
 
@@ -588,7 +580,15 @@ function TypingDots({ message }: { message: string }) {
           the message card above it. */}
       <span className="typing-waiter-glow" aria-hidden="true" />
       <div className="flex items-center gap-2 py-1">
-        <Spinner variant="pulse" size={13} className="text-text-mid" />
+        <span className="flex items-center gap-1" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1 w-1 rounded-full animate-blink bg-text-mid"
+              style={{ animationDelay: `${i * 0.18}s` }}
+            />
+          ))}
+        </span>
         <span className="text-[12px] leading-relaxed text-text-mid">{message}</span>
       </div>
     </div>
@@ -779,28 +779,6 @@ function nextHeadline(): string {
   return headline;
 }
 
-/**
- * The reasoning panel above an answer.
- *
- * Rendered only when a model actually streamed thinking — DeepSeek and Groq's
- * GPT-OSS do, and most plain models send nothing at all — and closed by default,
- * because the answer should be read before the working that produced it. The
- * text is the model's own words, so it stays plain: a stray `**` in a thought
- * must not become a heading, and a stray tag must not run.
- */
-function ThinkingBlock({ text }: { text: string }) {
-  return (
-    <details className="animate-rise rounded-xl border border-line bg-canvas px-3 py-1.5">
-      <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.12em] text-text-low">
-        Thinking
-      </summary>
-      <div className="mt-1.5 whitespace-pre-wrap break-words text-[11.5px] leading-relaxed text-text-mid">
-        {text}
-      </div>
-    </details>
-  );
-}
-
 export default function ChatThread({  messages,
   streamingId,
   isEmpty,
@@ -809,7 +787,6 @@ export default function ChatThread({  messages,
   onCopyConversation,
   onSwitchVariant,
   activity = null,
-  thinking = null,
   onPropose,
   agentRepo = null,
 }: ChatThreadProps) {
@@ -892,10 +869,9 @@ export default function ChatThread({  messages,
         {showSourceHistory && <div className="mb-4 rounded-2xl border border-line bg-card p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-text-low">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-text-mid hover:text-text-hi">{source.title} <span className="text-text-low">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-4">
           {messages.map((msg, index) => (
-            <Fragment key={msg.id}>
-              {thinking?.messageId === msg.id && <ThinkingBlock text={thinking.text} />}
-              <MessageRow
-                msg={msg}
+            <MessageRow
+              key={msg.id}
+              msg={msg}
               streaming={msg.id === streamingId}
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
@@ -909,12 +885,23 @@ export default function ChatThread({  messages,
                 (msg.steps?.length ?? 0) > 0 &&
                 !msg.steps?.some((step) => step.tool === "propose_edits")
               }
-                share={shareSnapshotAt(messages, index)}
-              />
-            </Fragment>
+              share={shareSnapshotAt(messages, index)}
+            />
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">
+              <div className="mb-2 flex items-center gap-2">
+                {(() => {
+                  const m = messages.find((x) => x.id === streamingId);
+                  return m ? (
+                    <>
+                      <ModelBadge model={m.model} />
+                    </>
+                  ) : (
+                    <span className="text-[12px] font-medium text-text-mid">Openmi</span>
+                  );
+                })()}
+              </div>
               <TypingDots message={loadingMessage} />
             </div>
           )}
@@ -930,6 +917,27 @@ export default function ChatThread({  messages,
   );
 }
 
+// ── Model identity badge (added for UI overhaul) ──────────────────────────
+// Visual indicator showing which Openmi model responded with color-coded styling
+import { OPENMI_MODES } from "@/lib/models";
+
+function ModelBadge({ model }: { model?: string }) {
+  // A stored message carries the display name rather than the mode id, so both
+  // are matched. Looking up the id alone made every pinned mode fall back to
+  // Auto's badge and label.
+  const mode =
+    OPENMI_MODES.find((m) => m.id === model || m.display === model) ?? OPENMI_MODES[0];
+  const isCode = mode.id === "code";
+  const badgeClass = isCode ? "model-badge model-badge-code" : "model-badge model-badge-auto";
+  const label = mode.display;
+  
+  return (
+    <span className={badgeClass}>
+      <span className="model-badge-dot" />
+      {label}
+    </span>
+  );
+}
 
 /** The triangle every alert in the thread uses. */
 function AlertIcon() {

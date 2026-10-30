@@ -63,7 +63,6 @@ export default function AdBanner({ enabled = true }: AdBannerProps) {
       {/* The two heights live in lib/ads.ts; this tag is the only bridge
           between them and the stylesheet, so they cannot drift. */}
       <style>{`@media (min-width: 768px) { .openmi-ad-slot { height: ${AD_HEIGHT_DESKTOP}px !important; } }`}</style>
-      <style>{`\n.openmi-ad-trigger {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  cursor: pointer;\n  border: 1px solid rgba(255,255,255,0.12);\n  background: rgba(255,255,255,0.04);\n  color: rgba(255,255,255,0.75);\n  font: inherit;\n  font-size: 11px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  padding: 5px 9px;\n  border-radius: 9999px;\n  transition: background 120ms ease, color 120ms ease;\n}\n.openmi-ad-trigger:hover {\n  background: rgba(255,255,255,0.09);\n  color: #fff;\n}\n.openmi-ad-trigger:active {\n  transform: scale(0.97);\n}\n`}</style>
       <Script
         id="adsbygoogle-loader"
         src={`${ADSENSE_SCRIPT}?client=${client}`}

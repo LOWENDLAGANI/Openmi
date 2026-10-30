@@ -12,7 +12,6 @@
 // which of the four doors that project has opened.
 
 import { useCallback, useState } from "react";
-import Spinner from "./Spinner";
 import { diagnoseSignIn, type SignInDiagnosis } from "@/lib/authDiagnostics";
 
 export default function AuthDiagnostics() {
@@ -39,7 +38,10 @@ export default function AuthDiagnostics() {
       </summary>
 
       <div className="mt-2 space-y-2">
-
+        <p className="text-[10.5px] leading-relaxed text-white/35">
+          Asks the project which of Google, GitHub, Microsoft and email sign-in it has switched on.
+          Nothing is created and no account is needed.
+        </p>
 
         <button
           type="button"
@@ -47,10 +49,7 @@ export default function AuthDiagnostics() {
           disabled={busy}
           className="rounded-lg border border-white/[0.12] px-2.5 py-1.5 text-[11px] font-medium text-white/75 transition-colors hover:bg-white/[0.06] disabled:opacity-50"
         >
-          <span className="inline-flex items-center gap-1.5">
-            {busy && <Spinner size={11} />}
-            {busy ? "Checking…" : "Run the check"}
-          </span>
+          {busy ? "Checking…" : "Run the check"}
         </button>
 
         {failure && <p className="text-[10.5px] leading-relaxed text-red-200/80">{failure}</p>}

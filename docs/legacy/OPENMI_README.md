@@ -191,7 +191,7 @@ A wiped user loses `users/{uid}` and `admin/registry/{uid}`; a full wipe clears 
 | fast | 0.015 Dew | 0.06 Dew | Auto and Code, when nobody asked for more reasoning |
 | pro | 0.25 Dew | 1.00 Dew | Openmi Azure, and any request that asked for medium or high reasoning |
 
-An image costs `IMAGE_DEW_COST` (1 Dew), charged only after the picture exists — a failed generation is never billed. A new account is granted `TRIAL_DEW` (5) exactly once, pinned at that value by the rules.
+An image costs `IMAGE_DEW_COST` (1 Dew), charged only after the picture exists — a failed generation is never billed. A new account is granted `TRIAL_DEW` (25) exactly once, pinned at that value by the rules.
 
 **Buying Dew is a QR transfer, like everything else Openmi sells.** `/plus` shows the balance, four packs with their ringgit prices, and the shared DuitNow QR. There is no payment gateway and no webhook: the owner matches the transfer and hands over a code, or the buyer redeems a code they were given directly.
 

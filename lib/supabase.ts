@@ -3,12 +3,8 @@
 // One client for the whole tab. It holds the session (persisted, refreshed) and
 // it is the thing every authenticated read and write goes through, so the
 // database sees the caller's own JWT and Postgres row-level security is the only
-// judge. Every route builds its client from the caller's own token.
-//
-// The one exception is deliberate and narrow: `lib/supabaseAdmin.ts` holds the
-// deployment's service-role key, and only the `/api/agent/runs` routes import it
-// — creating or advancing a run is the one job with no caller to act as. Nothing
-// else may use that module.
+// judge. There is no service-role key in this file, in the server routes, or in
+// the deployment environment.
 //
 // ── Accounts are required ───────────────────────────────────────────────────
 // Openmi no longer creates anonymous visitors. A browser has either signed in

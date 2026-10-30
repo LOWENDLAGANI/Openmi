@@ -42,11 +42,9 @@ them:
 3. **Clean start, no data import.** Nobody is running the Firebase deployment, so there
    are no rows worth carrying; the seed creates only the settings row and an optional
    admin grant.
-4. **One service-role key, in one place.** The server routes build a client from the
-   caller's own bearer token, so Postgres decides access in both tiers. The service
-   role key is read by `lib/supabaseAdmin.ts` alone, for the `/api/agent/runs` routes —
-   a run that outlives its tab has no caller to act as. It is not a general-purpose
-   bypass.
+4. **No service-role key in the app.** The server routes build a client from the caller's
+   own bearer token, so Postgres decides access in both tiers. The service role exists
+   only in the dashboard for one-time promotion work.
 
 ## The original brief
 
@@ -109,10 +107,10 @@ What changes:
 - The caller is now a real Supabase auth user. `email` may be `null` for an anonymous
   user — handle that in the same spots that already guard `email`.
 
-**The access model survives without change in shape:** the server reads and writes using
-the caller's own JWT, so Postgres row-level security is the only thing deciding access.
-(The single exception is the background run tick, described above.) This is the same
-property the Firebase build had — only the DB changed.
+**The access model survives without change in shape:** the server never holds a
+service-role key. It reads and writes using the caller's own JWT, so Postgres row-level
+security is the only thing deciding access. This is the same property the Firebase build
+had — only the DB changed.
 
 #### Files that call `verifyCaller`
 
@@ -215,10 +213,9 @@ What stays (shape):
   header (or null for unauthenticated reads, if any exist) and a path, and return the value or a success
   indication. Internally they become Supabase calls.
 
-**Important property to preserve:** all data access a browser triggers goes through the
-caller's own token. Do **not** introduce a service-role client in a route that serves a
-page. The only sanctioned use is `lib/supabaseAdmin.ts`, imported solely by
-`app/api/agent/runs`, `app/api/agent/tick` and `app/api/agent/runs/sweep`.
+**Important property to preserve:** the application holds no service-role key. All data access goes through
+the caller's own token. This is the non-negotiable rule from the README and it has to survive. Do **not**
+introduce a service-role client here.
 
 ### Firebase Admin SDK: `lib/firebaseAdmin.ts`
 
@@ -348,8 +345,7 @@ enforce it two ways and keep them consistent:
 1. **Route-side**: the route checks the caller's email against `OPENMI_ADMIN_EMAIL`.
 2. **RLS-side**: a policy on each admin table allows only the admin email.
 
-No service-role key in the admin path. The deployment's one belongs to the background
-run tick, and nothing here may use it.
+No service-role key. The app does not and must not hold one.
 
 ## The migration order — do it in this sequence
 

@@ -3,6 +3,7 @@
 // clearing site data simply asks again.
 
 const NAME_KEY = "openmi:display-name";
+const AVATAR_KEY = "openmi:avatar";
 const FIRST_SEEN_KEY = "openmi:first-seen";
 
 /**
@@ -49,7 +50,31 @@ export function saveDisplayName(name: string): string {
   return trimmed;
 }
 
-/** First letter for the generated profile picture, falling back to "M". */
+/** First letter for the sidebar avatar, falling back to "M". */
 export function nameInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "M";
+}
+
+export function loadAvatar(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(AVATAR_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveAvatar(dataUrl: string): string {
+  try {
+    if (dataUrl) {
+      // Limit size to avoid localStorage issues (keep reasonable)
+      if (dataUrl.length > 500000) return ""; // ~375KB limit
+      window.localStorage.setItem(AVATAR_KEY, dataUrl);
+    } else {
+      window.localStorage.removeItem(AVATAR_KEY);
+    }
+  } catch {
+    // Private mode or quota exceeded
+  }
+  return dataUrl;
 }

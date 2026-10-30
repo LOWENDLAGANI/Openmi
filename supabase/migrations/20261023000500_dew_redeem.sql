@@ -110,7 +110,8 @@ grant execute on function public.redeem_code_is_live(text) to authenticated;
 
 /**
  * What a credit write is allowed to be worth.
- *  * `TRIAL` is the one-time grant, pinned to the same 5 as `TRIAL_DEW` in
+ *
+ * `TRIAL` is the one-time grant, pinned to the same 25 as `TRIAL_DEW` in
  * lib/dew.ts. Every other key must name a live code whose own amount matches, so
  * a modified client that writes `dew: 1000` against a 100-Dew code is refused by
  * the database rather than believed.
@@ -123,7 +124,7 @@ security definer
 set search_path = public, pg_temp
 as $$
   select case
-    when upper(p_code) = 'TRIAL' then p_amount = 5
+    when upper(p_code) = 'TRIAL' then p_amount = 25
     else exists (
       select 1
       from public.redeem_codes c
