@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { siteOrigin } from "@/lib/siteUrl";
 
 // ── Sitemap ─────────────────────────────────────────────────────────────────
 // Every page here is static and public. The API routes are deliberately absent:
@@ -11,7 +12,7 @@ import type { MetadataRoute } from "next";
 // back to a placeholder origin, which is wrong but harmless: the file is only
 // fetched by a crawler, and a crawler that finds a placeholder will simply move
 // on rather than penalise the site.
-const base = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "") || "https://example.com";
+const base = siteOrigin();
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();

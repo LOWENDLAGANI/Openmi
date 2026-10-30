@@ -6,8 +6,11 @@ keeps running on the same Vercel project. Hosting, database, keys and data do
 than it looks: build-time metadata, OAuth callbacks, Supabase redirect rules,
 push subscriptions and search results.
 
-Status: reference for a future move. Nothing here has been applied yet.
-Last updated: 2026-10-29.
+Status: applied. Openmi is served from `https://openmi.space`, and the code no
+longer names the old `*.vercel.app` origin anywhere. What remains is console work
+— the Vercel domain, Supabase redirect URLs, the GitHub callback, Search Console
+and AdSense — which this repository cannot see or verify.
+Last updated: 2026-10-30.
 
 ## The short version
 
@@ -16,9 +19,9 @@ Last updated: 2026-10-29.
 | 1 | Registrar → Vercel | Point the domain at the project and pick one canonical host | No |
 | 2 | Vercel → Settings → Environment Variables | **`NEXT_PUBLIC_SITE_URL`** on Production *and* Preview | **Yes** |
 | 3 | Supabase → Authentication → URL Configuration | Site URL + Redirect URLs (app origin, `/auth/reset-password`, localhost) | No |
-| 4 | GitHub → OAuth App | Authorization callback URL `https://<new-domain>/api/github/oauth/callback` | No |
+| 4 | GitHub → OAuth App | Authorization callback URL `https://openmi.space/api/github/oauth/callback` | No |
 | 5 | Google Search Console, AdSense, email, push | Verify the new property, re-review ads, sender/subject, re-subscribe | No |
-| 6 | Code | Two hardcoded `HTTP-Referer` values; docs | Yes (same deploy as #2) |
+| 6 | Code | Done: the two `HTTP-Referer` values and the sitemap/robots fallback now read `lib/siteUrl.ts`, which defaults to `https://openmi.space` | Already on `main` |
 
 Everything else — Supabase URL and keys, model keys, AdSense ids, Sentry,
 Upstash, Tavily, VAPID keys — is origin-independent and stays as it is.
@@ -58,7 +61,7 @@ Vercel → **Settings → Environment Variables**:
 
 | Variable | New value | Scope |
 |---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | `https://<new-domain>` | Production, Preview |
+| `NEXT_PUBLIC_SITE_URL` | `https://openmi.space` | Production, Preview |
 
 Why it cannot be skipped: it is read at **build time** by
 [app/robots.ts](app/robots.ts), [app/sitemap.ts](app/sitemap.ts) and
@@ -81,10 +84,10 @@ address.
 
 Supabase → **Authentication → URL Configuration**:
 
-- **Site URL**: `https://<new-domain>`
+- **Site URL**: `https://openmi.space`
 - **Redirect URLs**: keep the old origin while the change settles, and add
-  - `https://<new-domain>`
-  - `https://<new-domain>/auth/reset-password`
+  - `https://openmi.space`
+  - `https://openmi.space/auth/reset-password`
   - `http://localhost:3000` and `http://localhost:3000/auth/reset-password`
 
 Every sign-in ends with the browser returning to one of these so the client can
@@ -106,8 +109,8 @@ This is the app's own OAuth App, separate from the GitHub login Supabase handles
 
 GitHub → Settings → Developer settings → OAuth Apps → the Openmi app:
 
-- **Homepage URL**: `https://<new-domain>`
-- **Authorization callback URL**: `https://<new-domain>/api/github/oauth/callback`
+- **Homepage URL**: `https://openmi.space`
+- **Authorization callback URL**: `https://openmi.space/api/github/oauth/callback`
 
 The redirect is built from `NEXT_PUBLIC_SITE_URL` in
 [lib/github/oauth.ts](lib/github/oauth.ts#L140), so the two must agree exactly.
@@ -122,7 +125,7 @@ valid: they are sealed with `GITHUB_TOKEN_KEY`, not tied to a hostname.
 
 - **Google Search Console** — add the new domain as a property, verify it (the
   existing `public/google15b7f2c7296d7959.html` is a path on any origin, so it
-  keeps working), then submit `https://<new-domain>/sitemap.xml`. Keep the old
+  keeps working), then submit `https://openmi.space/sitemap.xml`. Keep the old
   property and its 301 in place; rankings follow a permanent redirect, slowly.
 - **AdSense** — add the new domain as a site in AdSense and expect a fresh
   review. `/ads.txt` is generated from `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, so it is
@@ -138,34 +141,38 @@ valid: they are sealed with `GITHUB_TOKEN_KEY`, not tied to a hostname.
 - **Sentry** — the DSN is origin-independent. If the project restricts allowed
   origins or uses a tunnel route, add the new host there.
 
-## 7. Code that still names the old origin
+## 7. Code that named the old origin (done)
 
-Two files hardcode `https://openmi-ai.vercel.app` as the OpenRouter
-`HTTP-Referer` header:
+Two files hardcoded `https://openmi-ai.vercel.app` as the OpenRouter
+`HTTP-Referer` header ([lib/providers.ts](lib/providers.ts),
+[lib/promptOptimizer.ts](lib/promptOptimizer.ts)). Both now call
+[lib/siteUrl.ts](lib/siteUrl.ts), which resolves `NEXT_PUBLIC_SITE_URL` and falls
+back to `https://openmi.space` — the same helper [app/sitemap.ts](app/sitemap.ts)
+and [app/robots.ts](app/robots.ts) build their entries from. It also replaces the
+`example.com` placeholder those two files carried, so a deployment that forgets
+the variable names the real domain instead of a domain it does not own.
 
-- [lib/providers.ts](lib/providers.ts#L73)
-- [lib/promptOptimizer.ts](lib/promptOptimizer.ts#L115)
+`tests/site-url.test.ts` pins the fallback, the refusal of a malformed value, and
+the absence of the old host from the source. Nothing else in `app/`, `lib/` or
+`components/` contains a hostname; share links, referral links and
+`window.location.origin` uses are all computed at runtime and are correct on any
+domain.
 
-OpenRouter only uses these for attribution, so nothing breaks — but they will
-keep advertising the old domain. The durable fix is to read
-`process.env.NEXT_PUBLIC_SITE_URL` with the literal as a fallback, in the same
-deploy as step 3. Nothing else in `app/`, `lib/` or `components/` contains a
-hostname; share links, referral links and `window.location.origin` uses are all
-computed at runtime and are correct on any domain.
-
-Docs that mention the old address (`README.md`, `docs/legacy/VERCEL_ENV.md`) are
-worth a sweep so the next reader is not sent to a redirect.
+The docs that mentioned the old address have been swept: `README.md`,
+`docs/legacy/VERCEL_ENV.md` and this file now name openmi.space. The
+`*.vercel.app` deployment URL still works and should stay attached — [step
+2](#2-vercel) explains why a DNS mistake should cost the new name, not the site.
 
 ## 8. Verify before announcing it
 
 Run against the new origin after the redeploy:
 
 ```bash
-curl -sI https://<new-domain>/ | grep -i 'strict-transport\|content-security'
-curl -s  https://<new-domain>/robots.txt | grep -i sitemap
-curl -s  https://<new-domain>/sitemap.xml | head -5
-curl -s  https://<new-domain>/ads.txt | head -3
-curl -s  https://<new-domain>/manifest.webmanifest | head -5
+curl -sI https://openmi.space/ | grep -i 'strict-transport\|content-security'
+curl -s  https://openmi.space/robots.txt | grep -i sitemap
+curl -s  https://openmi.space/sitemap.xml | head -5
+curl -s  https://openmi.space/ads.txt | head -3
+curl -s  https://openmi.space/manifest.webmanifest | head -5
 curl -sI https://<old-origin>/ | head -3        # expect 308 to the new host
 ```
 

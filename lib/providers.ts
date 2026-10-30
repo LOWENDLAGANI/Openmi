@@ -5,6 +5,7 @@
 // these strings carry provider names and, via `key`, credentials.
 
 import type { ModeId } from "./models";
+import { siteOrigin } from "./siteUrl";
 import {
   AUTO_ENGINE,
   DEEPSEEK_ENGINE,
@@ -70,7 +71,7 @@ export function getProviders(
         model: AUTO_ENGINE,
         supportsReasoning: true,
         headers: {
-          "HTTP-Referer": "https://openmi-ai.vercel.app",
+          "HTTP-Referer": siteOrigin(),
           "X-Title": "Openmi",
         },
         extraBody: {
