@@ -31,8 +31,32 @@ alter table public.payment_receipts
   add constraint payment_receipts_status_check
   check (status in ('pending', 'approved', 'rejected'));
 
-alter table public.payment_receipts rename column saved_at to decided_at;
-alter table public.payment_receipts rename column saved_by to decided_by;
+-- Guarded because a rename is the one statement here that cannot be written
+-- idempotently: on a second run the old column is gone, and an unguarded
+-- `rename column` would abort the file — and every migration after it — with
+-- `column "saved_at" does not exist`. Each column is checked on its own so a
+-- half-applied rename is repaired rather than assumed.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'payment_receipts'
+      and column_name = 'saved_at'
+  ) then
+    alter table public.payment_receipts rename column saved_at to decided_at;
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'payment_receipts'
+      and column_name = 'saved_by'
+  ) then
+    alter table public.payment_receipts rename column saved_by to decided_by;
+  end if;
+end
+$$;
 
 -- The sweep reads decided rows by this pair, so it is indexed together. The old
 -- name is dropped rather than left to describe a column that no longer exists.

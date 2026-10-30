@@ -42,23 +42,84 @@ create table if not exists public.payment_receipts (
 create index if not exists payment_receipts_created_idx
   on public.payment_receipts (created_at desc);
 
--- The retention sweep reads saved rows by this pair, so it is indexed together.
-create index if not exists payment_receipts_saved_idx
-  on public.payment_receipts (status, saved_at);
+-- The retention sweep reads decided rows by this pair, so it is indexed
+-- together. The column this file uses is renamed by
+-- 20261029000500_receipt_states.sql, so the index is chosen from the columns
+-- that actually exist: an unguarded statement here aborts a re-run with
+-- `column "saved_at" does not exist`, which is the failure that leaves a
+-- project half-migrated.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'payment_receipts'
+      and column_name = 'saved_at'
+  ) then
+    create index if not exists payment_receipts_saved_idx
+      on public.payment_receipts (status, saved_at);
+  else
+    create index if not exists payment_receipts_decided_idx
+      on public.payment_receipts (status, decided_at);
+  end if;
+end
+$$;
 
 alter table public.payment_receipts enable row level security;
 
--- A buyer writes their own receipt, as a new one, and cannot mark it saved:
--- the status and the saving timestamp are the owner's judgement, not theirs.
-drop policy if exists payment_receipts_insert_own on public.payment_receipts;
-create policy payment_receipts_insert_own on public.payment_receipts
-  for insert to authenticated
-  with check (
-    owner = auth.uid()
-    and status = 'new'
-    and saved_at is null
-    and saved_by is null
-  );
+-- A buyer writes their own receipt, as an undecided one, and cannot record a
+-- decision: the status and the decision timestamp are the owner's judgement,
+-- not theirs.
+--
+-- Written through a guard because 20261029000500_receipt_states.sql renames
+-- `saved_at`/`saved_by` to `decided_at`/`decided_by`. A plain policy here would
+-- reference columns that no longer exist when this file is re-run against a
+-- database that has moved on, and Postgres refuses the whole file with
+-- `column saved_at does not exist` — which is exactly how a repair pass ends up
+-- stopping before `agent_runs`.
+do $$
+declare
+  has_old boolean;
+  has_new boolean;
+  guard text;
+begin
+  drop policy if exists payment_receipts_insert_own on public.payment_receipts;
+
+  select exists (
+           select 1 from information_schema.columns
+           where table_schema = 'public' and table_name = 'payment_receipts' and column_name = 'saved_at'
+         )
+         and exists (
+           select 1 from information_schema.columns
+           where table_schema = 'public' and table_name = 'payment_receipts' and column_name = 'saved_by'
+         )
+    into has_old;
+
+  select exists (
+           select 1 from information_schema.columns
+           where table_schema = 'public' and table_name = 'payment_receipts' and column_name = 'decided_at'
+         )
+         and exists (
+           select 1 from information_schema.columns
+           where table_schema = 'public' and table_name = 'payment_receipts' and column_name = 'decided_by'
+         )
+    into has_new;
+
+  if has_old then
+    guard := 'status = ''new'' and saved_at is null and saved_by is null';
+  elsif has_new then
+    guard := 'status = ''pending'' and decided_at is null and decided_by is null';
+  else
+    -- Neither pair is present, which only happens on a table this build does
+    -- not create. Leave the ownership rule alone rather than guess.
+    guard := 'status in (''new'', ''pending'')';
+  end if;
+
+  execute 'create policy payment_receipts_insert_own on public.payment_receipts'
+       || ' for insert to authenticated'
+       || ' with check (owner = auth.uid() and ' || guard || ')';
+end
+$$;
 
 drop policy if exists payment_receipts_select_own_or_admin on public.payment_receipts;
 create policy payment_receipts_select_own_or_admin on public.payment_receipts

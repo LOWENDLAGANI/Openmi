@@ -180,12 +180,38 @@ export interface CreateRunInput {
   state: AgentRunState;
 }
 
-/** Inserts a new run. False means the deployment or the database refused. */
-export async function createRun(input: CreateRunInput): Promise<boolean> {
+/**
+ * Why a run could not be stored.
+ *
+ * A boolean here was actively misleading: the route could only say "check the
+ * agent_runs migration" for every failure, including a deployment with no
+ * sealing key and a database that exists but refuses the insert. Those are
+ * three different problems with three different fixes, so the reason travels.
+ */
+export type CreateRunFailure = "unconfigured" | "no-key" | "missing-table" | "denied" | "failed";
+
+export type CreateRunResult =
+  | { ok: true }
+  | { ok: false; reason: CreateRunFailure; message: string };
+
+/** Inserts a new run, or says precisely why it could not. */
+export async function createRun(input: CreateRunInput): Promise<CreateRunResult> {
   const admin = supabaseAdmin();
-  if (!admin) return false;
+  if (!admin) {
+    return {
+      ok: false,
+      reason: "unconfigured",
+      message: "SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL is not set.",
+    };
+  }
   const sealed = sealRunState(input.state);
-  if (!sealed) return false;
+  if (!sealed) {
+    return {
+      ok: false,
+      reason: "no-key",
+      message: "GITHUB_TOKEN_KEY is not a 32-byte hex value, so the run's state cannot be sealed.",
+    };
+  }
   try {
     const { error } = await admin.from("agent_runs").insert({
       owner: input.owner,
@@ -199,9 +225,78 @@ export async function createRun(input: CreateRunInput): Promise<boolean> {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
-    return !error;
-  } catch {
-    return false;
+    if (!error) return { ok: true };
+
+    // PostgREST and Postgres name the two failures a migration fixes, and they
+    // deserve their own answers: a missing table is not a missing grant.
+    const code = typeof error.code === "string" ? error.code : "";
+    if (code === "42P01" || code === "PGRST205") {
+      return { ok: false, reason: "missing-table", message: error.message };
+    }
+    if (code === "42501") {
+      return { ok: false, reason: "denied", message: error.message };
+    }
+    return { ok: false, reason: "failed", message: (error.message || "The insert was refused.").slice(0, 300) };
+  } catch (cause) {
+    return {
+      ok: false,
+      reason: "failed",
+      message: cause instanceof Error ? cause.message.slice(0, 300) : "The insert was refused.",
+    };
+  }
+}
+
+/** What the browser is told for each way a run could not be recorded. */
+export interface RunStartFailure {
+  status: number;
+  error: string;
+  detail: string;
+}
+
+/**
+ * The sentence and status for a failed start.
+ *
+ * Pure and exported so the mapping is testable without a database, and so the
+ * route cannot quietly collapse the four fixable cases into one. Each one names
+ * the exact migration or variable an operator has to act on.
+ */
+export function runStartFailure(reason: CreateRunFailure): RunStartFailure {
+  switch (reason) {
+    case "missing-table":
+      return {
+        status: 503,
+        error:
+          "The `agent_runs` table is missing from this database, so a background run cannot be recorded. Apply `supabase/migrations/20261029000000_agent_runs.sql` and `20261029000100_agent_runs_health.sql` to the Supabase project, then try again. The agent still works inside this tab in the meantime.",
+        detail: "run-table-missing",
+      };
+    case "denied":
+      return {
+        status: 503,
+        error:
+          "The database refused to record this run: the service role has no insert grant on `agent_runs`. Apply the `agent_runs` migration so its grants match this build.",
+        detail: "run-denied",
+      };
+    case "no-key":
+      return {
+        status: 503,
+        error:
+          "This deployment cannot keep a run's credentials: `GITHUB_TOKEN_KEY` is missing or is not 32 bytes of hex. Set it and redeploy; the agent still works inside this tab in the meantime.",
+        detail: "run-no-key",
+      };
+    case "unconfigured":
+      return {
+        status: 503,
+        error:
+          "Background runs are not configured on this deployment. Add SUPABASE_SERVICE_ROLE_KEY, or keep the tab open — the agent still works while this page is.",
+        detail: "runs-unconfigured",
+      };
+    default:
+      return {
+        status: 502,
+        error:
+          "The run could not be recorded, so it was not started. Try again; if it keeps failing, check the `agent_runs` table and its grants in the Supabase project.",
+        detail: "run-not-stored",
+      };
   }
 }
 

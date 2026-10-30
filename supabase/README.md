@@ -53,13 +53,58 @@ privileged key it holds (`SUPABASE_SERVICE_ROLE_KEY`, read only by
 `lib/supabaseAdmin.ts`) is not a schema tool: a table it has no grant on is a
 table it cannot make.
 
+### When the folder and the project's history disagree
+
+`supabase db push` compares these files with the project's own
+`supabase_migrations.schema_migrations` table. Two different histories produce
+two different symptoms, and neither is fixed by deleting rows by hand:
+
+| Symptom | What it means |
+| --- | --- |
+| `Found local migration files to be inserted before the last migration on remote database` | the project has a version this folder does not, or a file was renamed after it was pushed |
+| a route answers `PGRST202` / `relation "…" does not exist` | a migration was never applied, so the build is newer than the schema |
+| starting a run answers `503 run-table-missing` | `20261029000000_agent_runs.sql` has not been applied |
+
+Use `supabase migration list` to see both sides, then `supabase migration
+repair` to record what is actually true — `applied` only for a version whose
+objects are really in the database, `reverted` only for one that never ran — and
+push again:
+
+```bash
+supabase migration list
+supabase migration repair --status applied 20261029000000
+supabase db push
+```
+
+Every file here is safe to run more than once. Policies are dropped before they
+are created, constraints are dropped or guarded by a catalog check, `alter
+table` adds use `if not exists`, and the column renames in
+`20261029000500_receipt_states.sql` check for the old name first. That makes the
+other honest repair — pasting `migrations/*.sql` in filename order, then
+`seed.sql`, into the SQL editor — produce the same schema without stopping at
+"already exists". `tests/migrations.test.ts` enforces those properties, so a new
+migration cannot quietly break the repair path.
+
+After either route, ask the database what is still missing:
+
+```sql
+select object_name, migration
+from public.openmi_schema_health()
+where not present
+order by migration;
+```
+
+An empty result is the finished state. A row naming `20261029000000_agent_runs`
+is exactly the one behind "This run could not be recorded".
+
 ## Enable background runs (optional)
 
 A repository turn normally stops when the tab that asked for it closes. With two
 extras it outlives the tab.
 
 1. **Apply `20261029000000_agent_runs.sql`.** Without the table, starting a run
-   answers 503 and names the migration; the in-tab step loop still works.
+   answers 503 with `detail: run-table-missing` and names the migration; the
+   in-tab step loop still works.
 2. **Set `SUPABASE_SERVICE_ROLE_KEY`** on the deployment. This is what
    `lib/supabaseAdmin.ts` reads, and the run routes are its only importer: a
    tick has no caller, so it cannot borrow a JWT. Unset means background runs

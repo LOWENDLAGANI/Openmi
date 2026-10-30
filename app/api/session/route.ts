@@ -202,6 +202,15 @@ export async function POST(req: NextRequest): Promise<Response> {
       { status: 503, headers: { "Cache-Control": "no-store" } }
     );
   }
+  // Paused chat refuses messages in /api/chat, so selling an hour here would
+  // take the Dew one step before the refusal — and the buyer would wait for an
+  // idle refund to get it back. Refuse before the money moves.
+  if (!config.chatEnabled) {
+    return Response.json(
+      { error: "Openmi is paused right now, so an hour cannot be started. Nothing was charged." },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
   const gate = identityGate(identity, config, config.dailyChatCap);
   if (!gate.allowed) {
     return Response.json(

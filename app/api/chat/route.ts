@@ -18,7 +18,6 @@ import {
   verifyCaller,
 } from "@/lib/serverControl";
 import { rateLimitMessage } from "@/lib/rateLimitPolicy";
-import { resolveDew } from "@/lib/serverRedeem";
 import { readUserKeys } from "@/lib/providerKeys";
 import {
   hourModelRefusal,
@@ -58,8 +57,6 @@ export const maxDuration = 120;
 interface ChatRequestBody {
   messages: ApiMessage[];
   mode?: string;
-  /** The chat this message belongs to, used only to match a live hour session. */
-  chatId?: string;
   searchMode?: SearchMode;
   reasoningEffort?: "low" | "medium" | "high";
   responseLength?: "short" | "balanced" | "detailed";
@@ -114,6 +111,16 @@ const MAX_CONTINUATION_ATTEMPTS = 2;
 const MAX_MESSAGES_IN_REQUEST = 120;
 const MAX_MESSAGE_CHARS = 32_000;
 const MAX_TOTAL_CHARS = 200_000;
+/**
+ * The most a request body may weigh before it is read at all.
+ *
+ * The character caps above only size text. An image arrives as a `data:` URL
+ * inside a part that is deliberately not counted, so without this a caller
+ * could post a multi-megabyte attachment addressed to a flat-priced hour. It is
+ * checked against `Content-Length` first, so the body is refused rather than
+ * buffered.
+ */
+const MAX_BODY_BYTES = 12_000_000;
 
 const CONTINUE_INSTRUCTION = [
   "Your previous answer was cut off mid-sentence because it reached the output limit.",
@@ -286,6 +293,14 @@ async function callProvider(
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return Response.json(
+      { error: "This message is too large to send. Attach a smaller image or shorten the text." },
+      { status: 413 }
+    );
+  }
+
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
@@ -371,7 +386,6 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const requested: ModeId =
     body.mode === "code" ? "code" : body.mode === "flash" ? "flash" : "auto";
-  const chatId = typeof body.chatId === "string" ? body.chatId.trim().slice(0, 200) : "";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
   // ── The hour ──────────────────────────────────────────────────────────────

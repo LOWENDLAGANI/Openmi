@@ -49,10 +49,16 @@ begin
 end;
 $$;
 
--- The signature changes, and `create or replace` cannot change one. The no-arg
--- function from 20261028000200_charge_dew.sql is dropped here; the price stays a
--- constant inside the body, exactly as before.
+-- The signature changes, and `create or replace` cannot change one, so the old
+-- function is dropped before the new one is created. Both signatures are named:
+-- the no-arg function from 20261028000200_charge_dew.sql, and this file's own
+-- two-argument form. `create function` below is not `create or replace`, so
+-- without the second drop a re-run of this file — or a run after
+-- 20261029000300_hour_refunds.sql has recreated the same signature — would stop
+-- at "function already exists" and take every later migration with it. The
+-- price stays a constant inside the body, exactly as before.
 drop function if exists public.start_hour_session();
+drop function if exists public.start_hour_session(text, text);
 
 create function public.start_hour_session(p_model text default 'auto', p_project_id text default null)
 returns jsonb
