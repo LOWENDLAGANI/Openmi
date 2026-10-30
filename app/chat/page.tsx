@@ -51,6 +51,7 @@ import {
 } from "@/lib/preferences";
 import { DEFAULT_MODE_ID, getMode, modeCapabilities, type ModeId } from "@/lib/models";
 import { readAgentStream } from "@/lib/agentStream";
+import { sanitizeError } from "@/lib/chatErrors";
 import { refreshDew, useDew } from "@/lib/useDew";
 import { DEW_PER_HOUR } from "@/lib/dew";
 // getMode is used for the assistant message engine label below.
@@ -961,38 +962,9 @@ export default function HomePage() {
     async (id: string, content: string): Promise<void> => patchMessage(id, { content }),
     [patchMessage]
   );
-  const sanitizeError = useCallback((error: unknown): string => {
-    if (typeof error === "string") {
-      const msg = error.trim();
-      if (!msg) return "Something went wrong. Please try again.";
-      // Make technical errors more user-friendly
-      if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
-        return "Connection issue. Please check your internet and try again.";
-      }
-      if (msg.toLowerCase().includes("timeout")) {
-        return "The request timed out. Please try again.";
-      }
-      if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("401")) {
-        return "Something went wrong with authentication. Please try signing in again.";
-      }
-      if (msg.toLowerCase().includes("rate limit")) {
-        return "Too many requests. Please wait a moment and try again.";
-      }
-      // If it's very technical/long, make it simpler
-      if (msg.length > 200 || msg.includes("{\"")) {
-        return "Something went wrong. Please try again.";
-      }
-      return msg;
-    }
-    if (error instanceof Error) {
-      return sanitizeError(error.message);
-    }
-    return "Something went wrong. Please try again.";
-  }, []);
-
   const markError = useCallback(
     async (id: string, error: string | unknown): Promise<void> => patchMessage(id, { error: sanitizeError(error) }),
-    [patchMessage, sanitizeError]
+    [patchMessage]
   );
   const writeUsage = useCallback(
     async (
