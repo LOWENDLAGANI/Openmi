@@ -48,10 +48,9 @@ when you say so**, on a branch of its own.
   enforces, with a breakdown and a fresh-chat offer past 90%.
 - **Rate limits you can see**: one policy table, one 429 shape carrying
   `Retry-After`, and a composer that counts the wait down instead of failing.
-- **One small ad above the composer** (optional): one AdSense banner, reserved
-  height, hidden without both public ids, switchable off from the console. It is
-  the only placement — no auto ads, no other network. `/privacy` says what it
-  collects.
+- **One small ad above the composer** (optional): one Adsterra banner, reserved
+  height, hidden without a tag, switchable off from the console. It is the only
+  placement — no auto ads, no second network. `/privacy` says what it collects.
 - **A sidebar that is part of the account.** Folders, the folder a chat is filed
   under, and the trash are read and written through the same session as the
   chats. A folder or a chat deleted here is soft-deleted in the database, so a
@@ -173,8 +172,7 @@ The important ones for **this build**:
 | `GEMINI_API_KEY` | Auto fallback (V3 → V2 → V1). |
 | `GROQ_API_KEY` | Groq — the Code mode model, and Auto's last-resort fallback. |
 | `DEEPSEEK_API_KEY` | DeepSeek — the DeepSeek V4.1 Flash mode, and nothing else. |
-| `NEXT_PUBLIC_ADSENSE_CLIENT_ID` | Public AdSense publisher id (`ca-pub-…`). Absent means no banner and no gap. |
-| `NEXT_PUBLIC_ADSENSE_SLOT_ID` | Public ad-unit slot id. Both ids are required for the unit to render. |
+| `NEXT_PUBLIC_ADSTERRA_BANNER_SRC` | Public Adsterra banner tag (`…/invoke.js`). Its zone key is read from the URL, and its host is the only third-party script the CSP allows. Absent means no banner and no gap. |
 | `TAVILY_API_KEY` | Web search and source links. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Project Settings → API). |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The anon public key. Public by design: it identifies the project, and RLS protects the rows. Both the browser and the server routes use it, always with the caller's own JWT. |

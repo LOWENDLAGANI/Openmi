@@ -3,9 +3,9 @@ import Link from "next/link";
 import MaintenanceGate from "@/components/MaintenanceGate";
 
 // ── Privacy ──────────────────────────────────────────────────────────────────
-// A plain, factual page. Two reasons it exists and is public: AdSense requires
-// one, and a product that stores conversations and shows ads owes the reader an
-// account of both. No marketing copy, no promises the code does not keep.
+// A plain, factual page. Two reasons it exists and is public: the ad network
+// requires one, and a product that stores conversations and shows ads owes the
+// reader an account of both. No marketing copy, no promises the code does not keep.
 //
 // Every statement below is a description of something the app actually does:
 // the tables named in §3 and §8 are the ones in supabase/migrations, the
@@ -31,7 +31,7 @@ const CONTACT_EMAIL = "";
 export const metadata = {
   title: "Privacy — Openmi",
   description:
-    "What Openmi stores, what it sends to a model provider, what Google collects for advertising, how long each thing is kept, and how to delete it.",
+    "What Openmi stores, what it sends to a model provider, what the ad network collects, how long each thing is kept, and how to delete it.",
 };
 
 const EFFECTIVE = "28 October 2026";
@@ -170,7 +170,7 @@ export default function PrivacyPage() {
             </h1>
             <p className="mt-3 text-[13px] leading-relaxed text-text-mid">
               What this deployment stores, where it is stored, what it sends to a model provider,
-              what Google collects to show an ad, and how to get rid of it. Written to describe the
+              what Adsterra collects to show an ad, and how to get rid of it. Written to describe the
               code rather than to promise more than it does.
             </p>
             <p className="mt-3 font-mono text-[10.5px] uppercase tracking-[0.1em] text-text-low">
@@ -240,7 +240,7 @@ export default function PrivacyPage() {
                   </>,
                   "Your messages are sent to the AI model provider serving the model you chose, so it can answer.",
                   "If you connect GitHub, an access token is stored encrypted and is never shown back to your browser. The agent can read repositories and propose changes; nothing is written to GitHub unless you approve it.",
-                  "One small Google AdSense banner appears above the chat composer, except on the sign-in screen, in temporary chats and on the Focus home. It uses cookies or device identifiers.",
+                  "One small Adsterra banner appears above the chat composer, except on the sign-in screen, in temporary chats and on the Focus home. It uses cookies or device identifiers.",
                   "We do not sell your data. There is no analytics product and no advertising identifier of our own in this app.",
                   "You can export a backup, erase your synced data, revoke share links, disconnect GitHub and remove stored API keys at any time.",
                 ]}
@@ -334,15 +334,15 @@ export default function PrivacyPage() {
 
               <SubHeading>Advertising</SubHeading>
               <p>
-                One network serves this deployment. The banner above the composer is{" "}
-                <span className="text-text-hi">Google AdSense</span>; Google and its partners may
-                collect cookies, device identifiers, IP address, approximate location and ad
-                interaction data under{" "}
-                <Outbound href="https://policies.google.com/technologies/partner-sites">
-                  Google’s partner-sites policy
+                The banner above the composer is served by{" "}
+                <span className="text-text-hi">Adsterra</span>; Adsterra and its partners may
+                collect cookies, device identifiers, IP address, approximate location and
+                ad-interaction data under{" "}
+                <Outbound href="https://adsterra.com/privacy-policy/">
+                  Adsterra’s privacy policy
                 </Outbound>
-                . We do not receive your conversation, and we do not pass conversation content
-                to Google for advertising.
+                . We do not receive your conversation, and we do not pass conversation content to
+                Adsterra for advertising.
               </p>
 
               <SubHeading>Error reports, only if configured</SubHeading>
@@ -395,8 +395,8 @@ export default function PrivacyPage() {
                   ],
                   [
                     "Show one advertisement",
-                    "Ad slot; Google’s own identifiers",
-                    "Legitimate interests, with an opt-out at Google (§8)",
+                    "Ad slot; Adsterra’s own identifiers",
+                    "Legitimate interests, with opt-out controls in Adsterra’s policy (§8)",
                   ],
                   ["Diagnose crashes", "Error and stack trace, stripped of content", "Legitimate interests (reliability)"],
                   ["Meet legal obligations and respond to lawful requests", "As required", "Legal obligation"],
@@ -429,8 +429,8 @@ export default function PrivacyPage() {
                   ],
                   ["Tavily", "The text of a web search query, when search is used", "Retrieving search results"],
                   [
-                    "Google AdSense",
-                    "Standard ad-request data: page URL, device and cookie identifiers, IP address",
+                    "Adsterra",
+                    "Standard ad-request data: page URL, IP address, device and cookie identifiers, ad interactions",
                     "The ad slot",
                   ],
                   [
@@ -481,7 +481,7 @@ export default function PrivacyPage() {
                     artwork only; the document and its scripts are always fetched fresh.
                   </>,
                   <>
-                    <span className="text-text-hi">Google AdSense cookies</span>, when the banner
+                    <span className="text-text-hi">Adsterra cookies</span>, when the banner
                     renders.
                   </>,
                 ]}
@@ -496,22 +496,19 @@ export default function PrivacyPage() {
               <Bullets
                 items={[
                   <>
-                    <span className="text-text-hi">Personalized ads:</span> turn them off at{" "}
-                    <Outbound href="https://adssettings.google.com">Google Ad Settings</Outbound>.
-                  </>,
-                  <>
-                    <span className="text-text-hi">How Google uses site data:</span>{" "}
-                    <Outbound href="https://policies.google.com/technologies/partner-sites">
-                      policies.google.com/technologies/partner-sites
+                    <span className="text-text-hi">The network:</span> the banner is served by
+                    Adsterra, and its cookies and the data its partners collect are covered by{" "}
+                    <Outbound href="https://adsterra.com/privacy-policy/">
+                      Adsterra’s privacy policy
                     </Outbound>
                     .
                   </>,
                   <>
                     <span className="text-text-hi">Regional consent:</span> this deployment does
                     not yet present a consent message for the EEA, the UK or Switzerland, so in
-                    those regions an ad may be requested without a consent prompt. The Google Ad
-                    Settings link above is the control available today, and the operator can switch
-                    the ad slot off for the whole deployment.
+                    those regions an ad may be requested without a consent prompt. Adsterra’s
+                    privacy policy is the control available today, and the operator can switch the
+                    ad slot off for the whole deployment.
                   </>,
                   <>
                     <span className="text-text-hi">No ad</span> is requested on the sign-in screen,

@@ -19,10 +19,10 @@ Last updated: 2026-10-31.
 | 2 | Vercel → Settings → Environment Variables | **`NEXT_PUBLIC_SITE_URL`** on Production *and* Preview | **Yes** |
 | 3 | Supabase → Authentication → URL Configuration | Site URL + Redirect URLs (app origin, `/auth/reset-password`, localhost) | No |
 | 4 | GitHub → OAuth App | Authorization callback URL `https://openmi.space/api/github/oauth/callback` | No |
-| 5 | Google Search Console, AdSense, email, push | Verify the new property, re-review ads, sender/subject, re-subscribe | No |
+| 5 | Google Search Console, ads, email, push | Verify the new property, update the ad zone if it is domain-scoped, sender/subject, re-subscribe | No |
 | 6 | Code | Done: the OpenRouter `HTTP-Referer` values, `sitemap.xml`, `robots.txt` and `.env.example` read `NEXT_PUBLIC_SITE_URL` and fall back to `https://openmi.space` | **Yes** (same deploy as #2) |
 
-Everything else — Supabase URL and keys, model keys, AdSense ids, Sentry,
+Everything else — Supabase URL and keys, model keys, the Adsterra tag, Sentry,
 Upstash, Tavily, VAPID keys — is origin-independent and stays as it is.
 
 ## 1. Decide the canonical host before touching anything
@@ -128,10 +128,9 @@ valid: they are sealed with `GITHUB_TOKEN_KEY`, not tied to a hostname.
   existing `public/google15b7f2c7296d7959.html` is a path on any origin, so it
   keeps working), then submit `https://openmi.space/sitemap.xml`. Keep the old
   property and its 301 in place; rankings follow a permanent redirect, slowly.
-- **AdSense** — add the new domain as a site in AdSense and expect a fresh
-  review. `/ads.txt` is generated from `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, so it is
-  already correct after the redeploy. The publisher and slot ids do not change.
-  Ads on the old origin keep serving until it is redirected.
+- **Ads** — the Adsterra tag itself is not tied to the origin. If the zone is
+  restricted to a domain, add `openmi.space` in the Adsterra dashboard; the
+  banner keeps serving on the old origin until it is redirected.
 - **Email (Supabase Auth SMTP)** — if you send auth mail from an address on the
   old domain, add the new one to the provider's verified senders. Resetting a
   password from the new origin still needs `/auth/reset-password` in the redirect
@@ -171,7 +170,6 @@ Run against the new origin after the redeploy:
 curl -sI https://openmi.space/ | grep -i 'strict-transport\|content-security'
 curl -s  https://openmi.space/robots.txt | grep -i sitemap
 curl -s  https://openmi.space/sitemap.xml | head -5
-curl -s  https://openmi.space/ads.txt | head -3
 curl -s  https://openmi.space/manifest.webmanifest | head -5
 curl -sI https://<old-origin>/ | head -3        # expect 308 to the new host
 ```
@@ -203,7 +201,7 @@ old entries, which is why step 4 says to add rather than replace first.
 ## What does not change
 
 - Supabase project URL, anon key, service role key, migrations, every row
-- Model provider keys, Tavily, Upstash, Sentry, AdSense publisher/slot ids
+- Model provider keys, Tavily, Upstash, Sentry, the Adsterra banner tag
 - `GITHUB_TOKEN_KEY`, `AGENT_TURN_SECRET`, `AGENT_SWEEP_SECRET`, VAPID keys
 - The Vercel deployment itself, its build settings and its `*.vercel.app` URL
 - The CSP in [next.config.mjs](next.config.mjs): it names `'self'` and third

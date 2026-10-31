@@ -1,11 +1,11 @@
 // ── Openmi — tests for the ad slot ───────────────────────────────────────────
 //
 // An ad unit is easy to get subtly wrong in ways nobody notices until a
-// reviewer does: a slot that renders before its ids exist (an empty box), a
-// banner that pushes the composer down when it finally loads, a script tag that
-// loads twice, a CSP widened to `*` "just to make the ad work". Each of those is
-// pinned here, including the one that matters most — the policy stays a list of
-// named hosts.
+// reviewer does: a slot that renders without a tag (an empty box), a banner
+// that pushes the composer down when it finally loads, a script injected twice,
+// a CSP widened to `*` "just to make the ad work". Each of those is pinned
+// here, including the one that matters most — the policy stays a list of named
+// hosts.
 //
 //   bun run test
 
@@ -16,10 +16,12 @@ import {
   AD_HEIGHT_DESKTOP,
   AD_HEIGHT_MOBILE,
   AD_MAX_WIDTH,
-  adsTxt,
-  adsenseClientId,
-  adsenseConfigured,
-  adsenseSlotId,
+  ADSTERRA_BANNER_HEIGHT,
+  ADSTERRA_BANNER_WIDTH,
+  adsterraBannerConfigured,
+  adsterraBannerKey,
+  adsterraBannerOrigin,
+  adsterraBannerSrc,
 } from "../lib/ads";
 
 let failures = 0;
@@ -42,41 +44,54 @@ function read(file: string): string {
 }
 
 async function main(): Promise<void> {
-  console.log("\nids");
+  console.log("\nthe tag");
 
-  await test("a real publisher id is accepted, a near miss is not", () => {
-    assert.equal(adsenseClientId("ca-pub-1234567890123456"), "ca-pub-1234567890123456");
-    for (const value of ["", "   ", "pub-1234567890123456", "ca-pub-abc", "ca-pub-123", undefined]) {
-      assert.equal(adsenseClientId(value), null, `"${value}" must not count as a publisher id`);
-    }
-  });
-
-  await test("a slot id is digits only", () => {
-    assert.equal(adsenseSlotId("1234567890"), "1234567890");
-    for (const value of ["", "slot-1", "12", undefined]) {
-      assert.equal(adsenseSlotId(value), null);
-    }
-  });
-
-  await test("both ids are required before anything renders", () => {
-    assert.equal(adsenseConfigured("ca-pub-1234567890123456", "1234567890"), true);
-    assert.equal(adsenseConfigured("ca-pub-1234567890123456", ""), false);
-    assert.equal(adsenseConfigured("", "1234567890"), false);
-    assert.equal(adsenseConfigured(undefined, undefined), false);
-  });
-
-  console.log("\nads.txt");
-
-  await test("ads.txt is derived from the publisher id", () => {
+  await test("the tag URL must be a real script carrying a zone key", () => {
+    const src = "//www.highperformanceformat.com/3306d19d042fdaa38a6dfac27962817e/invoke.js";
     assert.equal(
-      adsTxt("ca-pub-1234567890123456"),
-      "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n"
+      adsterraBannerSrc(src),
+      "https://www.highperformanceformat.com/3306d19d042fdaa38a6dfac27962817e/invoke.js"
     );
+    for (const bad of [
+      "",
+      "   ",
+      "3306d19d042fdaa38a6dfac27962817e",
+      "https://example.com/tag.html",
+      "javascript:alert(1)",
+      "https://www.highperformanceformat.com/invoke.js",
+      undefined,
+    ]) {
+      assert.equal(adsterraBannerSrc(bad), null, `"${bad}" must not be loaded as a script`);
+    }
   });
 
-  await test("no publisher id means no ads.txt, not an empty one", () => {
-    assert.equal(adsTxt(null), null);
-    assert.equal(adsTxt("ca-pub-nope"), null);
+  await test("the zone key comes from the tag itself, not a second variable", () => {
+    assert.equal(adsterraBannerKey("https://host.test/abc12345/invoke.js"), "abc12345");
+    assert.equal(adsterraBannerKey("https://host.test/invoke.js"), null, "no key segment means no tag");
+    assert.equal(adsterraBannerKey("nonsense"), null);
+    assert.equal(adsterraBannerKey(null), null);
+  });
+
+  await test("the origin is what the policy allows", () => {
+    assert.equal(
+      adsterraBannerOrigin("https://pl9.highperformanceformat.com/a/b/invoke.js"),
+      "https://pl9.highperformanceformat.com"
+    );
+    assert.equal(adsterraBannerOrigin(null), null);
+  });
+
+  await test("no tag means no banner", () => {
+    assert.equal(adsterraBannerConfigured(""), false);
+    assert.equal(adsterraBannerConfigured(undefined), false);
+    assert.equal(adsterraBannerConfigured("//host.test/abc12345/invoke.js"), true);
+    assert.equal(adsterraBannerConfigured("//host.test/abc12345/invoke.js?x=1"), true);
+  });
+
+  await test("the banner fits the reserved slot", () => {
+    assert.equal(ADSTERRA_BANNER_WIDTH, 320);
+    assert.equal(ADSTERRA_BANNER_HEIGHT, 50);
+    // A taller unit would be clipped by the box the composer is laid out around.
+    assert.ok(ADSTERRA_BANNER_HEIGHT <= AD_HEIGHT_MOBILE, "the banner must not outgrow the slot");
   });
 
   console.log("\nthe slot");
@@ -93,31 +108,21 @@ async function main(): Promise<void> {
     assert.match(banner, /min-width: 768px/);
   });
 
-  await test("nothing renders without ids or with the kill switch off", () => {
+  await test("nothing renders without a tag or with the kill switch off", () => {
     const banner = read("components/AdBanner.tsx");
-    assert.match(banner, /const ready = enabled && Boolean\(client\) && Boolean\(slot\)/);
+    assert.match(banner, /const ready = enabled && Boolean\(src\) && Boolean\(key\)/);
     assert.match(banner, /if \(!ready\) return null;/);
   });
 
-  await test("exactly one push per mount", () => {
+  await test("the tag loads once, inside the reserved box", () => {
     const banner = read("components/AdBanner.tsx");
-    assert.match(banner, /const pushed = useRef\(false\)/);
-    assert.match(banner, /if \(!ready \|\| pushed\.current\) return;/);
-    assert.match(banner, /pushed\.current = true/);
-    assert.equal(banner.match(/adsbygoogle\.push/g)?.length, 1, "a second push would double-count");
-  });
-
-  await test("the loader is lazy, same-origin-checked and not auto ads", () => {
-    const banner = read("components/AdBanner.tsx");
-    assert.match(banner, /strategy="afterInteractive"/);
-    assert.match(banner, /data-ad-format="horizontal"/);
-    assert.equal(banner.match(/data-ad-client=/g)?.length, 1, "one unit, one client id");
-    assert.match(banner, /\$\{ADSENSE_SCRIPT\}\?client=/, "the loader URL comes from the one constant");
-    assert.equal(
-      banner.match(/googlesyndication\.com\/pagead/g)?.length ?? 0,
-      0,
-      "the URL must not be hard-coded twice"
-    );
+    assert.match(banner, /holder\.current/);
+    assert.match(banner, /node\.dataset\.loaded === "true"/, "a remount must not request a second banner");
+    assert.match(banner, /win\.atOptions = \{/);
+    assert.match(banner, /format: "iframe"/);
+    assert.match(banner, /document\.createElement\("script"\)/);
+    assert.equal(banner.match(/createElement\("script"\)/g)?.length, 1, "one injected tag, not two");
+    assert.match(banner, /data-adsterra-banner="true"/);
   });
 
   await test("the ad is kept off the screens it does not belong on", () => {
@@ -137,32 +142,44 @@ async function main(): Promise<void> {
     assert.match(read("components/AdminControls.tsx"), /label="Ads"/);
   });
 
-  console.log("\nno second network");
+  console.log("\none network only");
 
-  await test("the popunder is gone from every surface", () => {
+  await test("no second ad network survives anywhere", () => {
     // Removing a network is only done when nothing can re-introduce it: a
-    // leftover env var, CSP entry or component import would bring the script
-    // back the next time someone pastes a tag URL into the dashboard.
+    // leftover env var, CSP entry, route or component import would bring it
+    // back the next time someone pastes a tag into the dashboard.
     for (const file of [
       ".env.example",
       "lib/ads.ts",
+      "components/AdBanner.tsx",
       "app/chat/page.tsx",
       "next.config.mjs",
       "app/privacy/page.tsx",
       "README.md",
+      "docs/DOMAIN_MIGRATION.md",
     ]) {
-      assert.doesNotMatch(read(file), /adsterra|popunder/i, `${file} still names the popunder`);
+      assert.doesNotMatch(
+        read(file),
+        /adsense|googlesyndication|googlesyndication|doubleclick|googleadservices|adssettings/i,
+        `${file} still names the removed network`
+      );
+      assert.doesNotMatch(read(file), /popunder/i, `${file} still names the removed popunder`);
     }
-    for (const file of [
-      "components/AdPopunder.tsx",
-    ]) {
-      assert.throws(() => read(file), `${file} must be deleted, not left dead in the tree`);
-    }
+    assert.throws(() => read("components/AdPopunder.tsx"), "the popunder component must stay deleted");
+    assert.throws(() => read("app/ads.txt/route.ts"), "the ads.txt route was AdSense's; it must be gone");
   });
 
   console.log("\nthe policy");
 
-  await test("the CSP names AdSense's hosts and nothing wilder", async () => {
+  await test("the CSP derives the one ad origin rather than wildcarding", () => {
+    const config = read("next.config.mjs");
+    assert.match(config, /NEXT_PUBLIC_ADSTERRA_BANNER_SRC/);
+    assert.match(config, /const adScripts = bannerOrigin \? \[bannerOrigin\] : \[\]/);
+    assert.match(config, /const adFrames = bannerOrigin \? \[bannerOrigin\] : \[\]/);
+    assert.match(config, /frame-src[^\n]*\$\{adFrames\.join/);
+  });
+
+  await test("the CSP wildcards nothing but the Supabase project", async () => {
     const { default: config } = await import("../next.config.mjs");
     const headers = await config.headers();
     const firstRow = headers[0];
@@ -177,61 +194,29 @@ async function main(): Promise<void> {
       // realtime all live under it. Moving a project must not break the app.
       "https://*.supabase.co",
       "wss://*.supabase.co",
-      // AdSense's own hosts, named per directive.
-      "https://*.googlesyndication.com",
-      "https://*.googleadservices.com",
-      "https://*.doubleclick.net",
     ]);
 
     for (const directive of policy.split(";")) {
       for (const source of directive.trim().split(/\s+/).slice(1)) {
         if (!source.includes("*")) continue;
-        assert.ok(allowedWildcards.has(source), `the CSP wildcards "${source}", which is not one of the named hosts`);
+        assert.ok(allowedWildcards.has(source), `the CSP wildcards "${source}", which is not a Supabase host`);
       }
     }
-  });
 
-  await test("each AdSense capability is present where the ad needs it", async () => {
-    const { default: config } = await import("../next.config.mjs");
-    const headers = await config.headers();
-    const row = headers[0];
-    assert.ok(row, "the app must send headers");
-    const policy: string =
-      row.headers.find((header: { key: string }) => header.key === "Content-Security-Policy")?.value ?? "";
-    assert.ok(policy.length > 0, "the app must send a CSP at all");
-    const directive = (name: string) =>
-      policy
-        .split(";")
-        .map((part) => part.trim())
-        .find((part) => part.startsWith(`${name} `)) ?? "";
-
-    for (const host of ["https://pagead2.googlesyndication.com", "https://*.googleadservices.com"]) {
-      assert.ok(directive("script-src").includes(host), `script-src is missing ${host}`);
-      assert.ok(directive("connect-src").includes(host), `connect-src is missing ${host}`);
-    }
-    for (const host of ["https://googleads.g.doubleclick.net", "https://tpc.googlesyndication.com"]) {
-      assert.ok(directive("frame-src").includes(host), `frame-src is missing ${host}`);
-    }
-    for (const host of ["https://*.doubleclick.net"]) {
-      assert.ok(directive("img-src").includes(host), `img-src is missing ${host}`);
+    for (const host of ["googlesyndication", "doubleclick", "googleadservices", "adservice.google.com"]) {
+      assert.ok(!policy.includes(host), `the policy still allows ${host}, which no code loads`);
     }
   });
 
   console.log("\npublic surface");
 
-  await test("there is a privacy page that names the ad settings and deletion", () => {
+  await test("the privacy page names the network and the ad controls", () => {
     const page = read("app/privacy/page.tsx");
-    assert.match(page, /AdSense/);
-    assert.match(page, /adssettings\.google\.com/);
+    assert.match(page, /Adsterra/);
+    assert.match(page, /adsterra\.com\/privacy-policy/);
     assert.match(page, /Your rights and controls/);
     assert.match(page, /Settings → Your data/);
     assert.match(page, /export const metadata/);
-  });
-
-  await test("ads.txt answers 404 when the deployment has no publisher", () => {
-    const route = read("app/ads.txt/route.ts");
-    assert.match(route, /status: 404/);
-    assert.match(route, /text\/plain/);
   });
 
   console.log(
