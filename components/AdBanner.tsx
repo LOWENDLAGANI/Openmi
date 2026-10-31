@@ -15,9 +15,11 @@ import {
 // One tag, one reserved height, one network. The rules that keep it from being
 // a nuisance are deliberate and belong next to the code that implements them:
 //
-//   • Nothing renders without a valid tag, so an unconfigured deployment shows
-//     no gap rather than an empty box.
-//   • The administrator's `adsEnabled` flag switches it off without a deploy.
+//   • The reserved box is always laid out while ads are enabled, filled or not:
+//     a labelled placeholder shows the space the ad occupies, so a deployment
+//     with no tag looks deliberate instead of broken, and adding a tag later
+//     cannot move the composer.
+//   • The administrator's `adsEnabled` flag removes the box without a deploy.
 //   • The height is reserved before the ad arrives. A late banner that shoves
 //     the composer down is worse than no banner, so the box is the same size
 //     whether the network fills it or not.
@@ -62,7 +64,10 @@ export default function AdBanner({ enabled = true }: AdBannerProps) {
     node.appendChild(script);
   }, [ready, src, key]);
 
-  if (!ready) return null;
+  // The kill switch removes the furniture; a missing tag does not, because the
+  // space is reserved either way and hiding it would move the composer the day
+  // a tag is finally configured.
+  if (!enabled) return null;
 
   return (
     <>
@@ -78,11 +83,22 @@ export default function AdBanner({ enabled = true }: AdBannerProps) {
           <span className="pointer-events-none absolute left-1 top-0.5 z-10 rounded bg-black/30 px-1 py-px font-mono text-[8px] uppercase leading-normal tracking-[0.1em] text-white/35">
             Ad
           </span>
-          <div
-            ref={holder}
-            className="flex h-full w-full items-center justify-center"
-            data-adsterra-banner="true"
-          />
+          {ready ? (
+            <div
+              ref={holder}
+              className="flex h-full w-full items-center justify-center"
+              data-adsterra-banner="true"
+            />
+          ) : (
+            <div
+              className="flex h-full w-full items-center justify-center"
+              data-ad-placeholder="true"
+            >
+              <span className="font-mono text-[9px] uppercase leading-none tracking-[0.14em] text-white/25">
+                Ad space · {ADSTERRA_BANNER_WIDTH} × {ADSTERRA_BANNER_HEIGHT}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </>

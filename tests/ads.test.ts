@@ -108,14 +108,25 @@ async function main(): Promise<void> {
     assert.match(banner, /min-width: 768px/);
   });
 
-  await test("nothing renders without a tag or with the kill switch off", () => {
+  await test("the kill switch removes the furniture, a missing tag does not", () => {
     const banner = read("components/AdBanner.tsx");
     assert.match(banner, /const ready = enabled && Boolean\(src\) && Boolean\(key\)/);
-    assert.match(banner, /if \(!ready\) return null;/);
+    assert.match(banner, /if \(!enabled\) return null;/, "only the admin switch may remove the box");
+    assert.doesNotMatch(banner, /if \(!ready\) return null;/, "an unconfigured slot must stay visible");
+  });
+
+  await test("the empty slot says what it is and how big it is", () => {
+    const banner = read("components/AdBanner.tsx");
+    assert.match(banner, /data-ad-placeholder="true"/);
+    assert.match(banner, /Ad space · \{ADSTERRA_BANNER_WIDTH\} × \{ADSTERRA_BANNER_HEIGHT\}/);
+    // One box, one height: the placeholder sits inside the same reserved slot
+    // as a filled banner, so the composer never moves when a tag is added.
+    assert.match(banner, /style=\{\{ height: AD_HEIGHT_MOBILE \}\}/);
   });
 
   await test("the tag loads once, inside the reserved box", () => {
     const banner = read("components/AdBanner.tsx");
+    assert.match(banner, /\{ready \? \(/, "the holder exists only when there is a tag to load");
     assert.match(banner, /holder\.current/);
     assert.match(banner, /node\.dataset\.loaded === "true"/, "a remount must not request a second banner");
     assert.match(banner, /win\.atOptions = \{/);

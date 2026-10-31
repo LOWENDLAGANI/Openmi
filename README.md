@@ -48,8 +48,10 @@ when you say so**, on a branch of its own.
   enforces, with a breakdown and a fresh-chat offer past 90%.
 - **Rate limits you can see**: one policy table, one 429 shape carrying
   `Retry-After`, and a composer that counts the wait down instead of failing.
-- **One small ad above the composer** (optional): one Adsterra banner, reserved
-  height, hidden without a tag, switchable off from the console. It is the only
+- **One small ad above the composer** (optional): one Adsterra banner in a
+  reserved 50 px slot (60 px on desktop, 728 px wide at most). Without a tag the
+  slot stays visible as a labelled, empty `320 × 50` placeholder rather than
+  disappearing; the console switch removes it entirely. It is the only
   placement — no auto ads, no second network. `/privacy` says what it collects.
 - **A sidebar that is part of the account.** Folders, the folder a chat is filed
   under, and the trash are read and written through the same session as the
