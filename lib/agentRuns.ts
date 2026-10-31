@@ -350,6 +350,13 @@ export async function readRun(id: string): Promise<AgentRunRecord | null> {
  *
  * Kept for the reconnect path: opening the chat after a reload should attach to
  * the turn that is already going rather than start a second one.
+ *
+ * "Live" has to mean *beating*, not merely `status = 'running'`. A run whose
+ * chain died keeps that status for ever, and attaching to it made every later
+ * send wait on a row nothing would ever advance: the tab polled a corpse and
+ * showed "Computing…" until its own stall bound. The heartbeat is what tells a
+ * turn in flight from one that stopped in flight, and only the former is worth
+ * joining.
  */
 export async function activeRunFor(
   authorization: string | null,
@@ -359,6 +366,7 @@ export async function activeRunFor(
   const token = authorization?.replace(/^Bearer\s+/i, "").trim() ?? "";
   const client = token ? clientForToken(token) : null;
   if (!client || !uid || !projectId) return null;
+  const beatingSince = new Date(Date.now() - RUN_LIVE_MS).toISOString();
   try {
     const { data, error } = await client
       .from("agent_runs")
@@ -368,6 +376,7 @@ export async function activeRunFor(
       .eq("owner", uid)
       .eq("project_id", projectId)
       .eq("status", "running")
+      .gte("heartbeat_at", beatingSince)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -569,6 +578,17 @@ export async function listStaleRuns(staleAfterMs: number, limit = 5): Promise<Ag
 
 /** How long a live tick may be silent before the sweep calls it dead. */
 export const RUN_STALE_MS = 90_000;
+
+/**
+ * How fresh a heartbeat must be for a `running` row to count as live.
+ *
+ * Longer than one tick's own budget (120s), because a single step updates the
+ * heartbeat when it is claimed and again when it is saved — so the silence in
+ * between is a model and a GitHub request, not a dead chain. Using the sweep's
+ * shorter 90s here would let a second send start a second run on top of a step
+ * that is still working, which is two budgets for one question.
+ */
+export const RUN_LIVE_MS = 180_000;
 /** The most a run may be resumed after a dropped chain before it is failed. */
 export const RUN_MAX_ATTEMPTS = 40;
 

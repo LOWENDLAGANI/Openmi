@@ -130,6 +130,22 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 const RUN_STALL_MS = 240_000;
 /** Consecutive unreadable progress polls before the wait is treated as broken. */
 const RUN_POLL_FAILURES = 25;
+/** How long one progress read may take to answer.
+    Without a deadline a socket that is never answered is a request that never
+    fails, and the stall bound above is never reached: the loop simply stops
+    inside the await while the spinner stays where it was. This is far longer
+    than a database round trip and far shorter than RUN_STALL_MS. */
+const RUN_POLL_TIMEOUT_MS = 20_000;
+
+/** `signal`, aborted when it is or when the poll deadline passes. */
+function pollDeadline(signal: AbortSignal): AbortSignal {
+  const timeout = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(RUN_POLL_TIMEOUT_MS) : null;
+  const anyOf = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  if (timeout && typeof anyOf === "function") return anyOf([signal, timeout]);
+  // Older engines: the deadline alone still bounds the wait, at the cost of a
+  // Stop that lands during a read being noticed on the next turn of the loop.
+  return timeout ?? signal;
+}
 
 /** The chat id used for in-memory draft messages that are not kept locally.
     It exists only so the send path has one variable to address either kind of
@@ -1616,18 +1632,27 @@ export default function HomePage() {
         let lastProgressAt = Date.now();
         let failedPolls = 0;
         while (!controller.signal.aborted) {
-          const poll = await fetch(`/api/agent/runs/${runId}`, {
-            headers: { ...(await authHeader()) },
-            cache: "no-store",
-            signal: controller.signal,
-          });
+          // A read that hangs must count as a read that failed: the run is still
+          // on the server either way, and only the second one ends the wait.
+          let poll: Response | null = null;
+          try {
+            poll = await fetch(`/api/agent/runs/${runId}`, {
+              headers: { ...(await authHeader()) },
+              cache: "no-store",
+              signal: pollDeadline(controller.signal),
+            });
+          } catch (error) {
+            // A Stop is a decision, not a bad connection: let it end the loop.
+            if (controller.signal.aborted) throw error;
+            poll = null;
+          }
 
-          if (poll.status === 404) {
+          if (poll?.status === 404) {
             await markError(assistantId, "This run is no longer available. Ask again.");
             return;
           }
 
-          if (poll.ok) {
+          if (poll?.ok) {
             failedPolls = 0;
             const { run } = (await poll.json().catch(() => ({}))) as { run?: AgentRunPayload };
             if (run) {
@@ -1679,7 +1704,7 @@ export default function HomePage() {
           // failing, is a different thing, and it is ended rather than waited on.
           // Ending it matters: a run left `running` is what the next send would
           // attach to, so leaving it would trap the retry in the same wait.
-          if (!poll.ok) failedPolls += 1;
+          if (!poll?.ok) failedPolls += 1;
           const stalled =
             failedPolls >= RUN_POLL_FAILURES || Date.now() - lastProgressAt > RUN_STALL_MS;
           if (stalled) {

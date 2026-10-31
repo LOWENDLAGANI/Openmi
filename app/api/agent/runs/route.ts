@@ -212,6 +212,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     void fire();
   }
 
+  // One line per start, so a log can be read as a chain: this one, then any
+  // hand-off warning from `dispatchTick`, then whatever the tick says. Without
+  // it the only visible event is the request that created the row.
+  console.log(`[agent-run] ${id} started; first tick dispatched to ${tickOrigin}`);
+
   return Response.json({ run: { id, status: "running" } }, { status: 201 });
 }
 

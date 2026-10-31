@@ -79,7 +79,25 @@ export function dispatchTick(origin: string, token: string): Promise<unknown> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
     cache: "no-store",
-  }).catch(() => undefined);
+  })
+    .then((response) => {
+      // The hand-off is the one request nobody awaits. A rejected or redirected
+      // one therefore has no caller to report to — the run just stops, and the
+      // person watches a spinner. Say it here instead: the origin and the status
+      // are enough to tell a dead chain from a slow step, and the token is never
+      // logged. A 405 is the signature of a redirect to a host that only serves
+      // GET, and a 504 is the tick outliving its own budget.
+      if (!response.ok) {
+        console.warn(`[agent-tick] hand-off to ${origin} answered HTTP ${response.status}`);
+      }
+      return response;
+    })
+    .catch((error: unknown) => {
+      console.warn(
+        `[agent-tick] hand-off to ${origin} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return undefined;
+    });
 }
 
 /** Null for a forged, truncated, expired or foreign token — never a partial claim. */
