@@ -261,8 +261,11 @@ Goal: a fresh deployment can turn both features on from the docs alone.
   `provider_keys` migrations do, so `/api/setup` names the missing table instead
   of the run route answering 503 after the fact.
 - The schedule: `pg_cron` + `pg_net` SQL with header, cadence and the secret, in
-  the README rather than only in the route's comment. Until it exists the
-  watchdog is code nobody calls.
+  the README rather than only in the route's comment — and installed by
+  `20261031000000_agent_sweep_schedule.sql`, which needs only the two Vault
+  secrets (`openmi_sweep_secret`, `openmi_sweep_url`). It calls nothing until
+  they exist, and a project without `pg_cron` applies the file and schedules
+  nothing. Until it runs, the watchdog is code nobody calls.
 
 Exit: no variable required by the code is absent from the documentation.
 

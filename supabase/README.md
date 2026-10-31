@@ -121,7 +121,7 @@ extras it outlives the tab.
    tick has no caller, so it cannot borrow a JWT. Unset means background runs
    are off, not that the agent is broken.
 3. **Set `AGENT_SWEEP_SECRET`** to any long random string (`openssl rand -hex
-   32`) and schedule the watchdog below. Unset means `POST
+   32`), and give the scheduler below the same value. Unset means `POST
    /api/agent/runs/sweep` answers 503 `sweep-unconfigured`.
 
 The chain is healthiest when `AGENT_TURN_SECRET` (or `GITHUB_TOKEN_KEY`)
@@ -135,31 +135,51 @@ process that died between the write and the dispatch leaves a run at `running`
 with nothing to advance it. The sweep turns that into a retry; it spends nothing
 when there is nothing stale, because the tick it fires still has to win a claim.
 
-Run this once in the SQL editor, with the same secret as `AGENT_SWEEP_SECRET`:
+`migrations/20261031000000_agent_sweep_schedule.sql` installs the schedule, so
+there is nothing to paste into the SQL editor: it enables `pg_cron` and `pg_net`
+where the project offers them and upserts the job below. The job reads two Vault
+secrets by name at run time, which is what keeps the secret out of this
+repository and lets it be rotated without editing the database:
 
 ```sql
-create extension if not exists pg_cron;
-create extension if not exists pg_net;
-
+-- byte for byte what the deployment holds in AGENT_SWEEP_SECRET
 select vault.create_secret('<AGENT_SWEEP_SECRET>', 'openmi_sweep_secret');
+-- this deployment's own origin, not a preview URL
+select vault.create_secret('https://<your-origin>/api/agent/runs/sweep', 'openmi_sweep_url');
 
 select cron.schedule(
   'openmi-agent-run-sweep',
   '* * * * *',
   $$
+  with config as (
+    select
+      (select decrypted_secret from vault.decrypted_secrets where name = 'openmi_sweep_url') as url,
+      (select decrypted_secret from vault.decrypted_secrets where name = 'openmi_sweep_secret') as secret
+  )
   select net.http_post(
-    url := 'https://<your-origin>/api/agent/runs/sweep',
+    url := config.url,
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'x-openmi-sweep',
-      (select decrypted_secret from vault.decrypted_secrets where name = 'openmi_sweep_secret')
+      'x-openmi-sweep', config.secret
     ),
     body := '{}'::jsonb,
     timeout_milliseconds := 30000
-  );
+  )
+  from config
+  where config.url is not null and config.secret is not null;
   $$
 );
 ```
+
+Until both rows exist the job fires every minute and calls nothing, so they can be
+added in either order, before or after this folder is applied. The secrets are
+what is left to do by hand; rotating one is the same statement with a new value.
+
+A project that does not apply this folder can run the block by hand after
+`create extension if not exists pg_cron;` and `create extension if not exists
+pg_net;`. That is the same sequence the migration performs, with one difference:
+it checks what the database offers first, so a project without the extensions
+applies the file and schedules nothing instead of stopping the batch there.
 
 To check it: `select * from cron.job where jobname =
 'openmi-agent-run-sweep';` lists the job, and `select status_code from

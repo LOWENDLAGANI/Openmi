@@ -183,7 +183,7 @@ The important ones for **this build**:
 | `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens and accounts' own model keys. Unset means GitHub cannot be connected and API keys cannot be stored. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App, a second door beside the pasted token. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
-| `AGENT_SWEEP_SECRET` | The shared secret the run watchdog presents to `/api/agent/runs/sweep`. Unset means the sweep is off. |
+| `AGENT_SWEEP_SECRET` | The shared secret the run watchdog presents to `/api/agent/runs/sweep`. Unset means the sweep is off. The schedule that calls it is installed by the migration folder and reads the same value from Vault. |
 
 One privileged key exists, and one thing may use it. `SUPABASE_SERVICE_ROLE_KEY`
 is read by `lib/supabaseAdmin.ts` for the `/api/agent/runs` routes, which create
