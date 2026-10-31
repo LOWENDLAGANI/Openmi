@@ -179,7 +179,7 @@ The important ones for **this build**:
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Project Settings → API). |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The anon public key. Public by design: it identifies the project, and RLS protects the rows. Both the browser and the server routes use it, always with the caller's own JWT. |
 | `OPENMI_ADMIN_EMAIL` | The one address allowed into the console. Access is a database grant — see `supabase/README.md`. |
-| `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews and the sitemap. |
+| `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews, the sitemap, the GitHub OAuth callback and the same-origin guard on mutations. This deployment's is `https://openmi.space`. |
 | `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens and accounts' own model keys. Unset means GitHub cannot be connected and API keys cannot be stored. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App, a second door beside the pasted token. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
