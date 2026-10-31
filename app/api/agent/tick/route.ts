@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { runAgentStep } from "@/lib/agent/run";
 import type { AgentMessage } from "@/lib/agent/model";
 import type { StagedChange } from "@/lib/agent/edits";
@@ -179,10 +179,21 @@ export async function POST(req: NextRequest): Promise<Response> {
       return Response.json({ run: "failed" }, { status: 200 });
     }
 
-    // Hand on. Not awaited: this request is done, and the next step has its own
-    // fixed budget.
+    // Hand on. The next step has its own fixed budget, so this request is done
+    // — but the hand-off has to outlive the response. `void fetch(...)` is
+    // cancelled with the invocation on a serverless host, and the chain ends
+    // there with the run still `running`.
     if (nextAttempt < RUN_MAX_ATTEMPTS) {
-      void dispatchTick(internalOrigin(req), signTick({ run: run.id, uid: state.uid, attempt: nextAttempt }));
+      const nextToken = signTick({ run: run.id, uid: state.uid, attempt: nextAttempt });
+      const nextOrigin = internalOrigin(req);
+      const fire = async () => {
+        await dispatchTick(nextOrigin, nextToken);
+      };
+      try {
+        after(fire);
+      } catch {
+        void fire();
+      }
     } else {
       await finishRun({
         id: run.id,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import {
   checkRateLimit,
   identityGate,
@@ -193,9 +193,24 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: failure.error, detail: failure.detail }, { status: failure.status });
   }
 
-  // The first link of the chain. Not awaited: the browser gets its run id now,
-  // and the tick owns the work from here.
-  void dispatchTick(internalOrigin(req), signTick({ run: id, uid: identity.uid, attempt: 0 }));
+  // The first link of the chain. The browser gets its run id now and the tick
+  // owns the work from here — but the dispatch has to survive this response.
+  // A bare `void fetch(...)` is cancelled with the invocation on a serverless
+  // host, which left the run at `running` with no chain behind it and the chat
+  // spinning on "Computing…" until the tab closed. `after` runs it once the
+  // response has been flushed and keeps the invocation alive until it settles.
+  const tickToken = signTick({ run: id, uid: identity.uid, attempt: 0 });
+  const tickOrigin = internalOrigin(req);
+  const fire = async () => {
+    await dispatchTick(tickOrigin, tickToken);
+  };
+  try {
+    after(fire);
+  } catch {
+    // Outside a request scope (a unit test, a script): the plain dispatch is
+    // still better than not starting the run at all.
+    void fire();
+  }
 
   return Response.json({ run: { id, status: "running" } }, { status: 201 });
 }

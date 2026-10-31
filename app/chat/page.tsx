@@ -124,6 +124,13 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 
+/** The longest a followed run may report nothing before the chat stops waiting.
+    A tick has a two-minute budget, so a live chain writes progress well inside
+    this; a run that says nothing for this long is a chain that died. */
+const RUN_STALL_MS = 240_000;
+/** Consecutive unreadable progress polls before the wait is treated as broken. */
+const RUN_POLL_FAILURES = 25;
+
 /** The chat id used for in-memory draft messages that are not kept locally.
     It exists only so the send path has one variable to address either kind of
     chat by, and it can never collide with a real id, which is a uuid. */
@@ -1599,6 +1606,15 @@ export default function HomePage() {
         // ── Follow it ────────────────────────────────────────────────────────
         // Polling rather than streaming, because the answer is being written by
         // the server either way: this loop only renders it.
+        //
+        // Progress is remembered as well as rendered. A run whose chain died —
+        // the tick that never arrived, a host that dropped the hand-off — stays
+        // `running` for ever, and this loop used to wait for ever with it. The
+        // watchdog that revives those runs is a scheduler the deployment may
+        // not have, so the wait is bounded here instead.
+        let lastProgress = "";
+        let lastProgressAt = Date.now();
+        let failedPolls = 0;
         while (!controller.signal.aborted) {
           const poll = await fetch(`/api/agent/runs/${runId}`, {
             headers: { ...(await authHeader()) },
@@ -1612,8 +1628,16 @@ export default function HomePage() {
           }
 
           if (poll.ok) {
+            failedPolls = 0;
             const { run } = (await poll.json().catch(() => ({}))) as { run?: AgentRunPayload };
             if (run) {
+              // Any change at all is progress: a new step, another sentence, the
+              // turn ending, or an error the run recorded about itself.
+              const progress = `${run.status}\u0000${run.steps.length}\u0000${run.content.length}\u0000${run.error ?? ""}`;
+              if (progress !== lastProgress) {
+                lastProgress = progress;
+                lastProgressAt = Date.now();
+              }
               if (run.content && run.content !== content) {
                 content = run.content;
                 steps.splice(0, steps.length, ...run.steps);
@@ -1651,6 +1675,33 @@ export default function HomePage() {
           }
 
           // A failed poll is not a failed run: it is still going, on the server.
+          // A run that reports nothing for minutes, or a progress read that keeps
+          // failing, is a different thing, and it is ended rather than waited on.
+          // Ending it matters: a run left `running` is what the next send would
+          // attach to, so leaving it would trap the retry in the same wait.
+          if (!poll.ok) failedPolls += 1;
+          const stalled =
+            failedPolls >= RUN_POLL_FAILURES || Date.now() - lastProgressAt > RUN_STALL_MS;
+          if (stalled) {
+            void (async () => {
+              try {
+                await fetch(`/api/agent/runs/${runId}/cancel`, {
+                  method: "POST",
+                  headers: await authHeader(),
+                  cache: "no-store",
+                });
+              } catch {
+                // It still ends at its own bounds; the message below stands.
+              }
+            })();
+            await markError(
+              assistantId,
+              failedPolls >= RUN_POLL_FAILURES
+                ? "The agent's progress could not be read, so this turn was stopped. Check your connection and ask again."
+                : "The agent stopped reporting progress, so this turn was stopped. Ask again to restart it."
+            );
+            return;
+          }
           await pause(1200, controller.signal);
         }
       } catch (error) {
