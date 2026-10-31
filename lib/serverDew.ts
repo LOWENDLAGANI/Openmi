@@ -11,7 +11,7 @@
 //      credits, `dew_wallets` holds the spend, and the policies let a caller
 //      *read* their own and insert a credit only when the code it names is worth
 //      exactly that. A modified client cannot write itself a balance.
-//   2. `spent` is incremented by `start_hour_session()` in one statement. The old build
+//   2. `spent` is incremented by `deduct_dew()` in one statement. The old build
 //      needed an ETag dance because REST had no transactions; a conditional write
 //      that lost the race dropped the charge, and a fallback plain write could
 //      fold a concurrent charge in early. Postgres just adds, so two overlapping
@@ -252,6 +252,118 @@ export async function ensureTrialGrant(
     return { ok: true, alreadyGranted: false };
   } catch {
     return { ok: false, alreadyGranted: false };
+  }
+}
+
+/**
+ * Deducts the cost of one request and says how it was paid for.
+ *
+ * `deduct_dew_split()` adds to the caller's own wallet in one locked statement
+ * and reports the spent total plus the free/paid halves. The uid comes from the
+ * token, so the only wallet it can touch is the caller's own. `newSpent` comes
+ * back from the database rather than from the value the route computed, which
+ * is what makes the caller's view of the ledger agree with the stored one even
+ * when two requests overlap.
+ *
+ * A deployment without 20261024000500_dew_activity.sql still has
+ * `deduct_dew()`; the fallback charges through it and attributes the whole
+ * amount to paid credit rather than refusing to bill. The activity history then
+ * shows the charge without a split, which is the honest answer for rows that
+ * never had one.
+ */
+export async function deductDew(
+  authorization: string | null,
+  uid: string,
+  previousSpent: number,
+  charge: number
+): Promise<{
+  ok: boolean;
+  newSpent: number;
+  freeCharged: number;
+  paidCharged: number;
+  conflict: boolean;
+  fallback?: boolean;
+  reason?: string;
+}> {
+  const token = bearer(authorization);
+  const client = token ? clientForToken(token) : null;
+  if (!client || !uid) {
+    return {
+      ok: false,
+      newSpent: previousSpent,
+      freeCharged: 0,
+      paidCharged: 0,
+      conflict: false,
+      reason: "unconfigured",
+    };
+  }
+  if (charge <= 0) {
+    return { ok: true, newSpent: previousSpent, freeCharged: 0, paidCharged: 0, conflict: false };
+  }
+
+  const amount = roundDew(charge);
+  try {
+    const split = await client.rpc("deduct_dew_split", { p_amount: amount });
+    if (!split.error) {
+      const row = (Array.isArray(split.data) ? split.data[0] : split.data) as {
+        spent?: unknown;
+        free_charged?: unknown;
+        paid_charged?: unknown;
+      } | null;
+      const spent = Number(row?.spent);
+      const freeCharged = Number(row?.free_charged);
+      const paidCharged = Number(row?.paid_charged);
+      return {
+        ok: true,
+        newSpent: Number.isFinite(spent) ? spent : previousSpent,
+        freeCharged: Number.isFinite(freeCharged) && freeCharged > 0 ? freeCharged : 0,
+        paidCharged: Number.isFinite(paidCharged) && paidCharged > 0 ? paidCharged : 0,
+        conflict: false,
+      };
+    }
+
+    // PGRST202: the split function is not in the project yet. Keep billing
+    // through the original door instead of losing the charge.
+    if ((split.error as { code?: string }).code !== "PGRST202") {
+      return {
+        ok: false,
+        newSpent: previousSpent,
+        freeCharged: 0,
+        paidCharged: 0,
+        conflict: false,
+        reason: split.error.message,
+      };
+    }
+
+    const legacy = await client.rpc("deduct_dew", { p_amount: amount });
+    if (legacy.error) {
+      return {
+        ok: false,
+        newSpent: previousSpent,
+        freeCharged: 0,
+        paidCharged: 0,
+        conflict: false,
+        reason: legacy.error.message,
+      };
+    }
+    const newSpent = Number(legacy.data);
+    return {
+      ok: true,
+      newSpent: Number.isFinite(newSpent) ? newSpent : previousSpent,
+      freeCharged: 0,
+      paidCharged: amount,
+      conflict: false,
+      fallback: true,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      newSpent: previousSpent,
+      freeCharged: 0,
+      paidCharged: 0,
+      conflict: false,
+      reason: error instanceof Error ? error.message : "threw",
+    };
   }
 }
 

@@ -5,9 +5,8 @@
 -- tree carried is a row-level security policy below. The two properties the old
 -- build was written around survive unchanged:
 --
---   1. Every request a browser triggers is made with the caller's own JWT, so RLS
---      — not the deployment — decides access. One privileged key exists, and only
---      the background run tick reads it (see `20261029000000_agent_runs.sql`).
+--   1. There is no service-role key anywhere in the app. Every request is made
+--      with the caller's own JWT, so RLS — not the deployment — decides access.
 --   2. Elevation is decided by one administrator address, and only in the
 --      database. The app may *check* the same address to give a clearer error,
 --      but it cannot grant what a policy refuses.

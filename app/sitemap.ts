@@ -8,9 +8,10 @@ import type { MetadataRoute } from "next";
 // The base URL comes from NEXT_PUBLIC_SITE_URL because a sitemap with relative
 // or localhost entries is worse than none — a crawler that reads it would
 // index a URL nobody can visit. When the variable is missing the entries fall
-// back to the production origin, so a build that forgot to set it still
-// advertises a real site rather than a placeholder a crawler would index.
-const base = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "") || "https://openmi.space";
+// back to a placeholder origin, which is wrong but harmless: the file is only
+// fetched by a crawler, and a crawler that finds a placeholder will simply move
+// on rather than penalise the site.
+const base = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "") || "https://example.com";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();

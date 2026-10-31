@@ -112,13 +112,7 @@ function optimizerProviders(): OptimizerProvider[] {
       url: "https://openrouter.ai/api/v1/chat/completions",
       key: openrouterKey,
       model: "openai/gpt-oss-20b",
-      headers: {
-        // Same attribution header as lib/providers.ts, from the same source, so
-        // a domain move does not leave one request advertising the old host.
-        "HTTP-Referer":
-          process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "") || "https://openmi.space",
-        "X-Title": "Openmi",
-      },
+      headers: { "HTTP-Referer": "https://openmi-ai.vercel.app", "X-Title": "Openmi" },
     });
   }
   return providers;

@@ -68,7 +68,7 @@ export default async function SharedAnswerPage({ params }: { params: Promise<{ i
     <main className="min-h-dvh bg-[#0b1310] px-5 pb-14 pt-[max(1.25rem,env(safe-area-inset-top))] text-white sm:px-8">
       <div className="mx-auto w-full max-w-2xl">
         <header className="flex flex-wrap items-center justify-between gap-3">
-          <Link href="/chat" className="flex items-center gap-2 text-[12px] text-white/45 transition-colors hover:text-white/80">
+          <Link href="/" className="flex items-center gap-2 text-[12px] text-white/45 transition-colors hover:text-white/80">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M15 5l-7 7 7 7" />
             </svg>
@@ -105,7 +105,7 @@ export default async function SharedAnswerPage({ params }: { params: Promise<{ i
             private.
           </p>
           <Link
-            href="/chat"
+            href="/"
             className="rounded-xl border border-[#a9d8bb]/25 px-3 py-1.5 text-[11.5px] font-medium text-[#a9d8bb] transition-colors hover:bg-[#a9d8bb]/10"
           >
             Ask Openmi →

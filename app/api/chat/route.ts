@@ -8,7 +8,6 @@ import { toOpenmiName } from "@/lib/modelEngines";
 import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
-import { modeCapabilities } from "@/lib/models";
 import {
   checkRateLimit,
   identityGate,
@@ -18,14 +17,11 @@ import {
   verifyCaller,
 } from "@/lib/serverControl";
 import { rateLimitMessage } from "@/lib/rateLimitPolicy";
+import { resolveDew } from "@/lib/serverRedeem";
 import { readUserKeys } from "@/lib/providerKeys";
-import {
-  hourModelRefusal,
-  markHourSessionActivity,
-  readHourSession,
-  refundHourSession,
-} from "@/lib/hourSession";
-import { estimateTokenUsage, outOfDewMessage } from "@/lib/dew";
+import { readHourSessionForChat } from "@/lib/hourSession";
+import { canAfford, estimateTokenUsage, outOfDewMessage, requestPrice } from "@/lib/dew";
+import { deductDew, recordDewTransaction, type DewState } from "@/lib/serverDew";
 
 // ── Chat — a resilient SSE proxy ─────────────────────────────────────────────
 //   OPENROUTER_API_KEY → Auto router
@@ -57,6 +53,8 @@ export const maxDuration = 120;
 interface ChatRequestBody {
   messages: ApiMessage[];
   mode?: string;
+  /** The chat this message belongs to, used only to match a live hour session. */
+  chatId?: string;
   searchMode?: SearchMode;
   reasoningEffort?: "low" | "medium" | "high";
   responseLength?: "short" | "balanced" | "detailed";
@@ -111,16 +109,6 @@ const MAX_CONTINUATION_ATTEMPTS = 2;
 const MAX_MESSAGES_IN_REQUEST = 120;
 const MAX_MESSAGE_CHARS = 32_000;
 const MAX_TOTAL_CHARS = 200_000;
-/**
- * The most a request body may weigh before it is read at all.
- *
- * The character caps above only size text. An image arrives as a `data:` URL
- * inside a part that is deliberately not counted, so without this a caller
- * could post a multi-megabyte attachment addressed to a flat-priced hour. It is
- * checked against `Content-Length` first, so the body is refused rather than
- * buffered.
- */
-const MAX_BODY_BYTES = 12_000_000;
 
 const CONTINUE_INSTRUCTION = [
   "Your previous answer was cut off mid-sentence because it reached the output limit.",
@@ -293,14 +281,6 @@ async function callProvider(
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-    return Response.json(
-      { error: "This message is too large to send. Attach a smaller image or shorten the text." },
-      { status: 413 }
-    );
-  }
-
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
@@ -386,50 +366,49 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const requested: ModeId =
     body.mode === "code" ? "code" : body.mode === "flash" ? "flash" : "auto";
+  const chatId = typeof body.chatId === "string" ? body.chatId.trim().slice(0, 200) : "";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
-  // ── The hour ──────────────────────────────────────────────────────────────
-  // Openmi charges for time, not for messages: one live hour covers every
-  // answer in every chat on the model it was bought for, and it was charged when
-  // it started. A request with no live hour is refused before any model runs, so
-  // nothing is served for free — and nothing is charged twice.
-  //
-  // The model is part of the purchase. Asking for a different one is not a
-  // fallback to hide: it is refused, with the active model named and the choice
-  // to keep using it or end the hour. Answering it under another model would
-  // spend an hour the buyer did not buy.
+  // ── The Dew ledger ────────────────────────────────────────────────────────
+  // A request costs a flat price for the model it runs on. The balance is read
+  // with this caller's verified token — never from anything the body carries —
+  // and a caller below that price is refused before any model runs.
   //
   // The administrator is exempt. They mint the credits, and their exemption is
   // derived from the verified identity like every other decision here.
   //
-  // An unidentified caller has no hour and no way to hold one. The identityGate
-  // above already refuses them when a ban or cap is configured; this closes the
-  // remaining hole where Dew is the only control.
+  // An unidentified caller has no balance and no way to hold one — Dew lives at
+  // dew/{uid}, and without a verified uid there is nowhere to put it. The
+  // identityGate above already refuses them when a ban or cap is configured;
+  // this closes the remaining hole where Dew is the only control.
   const isCallerAdmin = isAdmin(identity);
-  const hourSession = identity ? await readHourSession(authorization, identity.uid) : null;
-  const coveredBySession = Boolean(hourSession);
+  const price = requestPrice(requested);
+  let dewState: DewState | null = null;
+
+  // A live hour session is the only thing besides the administrator's exemption
+  // that makes a message free. It is read from `hour_sessions` with this
+  // caller's own token and matched to the chat; a client that omits the chat is
+  // simply billed per request, and a session for a different chat never covers
+  // this one. The session was charged when it started, in the same transaction
+  // that wrote the row.
+  const coveredBySession = Boolean(
+    identity &&
+      requested === "flash" &&
+      chatId &&
+      (await readHourSessionForChat(authorization, identity.uid, chatId))
+  );
 
   if (!isCallerAdmin && !coveredBySession) {
     if (!identity) {
-      // "You need an hour" is the wrong sentence for a browser whose identity
-      // could not be checked: it sends somebody to the wallet for a problem no
-      // amount of Dew can fix. Say what actually happened.
+      // "You're out of Dew" is the wrong sentence for a browser whose identity
+      // could not be checked: it sends somebody to the top-up page for a problem
+      // no amount of Dew can fix. Say what actually happened.
       return errorStream(
         "**Openmi could not verify this browser.** Reload the page and try again — a message is only answered for a session the server can identify."
       );
     }
-    return errorStream(outOfDewMessage());
-  }
-
-  if (!isCallerAdmin && hourSession && hourSession.model !== requested) {
-    return errorStream(hourModelRefusal(hourSession, requested));
-  }
-
-  // The hour's first prompt is recorded before a model is called, so an hour
-  // that never reaches a provider is still distinguishable from one that was
-  // never used. Best effort: the write cannot change the outcome of the answer.
-  if (!isCallerAdmin && coveredBySession) {
-    await markHourSessionActivity(authorization, "prompt");
+    dewState = await resolveDew(authorization, identity.uid);
+    if (!canAfford(dewState.balance, price)) return errorStream(outOfDewMessage());
   }
 
   const reasoningEffort: ReasoningEffort | null =
@@ -443,22 +422,16 @@ export async function POST(req: NextRequest): Promise<Response> {
   const providers = getProviders(requested, accountKeys);
 
   if (providers.length === 0) {
-    // No model ran, so nothing was bought with this hour: give it back before
-    // saying why. The refund is refused once an earlier reply exists, so a
-    // missing key later in the hour does not refund a used one.
-    if (!isCallerAdmin && coveredBySession) {
-      await refundHourSession(authorization, "no-model");
-    }
     // No vendor and no environment variable name here. Both are things only the
     // person deploying the product needs, and this text is rendered in the chat
     // as an assistant message — a visitor has no business reading a provider's
     // name.
     return textStream(
       requested === "code"
-        ? "**Code mode has no model to run.** Add your own Groq key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are still saved to your account."
+        ? "**Code mode has no model to run.** Add your own Groq key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
         : requested === "flash"
-          ? "**DeepSeek mode has no model to run.** Add your own DeepSeek key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are still saved to your account."
-          : "**Openmi isn't connected to a model yet.** Add your own key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are still saved to your account."
+          ? "**DeepSeek mode has no model to run.** Add your own DeepSeek key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
+          : "**Openmi isn't connected to a model yet.** Add your own key in Settings → API keys, or ask the person who runs this deployment to configure one. Your conversations are already saved safely on this device."
     );
   }
 
@@ -483,25 +456,6 @@ export async function POST(req: NextRequest): Promise<Response> {
   ].join("\n\n");
 
   const isCodeMode = requested === "code";
-
-  // ── The model's input contract ────────────────────────────────────────────
-  // A model that cannot read an image must refuse one, not receive it. The
-  // composer disables the attach button for these modes; this is the check that
-  // survives a caller editing the bundle, and it names the way out.
-  if (!modeCapabilities(requested).images) {
-    const carriesImage = messages.some((message) => {
-      const content = message.content as unknown;
-      return (
-        Array.isArray(content) &&
-        content.some((part) => (part as { type?: string } | null)?.type === "image_url")
-      );
-    });
-    if (carriesImage) {
-      return errorStream(
-        "**This model cannot read images.** Switch to Openmi Auto to send one, or remove the image and ask again in words."
-      );
-    }
-  }
 
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
   const latestUserText = typeof latestUserMessage?.content === "string" ? latestUserMessage.content : "";
@@ -563,12 +517,6 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   if (!upstream || !activeProvider) {
-    // Every model refused before writing a word. The hour bought nothing, so it
-    // is given back; the guard inside refund_hour_session stops this from
-    // refunding an hour that already answered earlier.
-    if (!isCallerAdmin && coveredBySession) {
-      await refundHourSession(authorization, "provider-failed");
-    }
     return errorStream(
       failures.map((failure) => explainProviderError(failure)).join(" ")
     );
@@ -642,13 +590,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           try {
             const chunk = JSON.parse(data) as {
               choices?: {
-                delta?: {
-                  content?: string | null;
-                  /** DeepSeek and Gemini name it this way. */
-                  reasoning_content?: string | null;
-                  /** Groq and OpenRouter name it this way. */
-                  reasoning?: string | null;
-                };
+                delta?: { content?: string | null; reasoning_content?: string | null };
                 finish_reason?: string | null;
               }[];
               usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
@@ -674,18 +616,6 @@ export async function POST(req: NextRequest): Promise<Response> {
             if (delta) {
               text += delta;
               controller.enqueue(encodeEvent({ content: delta }));
-            }
-
-            // The thinking a reasoning model emits before its answer. It used to
-            // be parsed and thrown away, which is why DeepSeek could be told to
-            // think and the screen still showed only the conclusion. Two field
-            // names, because the OpenAI-compatible providers disagree about it;
-            // a chunk that carries neither — most plain models — simply emits
-            // nothing, so the panel on the other side never opens empty.
-            const thinking =
-              chunk.choices?.[0]?.delta?.reasoning_content ?? chunk.choices?.[0]?.delta?.reasoning;
-            if (typeof thinking === "string" && thinking) {
-              controller.enqueue(encodeEvent({ reasoning: thinking }));
             }
 
             if (chunk.usage) {
@@ -779,16 +709,6 @@ export async function POST(req: NextRequest): Promise<Response> {
         );
       }
 
-      // ── Did the hour produce anything? ──────────────────────────────────
-      // A non-empty answer makes the hour used for good. An empty one — every
-      // model interrupted, or nothing streamed at all — is the exact case the
-      // refund exists for, and it is settled here rather than left to a client
-      // that may already have closed the tab.
-      if (!isCallerAdmin && coveredBySession) {
-        if (answer.trim()) void markHourSessionActivity(authorization, "reply");
-        else void refundHourSession(authorization, "empty-answer");
-      }
-
       // The count is reported once the answer is whole, so a continuation does
       // not show the user two partial bills for one message.
       if (totalUsage.prompt + totalUsage.completion > 0) {
@@ -803,8 +723,49 @@ export async function POST(req: NextRequest): Promise<Response> {
         );
       }
 
-      // The answer was covered by the hour that was already paid for, so there
-      // is nothing to charge here: a request has no price of its own.
+      // ── The deduction ────────────────────────────────────────────────────
+      // A flat price, charged once, after the answer is known. It is charged
+      // only when something was actually answered: a request that never reached
+      // a model was refused above, and a stream that failed before writing a
+      // word is not a request the user received.
+      //
+      // Awaited, not fired-and-forgotten: once this stream closes, a serverless
+      // deployment is free to freeze the process, and a charge still in flight
+      // in that window is a charge that never happens.
+      if (!isCallerAdmin && !coveredBySession && identity && dewState && answer.trim().length > 0) {
+        const billed = { prompt: totalUsage.prompt, completion: totalUsage.completion };
+        const deduct = await deductDew(authorization, identity.uid, dewState.spent, price).catch(
+          (cause: unknown) => ({
+            ok: false,
+            newSpent: dewState!.spent,
+            freeCharged: 0,
+            paidCharged: 0,
+            conflict: false,
+            reason: cause instanceof Error ? cause.message : "threw",
+          })
+        );
+        if (!deduct.ok) {
+          // A missed charge is logged, not hidden: it is a real shortfall in the
+          // ledger and the only way it gets noticed.
+          console.warn(
+            `[dew] charge of ${price} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`
+          );
+        } else {
+          // The append-only log entry, best effort — the policy refuses junk, so
+          // a failure here costs only the history, never the balance. The token
+          // counts ride along for the ledger even though they do not price it.
+          await recordDewTransaction(authorization, identity.uid, {
+            dew: price,
+            model: requested,
+            prompt: billed.prompt,
+            completion: billed.completion,
+            // The same split the wallet moved, recorded with the charge so the
+            // activity page can say whether today's free Dew or paid credit
+            // paid for this request.
+            free: deduct.freeCharged,
+          }).catch(() => undefined);
+        }
+      }
 
       // Only now, after every model has had its turn, is the answer known to be
       // incomplete. Emitting this earlier would tell the user the answer is cut

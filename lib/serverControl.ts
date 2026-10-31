@@ -362,24 +362,11 @@ export interface RateLimit {
   scope: RateLimitScope;
 }
 
-/**
- * The address a rate-limit bucket is keyed on.
- *
- * A caller can send their own `x-forwarded-for`, so the leftmost value — the one
- * every proxy copies through unchanged — is a bucket name they choose. Honouring
- * it would let one client mint a new bucket per request and spend the
- * deployment's quota under a thousand invented addresses. The platform's own
- * header is set by the edge and cannot be forged from the browser, so it is
- * preferred; a signed-in caller is keyed by uid and never reaches this.
- */
+/** Reads the client address from the headers a proxy sets. */
 function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): string {
   if (identity) return `uid:${identity.uid}`;
   const forwarded = req.headers.get("x-forwarded-for") ?? "";
-  const address =
-    req.headers.get("cf-connecting-ip")?.trim() ||
-    req.headers.get("x-real-ip")?.trim() ||
-    forwarded.split(",")[0]?.trim() ||
-    "unknown";
+  const address = forwarded.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
   return `ip:${address}`;
 }
 
@@ -391,32 +378,6 @@ function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): 
  * back to the in-process bucket, so a Redis outage degrades the limiter to the
  * weaker backend instead of removing it entirely.
  */
-/**
- * Writes a counter together with its window in one command.
- *
- * `SET key value PX window` is used instead of a separate EXPIRE because a
- * counter that exists without a TTL is a permanent lockout: it never resets, so
- * a caller who once reached the ceiling is refused for ever. Writing the value
- * and the expiry together makes that state impossible to leave behind.
- */
-async function redisSet(key: string, count: number): Promise<void> {
-  try {
-    await fetch(`${redisUrl}/set/${encodeURIComponent(key)}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${redisToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify([String(count), "PX", String(BUCKET_WINDOW_MS)]),
-      cache: "no-store",
-      signal: AbortSignal.timeout(2000),
-    });
-  } catch {
-    // The next request tries again. Losing one expiry write is survivable now
-    // because the recovery below repairs a key that is found without one.
-  }
-}
-
 async function redisIncrement(key: string): Promise<{ count: number; ttlMs: number } | null> {
   try {
     const response = await fetch(`${redisUrl}/pipeline`, {
@@ -432,20 +393,21 @@ async function redisIncrement(key: string): Promise<{ count: number; ttlMs: numb
     if (!response.ok) return null;
     const payload = (await response.json()) as Array<{ result?: number | string }>;
     const count = Number(payload?.[0]?.result);
-    const ttl = Number(payload?.[1]?.result);
+    let ttlMs = Number(payload?.[1]?.result);
     if (!Number.isFinite(count)) return null;
-
-    if (!Number.isFinite(ttl) || ttl < 0) {
-      // PTTL is -1 for a key with no expiry and -2 for one that vanished. The
-      // pipeline cannot branch, so the expiry is written here — and a key that
-      // arrives already past one hit is reset to this request, which is the
-      // honest count now that the old window is unknowable.
-      const wedged = count > 1;
-      void redisSet(key, wedged ? 1 : count);
-      return { count: wedged ? 1 : count, ttlMs: BUCKET_WINDOW_MS };
+    // A fresh key reports -2 from PTTL before its first expire is set. The
+    // pipeline cannot branch, so the expire is issued here.
+    if (ttlMs < 0) {
+      ttlMs = BUCKET_WINDOW_MS;
+      void fetch(`${redisUrl}/pexpire/${encodeURIComponent(key)}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${redisToken}` },
+        body: String(BUCKET_WINDOW_MS),
+        cache: "no-store",
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => undefined);
     }
-
-    return { count, ttlMs: ttl };
+    return { count, ttlMs };
   } catch {
     return null;
   }

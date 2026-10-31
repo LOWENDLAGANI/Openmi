@@ -10,7 +10,7 @@
 // what a charge is, or when the turn is over. Those live on the server and in
 // the signed turn token. This module only turns bytes into events.
 
-import type { AgentStep, ProposalReview } from "./types";
+import type { AgentStep } from "./types";
 
 export interface AgentProposalSummary {
   path: string;
@@ -36,11 +36,10 @@ export type AgentStreamEvent =
       proposals: AgentProposalSummary[];
       changesetId: string | null;
       changesetWarning: string | null;
-      review: ProposalReview | null;
     }
   | { type: "error"; error: string; status?: number; resetAt?: number | null };
 
-const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "read_issue", "propose_edits"]);
+const STEP_TOOLS = new Set<AgentStep["tool"]>(["list_files", "read_file", "search_code", "propose_edits"]);
 
 function cleanStep(raw: unknown): AgentStep | null {
   if (!raw || typeof raw !== "object") return null;
@@ -52,39 +51,6 @@ function cleanStep(raw: unknown): AgentStep | null {
     label: value.label.slice(0, 400),
     ok: value.ok === true,
     ...(value.running === true ? { running: true } : {}),
-  };
-}
-
-/**
- * The review, as the browser will show it.
- *
- * A malformed report is dropped rather than half-rendered: a card that says
- * "passed" because one field failed to parse is the one outcome worse than no
- * card. Unknown severities read as warnings, never as errors, so a server bug
- * cannot turn into a scary claim about a change.
- */
-function cleanReview(raw: unknown): ProposalReview | null {
-  if (!raw || typeof raw !== "object") return null;
-  const value = raw as Record<string, unknown>;
-  if (value.verdict !== "pass" && value.verdict !== "fix") return null;
-  const findings = Array.isArray(value.findings)
-    ? value.findings
-        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-        .map((entry) => ({
-          path: typeof entry.path === "string" && entry.path ? entry.path.slice(0, 400) : "the change",
-          severity: (entry.severity === "error" ? "error" : "warning") as "error" | "warning",
-          message: typeof entry.message === "string" ? entry.message.slice(0, 300) : "",
-        }))
-        .filter((finding) => finding.message.length > 0)
-        .slice(0, 10)
-    : [];
-  return {
-    verdict: value.verdict,
-    summary: typeof value.summary === "string" ? value.summary.slice(0, 300) : "",
-    findings,
-    modelChecked: value.modelChecked === true,
-    repaired: value.repaired === true,
-    checkedAt: typeof value.checkedAt === "number" ? value.checkedAt : 0,
   };
 }
 
@@ -158,7 +124,6 @@ export function parseAgentEvent(line: string): AgentStreamEvent | null {
       proposals: Array.isArray(value.proposals) ? (value.proposals as AgentProposalSummary[]) : [],
       changesetId: typeof value.changesetId === "string" ? value.changesetId : null,
       changesetWarning: typeof value.changesetWarning === "string" ? value.changesetWarning : null,
-      review: cleanReview(value.review),
     };
   }
 

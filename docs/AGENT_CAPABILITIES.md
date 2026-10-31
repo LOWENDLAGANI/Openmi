@@ -9,7 +9,7 @@ The agent is **read + propose**, not read-only.
 
 | Action | Allowed? | Where it is enforced |
 |---|---|---|
-| List files, read a file, search code, read an issue | Yes | `lib/agent/tools.ts` |
+| List files, read a file, search code | Yes | `lib/agent/tools.ts` |
 | Stage a whole-file or exact-string edit, shown as a diff | Yes | `propose_edits` → `lib/agent/edits.ts` |
 | Write a file to GitHub | No | no write tool; `lib/github/client.ts` is GET-only |
 | Commit, push, open a PR | Only after the person approves | `app/api/changesets/[id]/commit/route.ts` → `lib/github/commit.ts` |

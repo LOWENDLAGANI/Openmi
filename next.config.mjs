@@ -23,43 +23,25 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 const isDev = process.env.NODE_ENV !== "production";
 const devEval = isDev ? " 'unsafe-eval'" : "";
 
-// ── The one ad script ───────────────────────────────────────────────────────
-// Adsterra assigns every zone its own host, so it cannot be named here in the
-// source: the operator pastes the tag URL into NEXT_PUBLIC_ADSTERRA_BANNER_SRC
-// and this file reads its origin at build time. Only a .js URL counts, and only
-// the origin is allowed — never a wildcard, and never a scheme wildcard.
-//
-// An unset or malformed value contributes nothing, which is the same state as a
-// deployment with no ads: the policy does not widen for a tag that will not
-// load. These lists are also what the CSP test reads.
-
-// The fallback network's host is assigned per zone, so it cannot be one of the
-// names above: the operator pastes the tag URL into
-// NEXT_PUBLIC_ADSTERRA_BANNER_SRC and this file reads its origin at build time.
-// Only a .js URL counts, and only the origin is allowed — never a wildcard.
-//
-// An unset or malformed value contributes nothing, which is the same state as a
-// deployment with no fallback: the policy does not widen for a tag that will
-// not load.
-function bannerScriptOrigin() {
-  const raw = (process.env.NEXT_PUBLIC_ADSTERRA_BANNER_SRC ?? "").trim();
-  if (!raw) return null;
-  try {
-    const url = new URL(raw.startsWith("//") ? `https:${raw}` : raw);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    if (!/\.js$/i.test(url.pathname)) return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
-const bannerOrigin = bannerScriptOrigin();
-// Everything the page may load as script, in one list, so script-src and
-// connect-src cannot drift apart. The tag renders its banner as an iframe from
-// the same origin, which is why frame-src shares the list.
-const adScripts = bannerOrigin ? [bannerOrigin] : [];
-const adFrames = bannerOrigin ? [bannerOrigin] : [];
+// ── AdSense boundaries ──────────────────────────────────────────────────────
+// Named one host at a time, with what each is for. AdSense is the only
+// third-party script this app loads, and the policy still has to stop an
+// injected script from talking anywhere it likes — so no `*` and no scheme
+// wildcard for scripts, ever. These lists are also what the CSP test reads.
+const adScriptOrigins = [
+  "https://pagead2.googlesyndication.com", // the loader itself
+  "https://*.googlesyndication.com", // ad rendering and measurement
+  "https://*.googleadservices.com", // click and conversion measurement
+  "https://adservice.google.com", // ad serving
+];
+const adFrameOrigins = [
+  "https://googleads.g.doubleclick.net", // the ad iframe
+  "https://tpc.googlesyndication.com", // the ad iframe's static frame
+];
+const adImageOrigins = [
+  "https://*.doubleclick.net",
+  "https://*.googlesyndication.com",
+];
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -69,13 +51,13 @@ const contentSecurityPolicy = [
   // reload runtime — evaluates a string to register each component, and without
   // it every page of the development site renders as an empty black screen with
   // an EvalError in the console. Production never gets the directive.
-  `script-src 'self' 'unsafe-inline'${devEval} ${adScripts.join(" ")}`,
+  `script-src 'self' 'unsafe-inline'${devEval} ${adScriptOrigins.join(" ")}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${adImageOrigins.join(" ")}`,
   "font-src 'self' data:",
-  `connect-src 'self' https://*.supabase.co wss://*.supabase.co ${adScripts.join(" ")}`,
+  `connect-src 'self' https://*.supabase.co wss://*.supabase.co ${adScriptOrigins.join(" ")}`,
   // The app's own artifact preview, plus the ad iframes. Nothing else.
-  `frame-src 'self' ${adFrames.join(" ")}`,
+  `frame-src 'self' ${adFrameOrigins.join(" ")}`,
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
@@ -108,12 +90,6 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
-  // The landing page moved to the root route. Answered here rather than with a
-  // page that calls redirect(): a prerendered page's redirect only happens once
-  // the client runs, so old links would render a blank hop instead of a 308.
-  async redirects() {
-    return [{ source: "/landing", destination: "/", permanent: true }];
-  },
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {

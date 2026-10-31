@@ -1,8 +1,8 @@
 // ── Preferences that follow the account ──────────────────────────────────────
 //
 // The small choices that make Openmi feel like yours — appearance, response
-// length, reasoning effort, search mode, the last model and the display name —
-// are written to `user_preferences` against
+// length, reasoning effort, search mode, the last model, whether the tour has
+// been seen, and the display name — are written to `user_preferences` against
 // the signed-in account. A second browser therefore opens with the same settings
 // instead of the defaults.
 //
@@ -32,28 +32,33 @@ import {
 import { DEFAULT_MODE_ID, OPENMI_MODES, type ModeId } from "./models";
 import type { SearchMode } from "./types";
 import { loadSelectedMode, saveSelectedMode } from "./db";
-import { loadDisplayName, saveDisplayName } from "./visitorName";
+import { loadDisplayName, saveDisplayName, loadAvatar, saveAvatar } from "./visitorName";
 
 const SEARCH_MODE_KEY = "openmi:search-mode";
+const TUTORIAL_KEY = "openmi:tutorial-finished";
 
 export interface UserPreferences {
   displayName: string | null;
+  avatarUrl: string | null;
   appearance: Appearance;
   homeLayout: HomeLayout;
   responseLength: ResponseLength;
   reasoningEffort: ReasoningEffort;
   searchMode: SearchMode;
   model: ModeId | null;
+  tutorialFinished: boolean;
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   displayName: null,
+  avatarUrl: null,
   appearance: DEFAULT_APPEARANCE,
   homeLayout: DEFAULT_HOME_LAYOUT,
   responseLength: "balanced",
   reasoningEffort: "low",
   searchMode: "auto",
   model: DEFAULT_MODE_ID,
+  tutorialFinished: false,
 };
 
 function readSearchMode(): SearchMode {
@@ -66,16 +71,27 @@ function readSearchMode(): SearchMode {
   }
 }
 
+function readTutorialFinished(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(TUTORIAL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /** What this browser already knows. Safe on the server and in private mode. */
 export function loadLocalPreferences(): UserPreferences {
   return {
     displayName: loadDisplayName() || null,
+    avatarUrl: loadAvatar() || null,
     appearance: loadAppearance(),
     homeLayout: loadHomeLayout(),
     responseLength: loadResponseLength(),
     reasoningEffort: loadReasoningEffort(),
     searchMode: readSearchMode(),
     model: loadSelectedMode(),
+    tutorialFinished: readTutorialFinished(),
   };
 }
 
@@ -87,11 +103,13 @@ export function saveLocalPreferences(preferences: UserPreferences): void {
   saveReasoningEffort(preferences.reasoningEffort);
   try {
     window.localStorage.setItem(SEARCH_MODE_KEY, preferences.searchMode);
+    window.localStorage.setItem(TUTORIAL_KEY, preferences.tutorialFinished ? "1" : "0");
   } catch {
     // Private mode: the preferences simply are not remembered next visit.
   }
   saveSelectedMode(preferences.model ?? DEFAULT_MODE_ID);
   saveDisplayName(preferences.displayName ?? "");
+  saveAvatar(preferences.avatarUrl ?? "");
 }
 
 /** The row shape read from `user_preferences`. */
@@ -108,11 +126,16 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
       : "low";
   const searchMode: SearchMode =
     row.search_mode === "always" || row.search_mode === "off" ? row.search_mode : "auto";
+  const avatarUrl =
+    (typeof row.avatar_url === "string" && row.avatar_url.trim()) ||
+    (typeof row.avatarUrl === "string" && row.avatarUrl.trim()) ||
+    null;
   return {
     displayName:
       typeof row.display_name === "string" && row.display_name.trim()
         ? row.display_name.trim().slice(0, 40)
         : null,
+    avatarUrl,
     appearance,
     homeLayout,
     responseLength,
@@ -122,6 +145,7 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
       typeof row.model === "string" && OPENMI_MODES.some((mode) => mode.id === row.model)
         ? (row.model as ModeId)
         : null,
+    tutorialFinished: row.tutorial_finished === true,
   };
 }
 
@@ -141,7 +165,7 @@ export async function loadCloudPreferences(): Promise<UserPreferences | null> {
     const { data, error } = await client
       .from("user_preferences")
       .select(
-        "display_name, appearance, home_layout, response_length, reasoning_effort, search_mode, model"
+        "display_name, avatar_url, appearance, home_layout, response_length, reasoning_effort, search_mode, model, tutorial_finished"
       )
       .eq("owner", user.id)
       .maybeSingle();
@@ -170,12 +194,14 @@ export async function saveCloudPreferences(preferences: UserPreferences): Promis
       {
         owner: user.id,
         display_name: preferences.displayName,
+        avatar_url: preferences.avatarUrl,
         appearance: preferences.appearance,
         home_layout: preferences.homeLayout,
         response_length: preferences.responseLength,
         reasoning_effort: preferences.reasoningEffort,
         search_mode: preferences.searchMode,
         model: preferences.model,
+        tutorial_finished: preferences.tutorialFinished,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "owner" }

@@ -12,7 +12,6 @@
 // with a fix in it. Nothing here can reach the administrator's console.
 
 import { useCallback, useState } from "react";
-import Spinner from "./Spinner";
 import {
   emailAuthAvailable,
   refreshVerification,
@@ -22,7 +21,6 @@ import {
   signInWithEmail,
 } from "@/lib/emailAuth";
 import { describeLinkError, type AccountView } from "@/lib/accountState";
-import { checkSignupEmail } from "@/lib/emailGuard";
 
 interface EmailAuthFormProps {
   /** The name typed into the registration form, carried onto the new account. */
@@ -52,14 +50,6 @@ export default function EmailAuthForm({ name: initialName, onSignedIn }: EmailAu
       setNotice(null);
       try {
         if (mode === "register") {
-          // A throwaway mailbox stops existing in minutes, so an account made
-          // with one could never receive a reset link. The sentence is here; the
-          // trigger on auth.users is what actually enforces it.
-          const verdict = checkSignupEmail(email);
-          if (!verdict.ok) {
-            setError(verdict.message);
-            return;
-          }
           const result = await registerWithEmail(email.trim(), password, name);
           setPassword("");
           if (result.needsVerification) {
@@ -186,10 +176,7 @@ export default function EmailAuthForm({ name: initialName, onSignedIn }: EmailAu
         disabled={busy || !email.trim() || !password}
         className="w-full rounded-xl bg-white py-3 text-[13px] font-semibold text-black transition hover:opacity-90 disabled:opacity-40"
       >
-        <span className="inline-flex items-center justify-center gap-1.5">
-          {busy && <Spinner size={13} />}
-          {busy ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
-        </span>
+        {busy ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
       </button>
 
       <div className="flex items-center justify-between gap-2">
@@ -201,7 +188,7 @@ export default function EmailAuthForm({ name: initialName, onSignedIn }: EmailAu
         >
           Forgot password?
         </button>
-
+        <span className="text-[10px] text-white/20">Secured by Supabase Auth</span>
       </div>
 
       {error && <p className="text-[11px] leading-relaxed text-red-200/80">{error}</p>}
@@ -259,10 +246,7 @@ function VerificationHint({ email, onError }: { email: string; onError: (message
           onClick={() => void check()}
           className="mt-1.5 rounded-md border border-white/[0.12] px-2 py-1 text-[10px] text-white/60 transition-colors hover:bg-white/[0.06] disabled:opacity-50"
         >
-          <span className="inline-flex items-center justify-center gap-1.5">
-            {busy && <Spinner size={11} />}
-            {busy ? "Checking…" : state === "sent" ? "I've confirmed — check again" : "Resend link"}
-          </span>
+          {busy ? "Checking…" : state === "sent" ? "I've confirmed — check again" : "Resend link"}
         </button>
       )}
     </div>

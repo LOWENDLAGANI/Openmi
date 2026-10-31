@@ -7,9 +7,9 @@
 // The frame is sandboxed with `allow-scripts` and *without* `allow-same-origin`.
 // That combination gives the document a unique opaque origin: it can run its own
 // JavaScript, but it cannot touch this page, its cookies, its localStorage, or
-// the session cache the visible conversation is read from. Scripted preview
-// without that separation would mean running a model-authored page with full
-// access to the reader's conversation history.
+// IndexedDB where every chat lives. Scripted preview without that separation
+// would mean running a model-authored page with full access to the reader's
+// conversation history.
 
 export default function ArtifactFrame({ html }: { html: string }) {
   return (

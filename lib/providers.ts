@@ -51,13 +51,6 @@ export const FAMILY_MODE: Record<ProviderFamily, string> = {
  * key is ever named in a response — only the vendor is, and only in the copy
  * that tells the reader where to fix something.
  */
-// OpenRouter uses this for attribution only, but it is the app's public address,
-// so it follows the canonical origin instead of naming a host. The fallback is
-// the production domain: an unset variable should still advertise something
-// real rather than a placeholder.
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "") || "https://openmi.space";
-
 export function getProviders(
   requested: ModeId,
   accountKeys: Partial<Record<ProviderFamily, string>> = {}
@@ -77,7 +70,7 @@ export function getProviders(
         model: AUTO_ENGINE,
         supportsReasoning: true,
         headers: {
-          "HTTP-Referer": SITE_URL,
+          "HTTP-Referer": "https://openmi-ai.vercel.app",
           "X-Title": "Openmi",
         },
         extraBody: {

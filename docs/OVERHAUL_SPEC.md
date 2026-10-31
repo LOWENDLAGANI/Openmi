@@ -59,49 +59,45 @@ link, Dew wallet, redeem codes, admin console, push, PWA, Sentry, rate limiting.
 
 `lib/dew.ts` is the single source of truth.
 
-> **Corrected 2026-10-28.** The flat per-request price this section originally
-> specified was replaced before launch. What shipped is billing by the hour:
-> one purchase covers every message on one model for sixty minutes.
-
 ```ts
-export const DEW_PER_HOUR = 3;
-export const HOUR_SESSION_MS = 60 * 60 * 1000;
-export const DAILY_FREE_DEW = 10;      // PAID_DAILY_FREE_DEW = 15
-export const TRIAL_DEW = 5;
+export const DEW_PER_REQUEST: Record<ModeId, number> = {
+  auto: 0.25,
+  code: 0.5,
+};
 ```
 
-- Starting an hour charges 3 Dew once, server-side, in `start_hour_session()`.
-  Every message inside that hour is free, in every chat.
-- An hour is bound to the model it was bought for and, when it was started in a
-  repository, to that repository. Asking for a different model or repository is
-  refused with the live hour named, never silently re-scoped.
-- One live hour per account. A second start while one is live is refused, so two
-  tabs cannot each open and pay for their own.
-- The free daily bucket is spent before paid credit and refills at midnight in
-  the account's timezone. A paid pass raises it to 15 Dew. Unused free Dew does
-  not carry over; trial, redeemed and topped-up Dew never expires.
-- Token counts are still emitted (`usage`), stored on the message and recorded,
-  but they no longer price anything. They are telemetry, not the bill.
-- Adding a model = one entry in `lib/models.ts` plus its engine in
-  `lib/modelEngines.ts`; the price does not change, because time is what is sold.
+- One **completed request** costs its model's flat price. A continuation across
+  models, or a retry inside one request, is still one request.
+- A request that never reached a model, or produced no text, is not charged.
+- The pre-flight floor is the model's own price, so a user holding only the Auto
+  price cannot start a Code request.
+- Token counts continue to be emitted (`usage` event), stored on the message and
+  written to the ledger row. They are telemetry, not the bill.
+- Adding a model = one line in `DEW_PER_REQUEST` + one entry in `lib/models.ts`.
 
-**Agent turns.** An agent step draws on the same hour as chat, so the caps bound
-cost rather than price: `MAX_STEPS` (8) and `MAX_TURN_TOKENS` (60k), enforced
-server-side by a signed turn blob, never by the client. A turn that hits a cap
-says so; the next message is simply another message in the same hour.
+**Agent turns (Phase 1).** The agent loop may make several model calls for one
+user message. The rule:
+
+```
+price(user turn) = DEW_PER_REQUEST[mode]
+hard cap         = MAX_STEPS (8) and MAX_TURN_TOKENS (60k)
+```
+
+If the cap is reached, the turn ends with a partial result and a "continue"
+button. Continuing is a new turn and a new charge. This keeps the user-visible
+price predictable and bounds the cost of one turn. It is enforced server-side by
+a counter in the step route, never by the client.
 
 ## 5. Accounts and GitHub
 
-- **Supabase Auth is the identity** (corrected 2026-10-28): Google, GitHub,
-  Microsoft, or an email address and password. Every request carries the
-  account's own JWT and PostgreSQL row-level security decides access; Firebase
-  is no longer used. See `docs/MIGRATE_TO_SUPABASE.md`.
-- GitHub is **authorization, not identity**. A personal access token or the
-  OAuth App flow attaches a credential to the existing account; the account id
-  is unchanged.
-- Server stores the token encrypted (AES-256-GCM, key from `GITHUB_TOKEN_KEY`) in
-  the caller's own `github_connections` rows, never in the client bundle, never
-  in a cookie the browser can read.
+- Firebase anonymous identity, upgraded by linking Google — the existing
+  `lib/account.ts` flow. The UID survives the link, so history does not move.
+- GitHub is **authorization, not identity**. Recommended v1: link a GitHub
+  credential to the existing Firebase user with `GithubAuthProvider` scopes
+  (`repo`), exactly like the Google link. The UID is preserved.
+- Server stores the token encrypted (AES-256-GCM, key from `GITHUB_TOKEN_KEY`)
+  under `users/{uid}/github`, never in the client bundle, never in a cookie the
+  browser can read.
 - Risk: Firebase's GitHub credential does not refresh indefinitely. When a commit
   fails with 401, the UI asks the user to reconnect GitHub; it never silently
   retries with another account. If this becomes common, replace the link with a
@@ -116,12 +112,9 @@ Server-only modules under `lib/github/`:
 |---|---|
 | `client.ts` | Thin REST wrapper: base URL, auth header, 403/429 handling, `X-RateLimit-Reset`. |
 | `oauth.ts` | Link/callback/status/revoke for the GitHub credential. |
-| `pat.ts` | Checks a pasted personal token against `GET /user` and one repository listing. |
-| `connections.ts` | The stored connections: seal, open, rotate, default, revoke. |
-| `store.ts` | Which connection a request may use. |
+| `repo.ts` | `GET /repos/{owner}/{repo}`, default branch, permission check. |
 | `tree.ts` | Tree at a commit SHA, `.gitignore`-aware filtering, per-file size caps. |
-| `search.ts` | Lexical scan over cached blobs, ranked and capped. |
-| `cache.ts` | In-process tree and blob caches, keyed by repository, commit and blob SHA. |
+| `file.ts` | Blob read with binary detection and a hard byte cap. |
 | `commit.ts` | Blobs → tree (with `base_tree`) → commit → ref, then PR. |
 
 Read path rules:

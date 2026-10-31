@@ -1,28 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Sans, Space_Mono } from "next/font/google";
 import ServiceWorker from "@/components/ServiceWorker";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
 const DESCRIPTION = `${BRAND.name} reads your repository and proposes the change. It commits only when you approve it.`;
-
-// ── The landing page's two faces ─────────────────────────────────────────────
-// Loaded at the root so both doors into the marketing page — the public
-// /landing route and the signed-out state of / — share one set of files. They
-// are exposed as custom properties rather than applied here: the chat shell
-// keeps its system stack, and only `.lp` in globals.css reads these.
-const landingSans = Instrument_Sans({
-  subsets: ["latin"],
-  variable: "--font-lp-sans",
-  display: "swap",
-});
-
-const landingMono = Space_Mono({
-  subsets: ["latin"],
-  weight: ["400"],
-  variable: "--font-lp-mono",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: `${BRAND.name} — ${BRAND.product}`,
@@ -37,19 +18,20 @@ export const metadata: Metadata = {
   // ── Share previews ─────────────────────────────────────────────────────────
   // A link pasted into WhatsApp, X, Telegram or Facebook is, for a paid
   // product, the advertisement — and without these tags it renders as a bare
-  // URL. Pick one brand image from /public so the preview matches the app.
+  // URL. The image is the splash artwork already shipped in /public, so the
+  // preview cannot drift from what the app looks like.
   openGraph: {
     type: "website",
     siteName: BRAND.name,
     title: `${BRAND.name} — ${BRAND.product}`,
     description: DESCRIPTION,
-    images: [{ url: "/openmi-logo.png", alt: BRAND.name }],
+    images: [{ url: "/openmi-splash.jpg", alt: BRAND.name }],
   },
   twitter: {
     card: "summary_large_image",
     title: `${BRAND.name} — ${BRAND.product}`,
     description: DESCRIPTION,
-    images: ["/openmi-logo.png"],
+    images: ["/openmi-splash.jpg"],
   },
   // Without a manifest and a service worker the site is not installable, and
   // without `standalone` the installed copy opens in a browser chrome frame
@@ -71,7 +53,7 @@ export const metadata: Metadata = {
         url:
           "data:image/svg+xml," +
           encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#f55036"/><text x="16" y="22" font-family="Arial" font-size="17" font-weight="bold" fill="#15130f" text-anchor="middle">M</text></svg>`
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1f4a33"/><text x="16" y="22" font-family="Arial" font-size="17" font-weight="bold" fill="#eceee7" text-anchor="middle">M</text></svg>`
           ),
         type: "image/svg+xml",
       },
@@ -85,7 +67,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f3f1e9",
+  themeColor: "#f8f9fa",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -104,7 +86,7 @@ const APPEARANCE_BOOT = `try{var r=document.documentElement;if(localStorage.getI
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`light ${landingSans.variable} ${landingMono.variable}`}>
+    <html lang="en" className="light">
       <body className="h-[100dvh]">
         <script dangerouslySetInnerHTML={{ __html: APPEARANCE_BOOT }} />
         {children}

@@ -1,9 +1,9 @@
 // ── Chat history, memories and the visitor registry, in Postgres ────────────
 //
-// This is the session cache's sync partner. It writes chat and message rows
-// through the caller's own session, so Postgres row-level security decides what
-// may be written — the same arrangement the access rules had, with tables
-// instead of a tree.
+// This is Dexie's sync partner. It writes chat and message rows through the
+// caller's own session, so Postgres row-level security decides what may be
+// written — the same arrangement the access rules had, with tables instead
+// of a tree.
 //
 // ── Two-way, and a union ────────────────────────────────────────────────────
 // History used to be write-only, and that is why signing in on a second browser
@@ -104,7 +104,7 @@ function chatRow(owner: string, chat: Chat) {
 
 /** The stored column shape of one message. */
 function messageRow(owner: string, message: ChatMessage) {
-  // Images and document contents stay in the tab; only text history is logged.
+  // Images and document contents stay in Dexie; only text history is logged.
   return {
     id: message.id,
     chat_id: message.chatId,
@@ -178,11 +178,11 @@ export async function syncCloudHistory(): Promise<{ synced: boolean; reason?: st
   if (!current) return { synced: false, reason: "not-configured" };
   const { client, uid } = current;
 
-  // This push writes everything the tab caches, and the tab caches whatever the
-  // last account left in it. Its timer is scheduled from a data change, so it
-  // can fire in the moment between a different account signing in and the
-  // handover clearing the cache: that is exactly how one person's conversations
-  // used to end up in another person's account.
+  // This push writes everything the browser holds, and the browser holds
+  // whatever the last account left in IndexedDB. Its timer is scheduled from a
+  // data change, so it can fire in the moment between a different account
+  // signing in and the handover clearing the cache: that is exactly how one
+  // person's conversations used to end up in another person's account.
   if (!deviceBelongsTo(uid)) return { synced: false, reason: "device-not-adopted" };
 
   for (const chat of uploadable) {
@@ -193,8 +193,8 @@ export async function syncCloudHistory(): Promise<{ synced: boolean; reason?: st
       .upsert(chatRow(uid, chat), { onConflict: "id" });
     if (chatResult.error) return { synced: false, reason: chatResult.error.message };
 
-    // The chat is written as a whole: what this tab holds for it replaces what
-    // the account holds for it. That is the same replace semantics the
+    // The chat is written as a whole: what this browser holds for it replaces
+    // what the account holds for it. That is the same replace semantics the
     // Realtime Database `set()` had, and it is what keeps a message deleted here
     // from being handed back by the next pull. Messages go in one statement, so
     // there is no window in which the chat exists with half its history.

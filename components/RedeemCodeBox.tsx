@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { claimRedeemCode } from "@/lib/redeem";
 import { useDew } from "@/lib/useDew";
-import Spinner from "./Spinner";
 
 // ── Claiming a code ──────────────────────────────────────────────────────────
 // The buyer's side of a manual sale. The owner hands over a word, and this is
@@ -109,10 +108,7 @@ export default function RedeemCodeBox() {
           disabled={busy || code.trim() === ""}
           className="flex-1 rounded-[10px] bg-white/10 px-3 py-2.5 text-[12px] font-semibold text-white transition hover:bg-white/[0.16] disabled:opacity-40"
         >
-          <span className="inline-flex items-center justify-center gap-1.5">
-            {busy && <Spinner size={13} />}
-            {busy ? "Checking…" : "Redeem"}
-          </span>
+          {busy ? "Checking…" : "Redeem"}
         </button>
         <button
           type="button"

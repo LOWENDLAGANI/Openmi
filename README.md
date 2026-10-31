@@ -18,41 +18,33 @@ when you say so**, on a branch of its own.
   limit.
 - Local-first history in IndexedDB (Dexie), synced to the signed-in account.
 - **An account is required.** Sign in or register with Google, GitHub, Microsoft
-  or an email address and password, all held by Supabase Auth. Disposable email
-  domains are refused at sign-up, so an address that expires cannot become the
-  only key to somebody's chats.
-- **Dew**: one price — `3` Dew buys a one-hour session that covers every answer
-  in every chat on the model it was bought for. A session started in the
-  repository workspace is bound to that repository too: asking for another model
-  or another repository is refused until the hour is ended. Every account also
-  gets **10 free Dew a day**, refilled at midnight in
+  or an email address and password, all held by Supabase Auth.
+- **Dew**: one flat price per model — `0.25` for Auto, `0.5` for Groq, and
+  DeepSeek V4.1 Flash at `2` per message or `3` for a one-hour session in one
+  chat. Every account also gets **10 free Dew a day**, refilled at midnight in
   the account's own timezone (the browser's at registration, Malaysia until one
   is known) and spent before paid credit; unused free Dew does not carry over,
   while trial, redeemed and topped-up Dew never expires. A spend history on
   `/activity` shows where it went: per day, per model, and how much came from
-  the  free bucket rather than paid credit. Invitations on `/plus` give both
+  the free bucket rather than paid credit. Invitations on `/plus` give both
   people 25 Dew, with one claim per account and a ten-invite cap per inviter.
   Token counts are still recorded and shown; they no longer price the request.
-- **Paid passes**: RM 18 for 15 days or RM 35 for 30 days, activated by the
-  owner after the existing manual DuitNow transfer. The card also prints an
-  approximate figure in the currency of the browser's regional language — a
-  courtesy for readers who do not think in ringgit, never the amount charged. A pass raises the daily bucket to **15 Dew** and adds
+- **Paid passes**: $4 for 15 days or $8 for 30 days, shown in the reader's
+  country currency and activated by the owner after the existing manual
+  DuitNow transfer. A pass raises the daily bucket to **15 Dew** and adds
   priority support, more usage and everything in Free. The hour session is
-  server-owned: one live session per account, charged atomically when it starts,
-  bound to one model and one repository, and a second start for a different
-  scope is refused with the active one named.
-- Folders, a thirty-day trash, palette search, branching
+  server-owned: one live session per account, charged atomically when it
+  starts, and a second start is refused with the chat that already owns it.
+- Temporary chats, folders, a thirty-day trash, palette search, branching
   replies, web search, attachments, push, PWA, admin console.
 - **A context ring** above the composer: the last request's real prompt count
   plus an estimate of the draft, against the per-request budget the server
   enforces, with a breakdown and a fresh-chat offer past 90%.
 - **Rate limits you can see**: one policy table, one 429 shape carrying
   `Retry-After`, and a composer that counts the wait down instead of failing.
-- **One small ad above the composer** (optional): one Adsterra banner in a
-  reserved 50 px slot (60 px on desktop, 728 px wide at most). Without a tag the
-  slot stays visible as a labelled, empty `320 × 50` placeholder rather than
-  disappearing; the console switch removes it entirely. It is the only
-  placement — no auto ads, no second network. `/privacy` says what it collects.
+- **One small ad above the composer** (optional): AdSense, reserved height,
+  hidden without both public ids, switchable off from the console. `/privacy`
+  says what it collects.
 - **A sidebar that is part of the account.** Folders, the folder a chat is filed
   under, and the trash are read and written through the same session as the
   chats. A folder or a chat deleted here is soft-deleted in the database, so a
@@ -140,10 +132,8 @@ gone: no dependency, no `database.rules.json`, no Admin SDK.
 Access is decided in the database, not in a route. The browser talks to PostgREST
 with the caller's own JWT, and every table carries row-level security that keys
 off `auth.uid()`. The server routes do the same thing with a client built from
-the caller's bearer token. The deployment's one service-role key is confined to
-`lib/supabaseAdmin.ts` and used only by the `/api/agent/runs` routes — creating
-and advancing a run is the one job with no caller to carry a token for.
-`supabase/migrations/` is the whole authority
+the caller's bearer token, so there is no service-role key in this app, in its
+environment or in its code. `supabase/migrations/` is the whole authority
 surface, and `supabase/README.md` is the one-time dashboard setup.
 
 If you ran into the sign-in error that sends people down a rabbit hole, here is
@@ -174,24 +164,19 @@ The important ones for **this build**:
 | `GEMINI_API_KEY` | Auto fallback (V3 → V2 → V1). |
 | `GROQ_API_KEY` | Groq — the Code mode model, and Auto's last-resort fallback. |
 | `DEEPSEEK_API_KEY` | DeepSeek — the DeepSeek V4.1 Flash mode, and nothing else. |
-| `NEXT_PUBLIC_ADSTERRA_BANNER_SRC` | Public Adsterra banner tag (`…/invoke.js`). Its zone key is read from the URL, and its host is the only third-party script the CSP allows. Absent means no banner and no gap. |
+| `NEXT_PUBLIC_ADSENSE_CLIENT_ID` | Public AdSense publisher id (`ca-pub-…`). Absent means no banner and no gap. |
+| `NEXT_PUBLIC_ADSENSE_SLOT_ID` | Public ad-unit slot id. Both ids are required for the unit to render. |
 | `TAVILY_API_KEY` | Web search and source links. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Project Settings → API). |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The anon public key. Public by design: it identifies the project, and RLS protects the rows. Both the browser and the server routes use it, always with the caller's own JWT. |
 | `OPENMI_ADMIN_EMAIL` | The one address allowed into the console. Access is a database grant — see `supabase/README.md`. |
-| `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews, the sitemap, the GitHub OAuth callback and the same-origin guard on mutations. This deployment's is `https://openmi.space`. |
+| `NEXT_PUBLIC_SITE_URL` | Canonical origin for share previews and the sitemap. |
 | `GITHUB_TOKEN_KEY` | 32-byte hex key that seals stored GitHub tokens and accounts' own model keys. Unset means GitHub cannot be connected and API keys cannot be stored. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App, a second door beside the pasted token. |
 | `AGENT_TURN_SECRET` | Signs agent turn state; must be stable across instances. Falls back to `GITHUB_TOKEN_KEY`. |
-| `AGENT_SWEEP_SECRET` | The shared secret the run watchdog presents to `/api/agent/runs/sweep`. Unset means the sweep is off. The schedule that calls it is installed by the migration folder and reads the same value from Vault. |
 
-One privileged key exists, and one thing may use it. `SUPABASE_SERVICE_ROLE_KEY`
-is read by `lib/supabaseAdmin.ts` for the `/api/agent/runs` routes, which create
-and advance a repository turn after the tab is closed and therefore have no
-caller to carry a token for. They take the owner from the verified session, never
-from the request body. Every other route carries the caller's token, exactly as
-the browser does, and may not import that module. Without the key the agent still
-works; it just stops when the tab does.
+No service-role key belongs anywhere in this project. Nothing needs it: the
+server routes carry the caller's token, exactly as the browser does.
 
 ### Bringing your own model keys
 
@@ -321,9 +306,8 @@ connection…".
 ## Layout
 
 ```
-app/                 routes; page.tsx is the public landing page, chat/ is the
-                     product behind the account gate, /api/chat is the streaming
-                     proxy and /api/agent/step one read-only agent step
+app/                 routes; /api/chat is the streaming proxy, /api/agent/step
+                     is one read-only agent step
 components/          chat shell, sidebar, settings, admin console, RepoPanel
 lib/                 dew.ts (pricing), providers.ts (server-only chains),
                      models.ts (client-visible catalog), db.ts (Dexie),
@@ -369,28 +353,3 @@ supabase/README.md   one-time dashboard setup, and how to grant an admin
    verified token and enforced before any model call.
 4. **Repository content is data, not instructions.** A README cannot change the
    agent's rules.
-
-## The pre-flight review
-
-Nothing reaches the review screen unchecked. Two passes run before a proposal is
-handed over, and the card names the ones that actually ran:
-
-- **Static checks**, over the exact bytes that would be written: a file that
-  would end up empty, merge-conflict markers, JSON that does not parse,
-  unbalanced brackets in a script, and relative or `@/` imports that point at a
-  path the tree does not have.
-- **One model read** of the diff, given those findings, answering `pass` or
-  `fix` as JSON. It is advisory and it is told it cannot run anything, so it
-  never claims a test passed.
-- **One repair round.** An `error` from either pass sends the agent back with
-  the findings; the checks then run again on what would really be committed, and
-  the card says `repaired once`.
-
-This is **not a build**. Nothing is cloned, installed, typechecked or tested —
-there is no sandbox in this deployment — and the card says so instead of
-implying a green build. Folding a real container run into the same gate is the
-next step, not something this does quietly.
-
-Connecting GitHub returns to `/chat` (where the repository panel reads
-`?github=connected` and opens itself), not to the landing page.
-

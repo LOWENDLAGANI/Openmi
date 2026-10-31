@@ -5,7 +5,7 @@ AdSense application, consent message and review are dashboard tasks, not code,
 and Phase 3's cross-tab acceptance needs a shared store. This is the working
 plan and the progress record; update the tracker when a phase moves, not just
 at the end.
-Last updated: 2026-10-28.
+Last updated: 2026-10-25.
 
 ## Locked decisions (owner, 2026-10-25)
 
@@ -26,7 +26,7 @@ Last updated: 2026-10-28.
 | 1 | Agent's propose-and-approve path is legible | 5 | 2–4 d | **Done** |
 | 2 | Composer gains a context ring and the AdSense banner | 4, 1 | 5–7 d | **Done (code); review pending** |
 | 3 | Rate limits are complete, consistent and visible | 8 | 3–4 d | **Done** |
-| 4 | Bring your own key, free of Dew | 3 | 8–12 d | **Partly shipped** — storage and routing, not yet free |
+| 4 | Bring your own key, free of Dew | 3 | 8–12 d | Planned |
 | — | Public promotion page | 9 | 4–6 d | **Deferred** |
 
 Roughly **4–6 focused weeks** for Phases 0–4. AdSense approval is calendar
@@ -361,27 +361,6 @@ cost, without the deployment ever falling back to the owner's key.
 
 **Locked:** free, same rate limits, no silent fallback.
 
-**Status, 2026-10-28 — partly shipped.** Storage, validation and routing exist in
-`app/api/keys`, `lib/providerKeys.ts` and the `provider_keys` table: each key is
-checked with the vendor before it is saved, sealed with AES-256-GCM under the
-GitHub token key, returned only as a four-character hint, and scoped to its
-owner by row-level security. The chat and agent paths prefer an account's key.
-
-Two parts of the locked decision are **not** implemented, and this file should
-not imply otherwise:
-
-- **Not free.** The hour check in `app/api/chat/route.ts` runs before provider
-  selection and carries no BYOK exemption, so a turn on your own key still needs
-  a live hour bought in Dew. The "free" rule is outstanding.
-- **A silent fallback exists.** `getProviders()` uses the account key *or the
-  deployment's*, so a revoked or broken account key quietly falls back to
-  platform credit — the opposite of "never a hidden retry". A failed key should
-  stop the turn and offer platform credit as a choice.
-- The dedicated `BYOK_SECRET` from the plan was not added; keys reuse
-  `GITHUB_TOKEN_KEY` through `lib/github/crypto.ts`.
-
-Those are the remaining edits in this phase, not new scope.
-
 - Providers at launch: **OpenRouter** and **Gemini**, matching the two modes.
 - A stored key is used **instead of** platform credit. A failed key is an
   error with a "use Openmi credit instead" button, never a hidden retry.
@@ -473,18 +452,9 @@ rejects the root.
 
 - No provider model id, API key name or vendor name reaches the browser
   (`lib/models.ts` is the only client catalog).
-- No service-role key for BYOK, ads or the admin console; all use the caller's JWT
-  and RLS. The one exception is the run routes (`lib/supabaseAdmin.ts`), which
-  create and advance a turn with no caller attached.
+- No service-role key for BYOK or ads; both use the caller's JWT and RLS.
 - Every new route is same-origin checked, identity-gated where it touches
   user data, and rate-limited.
-- The exception is the run chain: `POST /api/agent/tick` and
-  `POST /api/agent/runs/sweep` are called by the server and by a scheduler, so
-  they have no browser origin to check and no user to key a bucket on. The tick
-  is authorised by a signed claim naming one run, owner and attempt; the sweep by
-  a shared secret. `GET /api/agent/runs/[id]` is RLS-gated but not rate-limited,
-  because polling is how a chat renders a run it is already allowed to read. See
-  `docs/AGENT_TOOLS_AND_RESUME.md` → "Deliberate exceptions".
 - Every phase ends with `bun run typecheck`, `bun run test`, `bun run lint`,
   and one manual pass on the path the phase changes.
 
@@ -499,4 +469,3 @@ rejects the root.
 | 2026-10-25 | Verified: `bun run typecheck`, full `bun run test`, `bun run lint` (0 errors, 6 pre-existing warnings), `bun run build`, and dev-server HTTP checks for `/`, `/about` and `/sitemap.xml`. Five pre-existing `no-explicit-any` errors in `lib/preferences.ts` blocked the build; fixed without behaviour change. |
 | 2026-10-25 | Phase 2 delivered: context ring with popover and 70/90 thresholds, `contextBudget` from `GET /api/chat`, AdSense banner with reserved height, named CSP origins, `/ads.txt`, `/privacy`, `adsEnabled` kill switch. `tests/context-ring.test.ts` (20) and `tests/ads.test.ts` (15) pass. |
 | 2026-10-25 | Phase 3 delivered: one `RATE_LIMITS` table, four routes guarded, uniform 429 body and headers, SSE refusal field, composer countdown source. `tests/rate-limit.test.ts` (17) passes; the parser now reads “Try again in Ns”, which the old one missed. Typecheck, full suite (21 scripts), lint (0 errors) and build are green; 429 verified live against `/api/setup`. |
-| 2026-10-28 | `/privacy` rewritten from the code: subprocessors, retention windows and administrator access added; linked from sign-in, Settings and About. Claims that were not true were corrected rather than kept — the EEA/UK consent message is still unconfigured, so the page says so. Also corrected this file (Phase 4 was marked Planned while most of it shipped) and `OVERHAUL_SPEC.md` §4–§6 (per-request pricing, Firebase identity, and a module table naming files that no longer exist). |
