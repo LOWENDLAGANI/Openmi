@@ -11,7 +11,7 @@ import {
   saveProgress,
   type AgentRunState,
 } from "@/lib/agentRuns";
-import { dispatchTick, internalOrigin, signTick, tickVerdict, verifyTick } from "@/lib/agentRunToken";
+import { sendTick, signTick, tickVerdict, verifyTick } from "@/lib/agentRunToken";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildChangeSet, changeSetRow } from "@/lib/changesets";
 import type { AgentStep } from "@/lib/types";
@@ -185,9 +185,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     // there with the run still `running`.
     if (nextAttempt < RUN_MAX_ATTEMPTS) {
       const nextToken = signTick({ run: run.id, uid: state.uid, attempt: nextAttempt });
-      const nextOrigin = internalOrigin(req);
       const fire = async () => {
-        await dispatchTick(nextOrigin, nextToken);
+        await sendTick(req, nextToken);
       };
       try {
         after(fire);

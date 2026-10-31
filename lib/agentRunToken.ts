@@ -73,7 +73,7 @@ export function internalOrigin(req: { nextUrl: { origin: string } }): string {
  * tick has its own budget. A failure here is deliberately silent — the run's
  * heartbeat simply stops, and the watchdog is what turns that into a retry.
  */
-export function dispatchTick(origin: string, token: string): Promise<unknown> {
+export function dispatchTick(origin: string, token: string): Promise<boolean> {
   return fetch(`${origin}/api/agent/tick`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -90,14 +90,39 @@ export function dispatchTick(origin: string, token: string): Promise<unknown> {
       if (!response.ok) {
         console.warn(`[agent-tick] hand-off to ${origin} answered HTTP ${response.status}`);
       }
-      return response;
+      return response.ok;
     })
     .catch((error: unknown) => {
       console.warn(
         `[agent-tick] hand-off to ${origin} failed: ${error instanceof Error ? error.message : String(error)}`
       );
-      return undefined;
+      return false;
     });
+}
+
+/**
+ * Fires one tick at an origin that will actually answer it.
+ *
+ * The dispatch used to go to `NEXT_PUBLIC_SITE_URL` and nowhere else, which made
+ * a stale value a silently dead chain: after a domain move the variable still
+ * names the old host, the POST reaches something that is no longer this
+ * deployment, and the run sits at `running` while the browser polls it. Nothing
+ * in the log said which host had been asked.
+ *
+ * The request's own origin is the host that just served this request, so it is
+ * the honest fallback: tried once, and only after the configured origin failed.
+ * A retried tick is free — `claimRun` only advances the attempt the token was
+ * signed for, so the duplicate finds nothing to claim and spends nothing.
+ */
+export async function sendTick(req: { nextUrl: { origin: string } }, token: string): Promise<boolean> {
+  const configured = internalOrigin(req);
+  if (await dispatchTick(configured, token)) return true;
+  const served = req.nextUrl.origin;
+  if (!served || served === configured) return false;
+  console.warn(
+    `[agent-tick] NEXT_PUBLIC_SITE_URL is ${configured} and did not answer; retrying on ${served}, which served this request`
+  );
+  return dispatchTick(served, token);
 }
 
 /** Null for a forged, truncated, expired or foreign token — never a partial claim. */

@@ -81,6 +81,19 @@ Nothing else in [.env.example](.env.example) contains an origin. `WEB_PUSH_SUBJE
 is a `mailto:` address — update it only if you are also changing the contact
 address.
 
+Two origins are not in the environment at all, and they are the ones a move
+forgets:
+
+- **`openmi_sweep_url` in Vault** — the watchdog's `pg_cron` job posts to that
+  URL itself, so it has to name the new origin. It is a Vault row, not a build
+  input: update it in place and nothing redeploys.
+- **A run's next step** — [app/api/agent/tick](app/api/agent/tick/route.ts) posts
+  each hand-off to `NEXT_PUBLIC_SITE_URL`. While that value was stale, a run sat
+  at `running` with the browser polling it and only the create request in the
+  logs. [lib/agentRunToken.ts](lib/agentRunToken.ts) now retries on the origin
+  that served the request and logs the mismatch, which recovers the chain but
+  does not make the value correct.
+
 ## 4. Supabase (dashboard, no migration)
 
 Supabase → **Authentication → URL Configuration**:

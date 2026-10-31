@@ -16,7 +16,7 @@ import { hourModelRefusal, hourRepoRefusal, readHourSession } from "@/lib/hourSe
 import { outOfDewMessage } from "@/lib/dew";
 import { activeRunFor, createRun, runStartFailure, type AgentRunState } from "@/lib/agentRuns";
 import { runStoreConfigured } from "@/lib/supabaseAdmin";
-import { dispatchTick, internalOrigin, signTick } from "@/lib/agentRunToken";
+import { internalOrigin, sendTick, signTick } from "@/lib/agentRunToken";
 import { cleanHistory } from "@/lib/agent/transcript";
 
 // ── Start a repository turn that does not need the tab ───────────────────────
@@ -202,7 +202,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const tickToken = signTick({ run: id, uid: identity.uid, attempt: 0 });
   const tickOrigin = internalOrigin(req);
   const fire = async () => {
-    await dispatchTick(tickOrigin, tickToken);
+    await sendTick(req, tickToken);
   };
   try {
     after(fire);

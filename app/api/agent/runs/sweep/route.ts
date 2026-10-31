@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { RUN_STALE_MS, finishRun, listStaleRuns, sweepAction, sweepSecretMatches } from "@/lib/agentRuns";
-import { dispatchTick, internalOrigin, signTick } from "@/lib/agentRunToken";
+import { sendTick, signTick } from "@/lib/agentRunToken";
 
 // ── The watchdog ─────────────────────────────────────────────────────────────
 //
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     // The attempt number it holds is the one the claim will require, so a live
     // link that beats this sweep simply wins first and this dispatch does nothing.
-    void dispatchTick(internalOrigin(req), signTick({ run: run.id, uid: run.owner, attempt: decision.attempt }));
+    void sendTick(req, signTick({ run: run.id, uid: run.owner, attempt: decision.attempt }));
     revived += 1;
   }
 
