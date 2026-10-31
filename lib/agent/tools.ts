@@ -289,6 +289,7 @@ export async function runTool(call: ParsedToolCall, context: ToolContext): Promi
         content: [
           `There is no readable file at "${path}".`,
           near.length > 0 ? `Closest paths: ${near.join(", ")}` : "Use list_files to see what exists.",
+          "If you are signed in and this still fails, the repository connection may need reconnecting.",
         ].join("\n"),
       };
     }

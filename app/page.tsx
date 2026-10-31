@@ -800,11 +800,22 @@ export default function HomePage() {
       if (msg.toLowerCase().includes("timeout")) {
         return "The request timed out. Please try again.";
       }
-      if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("401")) {
-        return "Something went wrong with authentication. Please try signing in again.";
-      }
       if (msg.toLowerCase().includes("rate limit")) {
         return "Too many requests. Please wait a moment and try again.";
+      }
+      // The chat route already labels provider 401/403 as a rejected key, and
+      // `verifyCaller` failures are already worded for the actual reason (no
+      // token, no project, Supabase lookup failed, etc.). Do not collapse all
+      // of those back into a generic "sign in again" here.
+      const lower = msg.toLowerCase();
+      if (lower.includes("unauthorized") || lower.includes("401")) {
+        if (/token expired|session expired|your session|sign.?in again|sign.?in to continue/i.test(msg)) {
+          return "Your sign-in expired. Please sign in again.";
+        }
+        if (/this key|rejected this key|invalid.?api.?key|not.?accepted|wrong.?project/i.test(msg)) {
+          return "Openmi could not use the API key it has configured. The site owner needs to set or rotate the key.";
+        }
+        return "Openmi was not authorized to finish this request. If you were signed in, please sign in again.";
       }
       // If it's very technical/long, make it simpler
       if (msg.length > 200 || msg.includes("{\"")) {
