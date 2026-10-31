@@ -14,9 +14,9 @@ import { readUserKeys } from "@/lib/providerKeys";
 import { resolveGithubLink } from "@/lib/github/store";
 import { hourModelRefusal, hourRepoRefusal, readHourSession } from "@/lib/hourSession";
 import { outOfDewMessage } from "@/lib/dew";
-import { activeRunFor, createRun, type AgentRunState } from "@/lib/agentRuns";
+import { activeRunFor, createRun, runStartFailure, type AgentRunState } from "@/lib/agentRuns";
 import { runStoreConfigured } from "@/lib/supabaseAdmin";
-import { dispatchTick, signTick } from "@/lib/agentRunToken";
+import { dispatchTick, internalOrigin, signTick } from "@/lib/agentRunToken";
 import { cleanHistory } from "@/lib/agent/transcript";
 
 // ── Start a repository turn that does not need the tab ───────────────────────
@@ -182,16 +182,20 @@ export async function POST(req: NextRequest): Promise<Response> {
     repoFullName: project.repoFullName,
     state,
   });
-  if (!created) {
-    return Response.json(
-      { error: "This run could not be recorded, so it was not started. Check the `agent_runs` migration.", detail: "run-not-stored" },
-      { status: 503 }
-    );
+  if (!created.ok) {
+    // The reason decides the sentence. "Check the migration" was wrong for a
+    // missing sealing key and for a refused grant, and it is the difference
+    // between a five-second fix and a hunt through this repository.
+    if (created.reason === "failed") {
+      console.warn(`[agent] run insert refused: ${created.message}`);
+    }
+    const failure = runStartFailure(created.reason);
+    return Response.json({ error: failure.error, detail: failure.detail }, { status: failure.status });
   }
 
   // The first link of the chain. Not awaited: the browser gets its run id now,
   // and the tick owns the work from here.
-  void dispatchTick(req.nextUrl.origin, signTick({ run: id, uid: identity.uid, attempt: 0 }));
+  void dispatchTick(internalOrigin(req), signTick({ run: id, uid: identity.uid, attempt: 0 }));
 
   return Response.json({ run: { id, status: "running" } }, { status: 201 });
 }

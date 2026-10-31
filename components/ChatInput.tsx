@@ -349,6 +349,9 @@ export default function ChatInput({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // An IME commits a composition with Enter. Sending there would post half a
+    // word — the keystroke belongs to the input method, not to this form.
+    if (e.nativeEvent.isComposing) return;
     if (e.key !== "Enter" || e.shiftKey) return;
     e.preventDefault();
     // Enter while an answer streams belongs to the draft, not to the Stop

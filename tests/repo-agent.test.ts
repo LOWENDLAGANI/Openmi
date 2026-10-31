@@ -1949,6 +1949,23 @@ test("the repository panel offers GitHub sign-in when no repository is set", () 
   assert.match(source, /onClick=\{\(\) => void connect\(\)\}/, "the empty list cannot re-authorise");
 });
 
+test("the panel says why the one-click GitHub door is not there", () => {
+  const source = read("components/RepoPanel.tsx");
+  // The OAuth button only exists when the deployment has the app
+  // (`githubOAuthConfigured()`: both client values and the sealing key). Without
+  // it the panel used to fall straight through to the token form, so the missing
+  // button read as "Openmi cannot do this" instead of "this deployment has not
+  // created the app" — and the only way to learn which was to read the source.
+  assert.match(source, /status\?\.oauth \?/, "the panel no longer branches on the OAuth flag");
+  assert.ok(source.includes("GITHUB_CLIENT_ID"), "the missing client id is not named");
+  assert.ok(source.includes("GITHUB_CLIENT_SECRET"), "the missing client secret is not named");
+  assert.ok(source.includes("GITHUB_TOKEN_KEY"), "the sealing key is not named");
+  assert.ok(
+    source.includes("A pasted token works without any of them"),
+    "the token door is not offered as the way through"
+  );
+});
+
 test("the OAuth start route requires a verified account", () => {
   const source = read("app/api/github/oauth/start/route.ts");
   assert.match(source, /isSameOriginRequest/);
@@ -1964,6 +1981,39 @@ test("editing a message in a repository chat goes through the agent", () => {
   assert.match(source, /sendAgentMessage\(content, \{ editMessageId: messageId \}\)/);
   assert.match(source, /editMessageId\?: string/);
   assert.match(source, /options\?\.editMessageId/);
+});
+
+test("the first turn of a repository chat becomes a real chat", () => {
+  // `chatId` on the agent side is never null — it falls back to the placeholder
+  // id — so the `if (!chatId)` that was meant to create the chat never ran. The
+  // turn was written under an id no chat has: no sidebar row, and nothing for
+  // the live query to return while no chat is open. The composer emptied and
+  // the page stayed empty, with the answer (or the server's refusal) written
+  // into the same invisible place.
+  const source = read("app/chat/page.tsx");
+  const agent = source.slice(source.indexOf("const sendAgentMessage = useCallback"));
+  assert.match(
+    agent,
+    /if \(!chatId \|\| chatId === DRAFT_CHAT_ID\)/,
+    "the placeholder id is never replaced by a chat that exists"
+  );
+  assert.match(
+    agent,
+    /if \(!chatId \|\| chatId === DRAFT_CHAT_ID\) \{\s*\n\s*const chat = await createChat\(\)/,
+    "the placeholder branch does not create a chat"
+  );
+  assert.match(
+    agent,
+    /if \(!chatId \|\| chatId === DRAFT_CHAT_ID\)[\s\S]{0,200}setActiveChatId\(chatId\)/,
+    "the new chat is not opened, so the thread query keeps returning nothing"
+  );
+  // The ordinary send path has had this branch from the start; both paths need
+  // it, because both are reached from the same composer.
+  const chat = source.slice(
+    source.indexOf("const sendMessage = useCallback"),
+    source.indexOf("const sendAgentMessage = useCallback")
+  );
+  assert.match(chat, /chatId === DRAFT_CHAT_ID/, "the ordinary send path lost its placeholder branch");
 });
 
 test("the proposal module cannot reach GitHub", () => {

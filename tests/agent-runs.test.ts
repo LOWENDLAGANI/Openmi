@@ -20,13 +20,15 @@ import {
   claimRun,
   normalizeRun,
   openRunState,
+  runStartFailure,
   sealRunState,
   sweepAction,
   sweepSecretMatches,
   toView,
   type AgentRunState,
+  type CreateRunFailure,
 } from "../lib/agentRuns";
-import { TICK_TTL_MS, signTick, tickVerdict, verifyTick } from "../lib/agentRunToken";
+import { TICK_TTL_MS, internalOrigin, signTick, tickVerdict, verifyTick } from "../lib/agentRunToken";
 
 // A sealed state needs a key, and `tokenKey` reads it per call. Pinned here so
 // the round-trip and the foreign-key refusal are both testable without a
@@ -379,6 +381,87 @@ async function main(): Promise<void> {
     const sql = read("supabase/migrations/20261029000100_agent_runs_health.sql");
     assert.match(sql, /insert into public\.schema_expected[\s\S]*agent_runs/);
     assert.match(sql, /20261029000000_agent_runs/);
+  });
+
+  // ── Why a run could not be stored ─────────────────────────────────────────
+  //
+  // The route used to answer "check the agent_runs migration" for every
+  // failure, including a deployment with no sealing key. Four fixable problems
+  // with four different fixes must not collapse back into one sentence.
+
+  await check("each failed start names its own cause, status and fix", () => {
+    const reasons: CreateRunFailure[] = ["missing-table", "denied", "no-key", "unconfigured", "failed"];
+    const details = new Set<string>();
+    for (const reason of reasons) {
+      const failure = runStartFailure(reason);
+      assert.ok(failure.status >= 500 && failure.status < 600, `${reason} needs a server-error status`);
+      assert.ok(failure.error.length > 40, `${reason} says nothing useful`);
+      assert.ok(failure.detail.length > 0, `${reason} has no machine-readable detail`);
+      details.add(failure.detail);
+    }
+    assert.equal(details.size, reasons.length, "two causes share one detail, so the client cannot tell them apart");
+  });
+
+  await check("a missing table names the migration to apply", () => {
+    const failure = runStartFailure("missing-table");
+    assert.match(failure.error, /20261029000000_agent_runs\.sql/);
+    assert.equal(failure.detail, "run-table-missing");
+  });
+
+  await check("a refused insert names the grants migration and the key to check", () => {
+    const failure = runStartFailure("denied");
+    assert.match(failure.error, /20261029000600_agent_runs_service_grants\.sql/);
+    assert.match(failure.error, /SUPABASE_SERVICE_ROLE_KEY/);
+    assert.equal(failure.detail, "run-denied");
+  });
+
+  await check("a missing sealing key names the variable, not a migration", () => {
+    const failure = runStartFailure("no-key");
+    assert.match(failure.error, /GITHUB_TOKEN_KEY/);
+    assert.doesNotMatch(failure.error, /migration/);
+  });
+
+  // ── Where a tick is sent ──────────────────────────────────────────────────
+  //
+  // The dispatch origin must never be taken from a header a caller can set:
+  // a forged Host would make this server POST a signed tick token wherever that
+  // caller liked. These pin the preference order and the placeholder guard.
+
+  await check("a tick goes to the configured origin when there is one", () => {
+    const saved = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = "https://openmi.example.org";
+    try {
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://169.254.169.254" } }), "https://openmi.example.org");
+    } finally {
+      if (saved === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+      else process.env.NEXT_PUBLIC_SITE_URL = saved;
+    }
+  });
+
+  await check("the example.com placeholder is not obeyed", () => {
+    const saved = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = "https://example.com";
+    try {
+      assert.equal(internalOrigin({ nextUrl: { origin: "https://openmi.example.org" } }), "https://openmi.example.org");
+    } finally {
+      if (saved === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+      else process.env.NEXT_PUBLIC_SITE_URL = saved;
+    }
+  });
+
+  await check("without a usable configuration the request's own origin is the fallback", () => {
+    const saved = process.env.NEXT_PUBLIC_SITE_URL;
+    delete process.env.NEXT_PUBLIC_SITE_URL;
+    try {
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://localhost:3000" } }), "http://localhost:3000");
+      process.env.NEXT_PUBLIC_SITE_URL = "not a url";
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://localhost:3000" } }), "http://localhost:3000");
+      process.env.NEXT_PUBLIC_SITE_URL = "ftp://example.org";
+      assert.equal(internalOrigin({ nextUrl: { origin: "http://localhost:3000" } }), "http://localhost:3000");
+    } finally {
+      if (saved === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+      else process.env.NEXT_PUBLIC_SITE_URL = saved;
+    }
   });
 
   console.log(`\nagent-runs: ${passed} checks passed`);

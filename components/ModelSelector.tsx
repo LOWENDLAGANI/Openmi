@@ -131,18 +131,14 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
                     inUse ? "bg-hover" : "hover:bg-hover"
                   }`}
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className={`text-[13px] font-semibold ${inUse ? "text-text-hi" : "text-text-body"}`}>
-                        {category.label}
-                      </span>
-                      {inUse && (
-                        <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
-                          In use
-                        </span>
-                      )}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-text-low">{category.blurb}</span>
+                  {/* The name and nothing else: the category is a door, and a
+                      sentence under it only delayed the model behind it. */}
+                  <span
+                    className={`min-w-0 flex-1 truncate text-[13px] font-semibold ${
+                      inUse ? "text-text-hi" : "text-text-body"
+                    }`}
+                  >
+                    {category.label}
                   </span>
                   <svg
                     width="12"
@@ -172,13 +168,14 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
                           : "border-line bg-card hover:border-accent/25 hover:bg-hover"
                       }`}
                     >
-                      <span className="min-w-0 flex-1">
-                        <span className={`block truncate text-[13px] font-medium ${active ? "text-text-hi" : "text-text-body"}`}>
-                          {mode.display}
-                        </span>
-                        <span className="mt-0.5 block text-[11px] leading-snug text-text-low">{mode.blurb}</span>
+                      <span
+                        className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
+                          active ? "text-text-hi" : "text-text-body"
+                        }`}
+                      >
+                        {mode.display}
                       </span>
-                      {active ? (
+                      {active && (
                         <svg
                           width="13"
                           height="13"
@@ -193,10 +190,6 @@ export default function ModeSelector({ selected, onChange }: ModeSelectorProps) 
                         >
                           <path d="m5 12 4 4L19 6" />
                         </svg>
-                      ) : (
-                        <span className="mt-0.5 shrink-0 text-[10px] font-medium uppercase tracking-wide text-text-low">
-                          Use
-                        </span>
                       )}
                     </button>
                   </div>

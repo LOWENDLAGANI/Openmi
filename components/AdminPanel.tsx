@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import AdminControls from "./AdminControls";
 import AdminReceipts from "./AdminReceipts";
+import PaymentsSetupNotice from "./PaymentsSetupNotice";
 import Spinner from "./Spinner";
 import ModelHealthSection from "./ModelHealth";
 import { fetchVisitorRegistry, type VisitorProfile } from "@/lib/cloudHistory";
@@ -11,6 +12,7 @@ import {
   appendAdminAudit,
   createRedeemCode,
   deductDew,
+  failureMessage,
   deleteRedeemCode,
   getChat,
   grantDew,
@@ -329,7 +331,10 @@ export default function AdminPanel({
       setTopUp(null);
     } catch (e: unknown) {
       console.error("[openmi] Dew adjustment failed", e);
-      setTopUpError(e instanceof Error ? e.message : "The adjustment did not go through.");
+      // The database's own sentence, not a generic one: a missing function and a
+      // refused policy both arrive as plain objects, and the code is the only
+      // thing that tells the owner which lever to pull.
+      setTopUpError(failureMessage(e, "The adjustment did not go through."));
     } finally {
       setBusy(false);
     }
@@ -355,8 +360,8 @@ export default function AdminPanel({
           `${days}-day pass active for ${grant.uid} until ${new Date(grant.until).toLocaleString()}`
         );
       } catch (e: unknown) {
-        console.error("[openmi] Pass activation failed", e);
-        setPlanError(e instanceof Error ? e.message : "The pass was not activated.");
+      console.error("[openmi] Pass activation failed", e);
+      setPlanError(failureMessage(e, "The pass was not activated."));
       } finally {
         setPlanBusy(false);
       }
@@ -456,6 +461,11 @@ export default function AdminPanel({
                     switched off or read back.
                   </span>
                 </button>
+
+                {/* The migration both controls below depend on. A console that
+                    offers a deduction which does not exist wastes the one visit
+                    it gets, so the gap is named before either is pressed. */}
+                <PaymentsSetupNotice className="mb-2" />
 
                 {/* Proof of a payment a buyer sent from the top-up page. The
                     list is the owner's inbox: one decision per receipt, and

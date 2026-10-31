@@ -11,7 +11,7 @@ import {
   saveProgress,
   type AgentRunState,
 } from "@/lib/agentRuns";
-import { dispatchTick, signTick, tickVerdict, verifyTick } from "@/lib/agentRunToken";
+import { dispatchTick, internalOrigin, signTick, tickVerdict, verifyTick } from "@/lib/agentRunToken";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildChangeSet, changeSetRow } from "@/lib/changesets";
 import type { AgentStep } from "@/lib/types";
@@ -182,7 +182,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     // Hand on. Not awaited: this request is done, and the next step has its own
     // fixed budget.
     if (nextAttempt < RUN_MAX_ATTEMPTS) {
-      void dispatchTick(req.nextUrl.origin, signTick({ run: run.id, uid: state.uid, attempt: nextAttempt }));
+      void dispatchTick(internalOrigin(req), signTick({ run: run.id, uid: state.uid, attempt: nextAttempt }));
     } else {
       await finishRun({
         id: run.id,

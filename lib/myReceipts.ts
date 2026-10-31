@@ -19,7 +19,8 @@ export interface BuyerReceipt {
   amount: number;
   status: ReceiptStatus;
   createdAt: number;
-  savedAt: number | null;
+  /** When the owner answered, or null while it is still pending. */
+  decidedAt: number | null;
   fileName: string;
 }
 
@@ -44,7 +45,7 @@ export async function listMyReceipts(): Promise<BuyerReceipt[]> {
   try {
     const { data, error } = await client
       .from("payment_receipts")
-      .select("id, plan, plan_label, amount, status, created_at, saved_at, file_name")
+      .select("id, plan, plan_label, amount, status, created_at, decided_at, file_name")
       .order("created_at", { ascending: false })
       .limit(20);
     if (error) return [];
@@ -54,9 +55,14 @@ export async function listMyReceipts(): Promise<BuyerReceipt[]> {
         plan: typeof row.plan === "string" ? row.plan : "other",
         planLabel: typeof row.plan_label === "string" ? row.plan_label : "",
         amount: Number(row.amount) || 0,
-        status: row.status === "saved" ? ("saved" as const) : ("new" as const),
+        status:
+          row.status === "approved"
+            ? ("approved" as const)
+            : row.status === "rejected"
+              ? ("rejected" as const)
+              : ("pending" as const),
         createdAt: epoch(row.created_at),
-        savedAt: row.saved_at ? epoch(row.saved_at) : null,
+        decidedAt: row.decided_at ? epoch(row.decided_at) : null,
         fileName: typeof row.file_name === "string" ? row.file_name : "",
       }))
       .filter((row) => row.id.length > 0);

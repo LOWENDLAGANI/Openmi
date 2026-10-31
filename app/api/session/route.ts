@@ -1,5 +1,13 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, isSameOriginRequest, rateLimitRefusal, verifyCaller } from "@/lib/serverControl";
+import {
+  checkRateLimit,
+  identityGate,
+  isAdmin,
+  isSameOriginRequest,
+  rateLimitRefusal,
+  readConfig,
+  verifyCaller,
+} from "@/lib/serverControl";
 import { clientForToken } from "@/lib/supabase";
 import { DEW_PER_HOUR, HOUR_SESSION_MS, outOfDewMessage } from "@/lib/dew";
 import { readProject, isProjectId } from "@/lib/projects";
@@ -176,6 +184,39 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   if (body.action !== "start") {
     return Response.json({ error: "That is not a session action." }, { status: 400 });
+  }
+
+  // ── The gates the chat routes apply, applied before money moves ───────────
+  // An hour is only worth buying to ask something, and a ban or maintenance
+  // mode refuses exactly that. Without this a banned account could pay for an
+  // hour it cannot spend and then wait for the idle refund — the refusal would
+  // arrive one step too late, after the balance had already gone down.
+  //
+  // `refund` and `end` above are deliberately not gated: taking an hour back
+  // must work during a ban, or the rail that returns Dew becomes the thing that
+  // is switched off when it is needed.
+  const config = await readConfig();
+  if (config.maintenanceEnabled && !isAdmin(identity)) {
+    return Response.json(
+      { error: config.maintenanceMessage },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+  // Paused chat refuses messages in /api/chat, so selling an hour here would
+  // take the Dew one step before the refusal — and the buyer would wait for an
+  // idle refund to get it back. Refuse before the money moves.
+  if (!config.chatEnabled) {
+    return Response.json(
+      { error: "Openmi is paused right now, so an hour cannot be started. Nothing was charged." },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+  const gate = identityGate(identity, config, config.dailyChatCap);
+  if (!gate.allowed) {
+    return Response.json(
+      { error: gate.error },
+      { status: 403, headers: { "Cache-Control": "no-store" } }
+    );
   }
 
   // ── What this hour is for ─────────────────────────────────────────────────

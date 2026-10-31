@@ -16,6 +16,7 @@ import {
   describeAccount,
   describeLinkError,
   describeLinkReturn,
+  emailChangeProblem,
   greetingName,
   isDismissed,
   linkableProviders,
@@ -320,6 +321,58 @@ test("each email failure names the next step", () => {
   assert.match(describeLinkError({ code: "weak_password" }), /six characters/);
   assert.match(describeLinkError({ code: "email_address_invalid" }), /not a valid email/);
   assert.match(describeLinkError({ code: "user_not_found" }), /Create one instead/);
+});
+
+test("an address change is requested and confirmed, never applied silently", () => {
+  // The rule the form owns: catch the two mistakes worth catching before a mail
+  // is queued, and leave every other refusal to Supabase's own code.
+  // `String(...)` because the rule answers "nothing wrong" with null, and the
+  // interesting assertions are the three sentences it does produce.
+  assert.match(String(emailChangeProblem(null, "")), /Enter the address/);
+  assert.match(String(emailChangeProblem(null, "nope")), /not a valid email address/);
+  assert.match(String(emailChangeProblem("a@b.com", "A@B.com")), /already the address/);
+  assert.equal(emailChangeProblem("a@b.com", "c@d.com"), null);
+
+  const change = code("lib/emailChange.ts");
+  assert.match(
+    change,
+    /updateUser\(\s*\{\s*email:\s*address\s*\}/,
+    "the address is not requested through the confirmed write"
+  );
+  assert.match(change, /emailRedirectTo/, "the confirmation link has nowhere to come back to");
+  assert.doesNotMatch(change, /password\s*:/, "the address change is collecting a password too");
+  assert.match(change, /new_email/, "a pending change cannot be reported from the session");
+
+  const section = code("components/AccountSection.tsx");
+  assert.ok(section.includes("<ChangeEmail current={view.email} />"), "Settings has no address row");
+  assert.ok(section.includes("Send confirmation"), "the address cannot be requested from Settings");
+  assert.ok(
+    section.includes("The address changes once the link is opened"),
+    "the screen claims the address changed before it was confirmed"
+  );
+});
+
+test("an OAuth account can add an email password without changing its address", () => {
+  // Signed in with Google, Settings offered only the three providers to attach,
+  // so "use email instead" meant creating a second account and losing the chats
+  // on the first. A password set on the confirmed address Supabase already holds
+  // becomes an `email` identity — no re-addressing, and no second confirmation.
+  const section = code("components/AccountSection.tsx");
+  assert.ok(
+    section.includes("SignInMethods email={view.email}"),
+    "the account section does not hand the address to the methods list"
+  );
+  assert.ok(section.includes("Add email and password"), "an OAuth account cannot add a password");
+  assert.match(section, /await changePassword\(password\)/, "the password is not written through the credential call");
+  assert.match(
+    section,
+    /methods\.some\(\(method\) => method\.provider === "email"\)/,
+    "the form is offered to an account that already has an email credential"
+  );
+  // The guard below still stands: adding a credential must not rewrite the
+  // address, which is the write that needs a confirmation mail and can be used
+  // to take over an account.
+  assert.doesNotMatch(section, /updateUser\(/, "the account section writes the auth user directly");
 });
 
 console.log("\nthe auth path has no anonymous door and the four providers are wired");

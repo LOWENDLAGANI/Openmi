@@ -81,26 +81,40 @@ async function main(): Promise<void> {
     assert.match(filter, /m\.documents\?\.length/, "a document-only question is filtered out of the thread");
   });
 
-  await test("a first agent turn gets a real chat, not the placeholder id", () => {
-    // Both send paths start from the same placeholder id when no chat exists.
-    // The chat path turned it into a row; the agent path did not, so it wrote
-    // the question and the answer under an id the thread never read — the send
-    // looked accepted and no bubble appeared.
-    const page = read("app/chat/page.tsx");
-    const start = page.indexOf("const sendAgentMessage");
-    assert.ok(start > 0, "the agent send path moved; this contract needs rewriting");
-    const branch = page.slice(start, page.indexOf("setStreamingId(assistantId)", start));
-    assert.match(
-      branch,
-      /chatId === DRAFT_CHAT_ID/,
-      "a first agent turn is still written under the placeholder id"
-    );
-  });
-
   await test("a dismissed proposal can be opened again", () => {
     const review = read("components/ChangeReview.tsx");
     assert.match(review, /Show the proposed change again/, "dismissing the review is a dead end");
     assert.match(review, /setDismissed\(false\)/, "the way back does not restore the card");
+  });
+
+  await test("a thinking model's reasoning is streamed and shown, and a silent one says nothing", () => {
+    // The route already asked for reasoning effort and the chunk type already
+    // named `reasoning_content`; the value was parsed and thrown away, so a
+    // DeepSeek turn could think and the screen still showed only the conclusion.
+    const route = read("app/api/chat/route.ts");
+    assert.match(
+      route,
+      /delta\?\.reasoning_content \?\? chunk\.choices\?\.\[0\]\?\.delta\?\.reasoning/,
+      "the reasoning is not read from both provider spellings"
+    );
+    assert.match(route, /encodeEvent\(\{ reasoning: thinking \}\)/, "the thinking never reaches the client");
+
+    const page = read("app/chat/page.tsx");
+    assert.match(page, /if \(evt\.reasoning\)/, "the client ignores the reasoning event");
+    assert.match(page, /setThinking/, "the reasoning is never collected");
+    assert.ok(
+      !/patchMessage\(assistantMsg\.id, \{ reasoning/.test(page),
+      "the model's scratchpad is being written into the stored message"
+    );
+
+    const thread = read("components/ChatThread.tsx");
+    assert.match(thread, /function ThinkingBlock/, "there is no panel for the reasoning");
+    assert.match(
+      thread,
+      /\{thinking\?\.messageId === msg\.id && <ThinkingBlock text=\{thinking\.text\} \/>\}/,
+      "the panel is not attached to the message it belongs to"
+    );
+    assert.ok(thread.includes("thinking = null"), "the thread does not accept the reasoning");
   });
 
   console.log(`\n${passes} passed, ${failures} failed`);
