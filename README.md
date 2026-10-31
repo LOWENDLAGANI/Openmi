@@ -48,10 +48,10 @@ when you say so**, on a branch of its own.
   enforces, with a breakdown and a fresh-chat offer past 90%.
 - **Rate limits you can see**: one policy table, one 429 shape carrying
   `Retry-After`, and a composer that counts the wait down instead of failing.
-- **One small ad above the composer** (optional): AdSense, reserved height,
-  hidden without both public ids, switchable off from the console. An Adsterra
-  popunder can be enabled beside it with one tag URL. `/privacy` says what both
-  collect.
+- **One small ad above the composer** (optional): one AdSense banner, reserved
+  height, hidden without both public ids, switchable off from the console. It is
+  the only placement — no auto ads, no other network. `/privacy` says what it
+  collects.
 - **A sidebar that is part of the account.** Folders, the folder a chat is filed
   under, and the trash are read and written through the same session as the
   chats. A folder or a chat deleted here is soft-deleted in the database, so a

@@ -19,7 +19,6 @@ import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
 import PricingDialog from "@/components/PricingDialog";
 import AdBanner from "@/components/AdBanner";
-import AdPopunder from "@/components/AdPopunder";
 import ModeSelector from "@/components/ModelSelector";
 import OpenmiMark from "@/components/OpenmiMark";
 import FocusHome from "@/components/FocusHome";
@@ -2233,15 +2232,9 @@ export default function HomePage() {
                 </button>
               </div>
             )}
-            {!focusHome && (
-              <>
-                <AdBanner enabled={appConfig?.adsEnabled !== false} />
-                {/* Same screens and the same switch as the banner: a popunder
-                    in a temporary chat would break the one promise that
-                    screen makes. */}
-                <AdPopunder enabled={appConfig?.adsEnabled !== false} showTrigger />
-              </>
-            )}
+            {/* One placement, and the same screens and kill switch it always
+                had: no ad on the Focus home. */}
+            {!focusHome && <AdBanner enabled={appConfig?.adsEnabled !== false} />}
             <ChatInput
               onSend={handleSend}
               disabled={isStreaming}

@@ -20,9 +20,6 @@ import {
   adsenseClientId,
   adsenseConfigured,
   adsenseSlotId,
-  adPopunderConfigured,
-  adsterraPopunderOrigin,
-  adsterraPopunderSrc,
 } from "../lib/ads";
 
 let failures = 0;
@@ -125,17 +122,10 @@ async function main(): Promise<void> {
 
   await test("the ad is kept off the screens it does not belong on", () => {
     const page = read("app/chat/page.tsx");
-    // Both the banner and the popunder sit inside the same guard. Either one
-    // outside it would put an advertisement where the screen is not meant to
-    // have any furniture.
-    assert.match(
-      page,
-      /!focusHome && \([\s\S]*?<AdBanner enabled=\{appConfig\?\.adsEnabled !== false\}/
-    );
-    assert.match(
-      page,
-      /!focusHome && \([\s\S]*?<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\} showTrigger \/>/
-    );
+    // One placement, inside the one guard. Anything outside it would put an
+    // advertisement where the screen is not meant to have any furniture.
+    assert.match(page, /!focusHome && <AdBanner enabled=\{appConfig\?\.adsEnabled !== false\} \/>/);
+    assert.equal(page.match(/<AdBanner/g)?.length, 1, "one placement, one component");
   });
 
   await test("the kill switch is a stored column, not just a code comment", () => {
@@ -147,68 +137,27 @@ async function main(): Promise<void> {
     assert.match(read("components/AdminControls.tsx"), /label="Ads"/);
   });
 
-  console.log("\nthe popunder");
+  console.log("\nno second network");
 
-  await test("a popunder needs a real script URL, not a bare key", () => {
-    assert.equal(
-      adsterraPopunderSrc("//pl123.profitablecpmrate.com/ab/cd.js"),
-      "https://pl123.profitablecpmrate.com/ab/cd.js"
-    );
-    for (const value of ["", "   ", "pl123", "https://example.com/tag", "javascript:alert(1)", undefined]) {
-      assert.equal(adsterraPopunderSrc(value), null, `"${value}" must not be loaded as a script`);
+  await test("the popunder is gone from every surface", () => {
+    // Removing a network is only done when nothing can re-introduce it: a
+    // leftover env var, CSP entry or component import would bring the script
+    // back the next time someone pastes a tag URL into the dashboard.
+    for (const file of [
+      ".env.example",
+      "lib/ads.ts",
+      "app/chat/page.tsx",
+      "next.config.mjs",
+      "app/privacy/page.tsx",
+      "README.md",
+    ]) {
+      assert.doesNotMatch(read(file), /adsterra|popunder/i, `${file} still names the popunder`);
     }
-  });
-
-  await test("the popunder's origin is what the policy allows", () => {
-    assert.equal(
-      adsterraPopunderOrigin("https://pl9.profitablecpmrate.com/a/b.js"),
-      "https://pl9.profitablecpmrate.com"
-    );
-    assert.equal(adsterraPopunderOrigin(null), null);
-  });
-
-  await test("no tag means no popunder, and the switch still wins", () => {
-    assert.equal(adPopunderConfigured(""), false);
-    assert.equal(adPopunderConfigured(undefined), false);
-    assert.equal(adPopunderConfigured("//pl1.example.com/a.js"), true);
-    const popunder = read("components/AdPopunder.tsx");
-    assert.match(popunder, /if \(!enabled \|\| !src\) {\n/);
-    assert.equal(popunder.match(/<Script/g)?.length, 1, "one tag, not two");
-    assert.match(popunder, /strategy="afterInteractive"/);
-  });
-
-  await test("the popunder is loaded on the same screens as the banner", () => {
-    const page = read("app/chat/page.tsx");
-    assert.match(page, /<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\}/);
-  });
-
-  await test("the popunder can expose an explicit show trigger button", () => {
-    const popunder = read("components/AdPopunder.tsx");
-    assert.match(popunder, /showTrigger = false/);
-    assert.match(popunder, /showTrigger && \(/);
-    assert.match(popunder, /window\.open\(src, "_blank", "noopener"\)/);
-    // The button is opt-in from the parent, so the component itself should not
-    // force a trigger on every page just because the prop exists.
-    const page = read("app/chat/page.tsx");
-    assert.match(page, /<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\} showTrigger \/>/);
-  });
-
-  await test("the popunder can expose an explicit show trigger button", () => {
-    const popunder = read("components/AdPopunder.tsx");
-    assert.match(popunder, /showTrigger = false/);
-    assert.match(popunder, /showTrigger && \(/);
-    assert.match(popunder, /window\.open\(src, "_blank", "noopener"\)/);
-    // The button is opt-in from the parent, so the component itself should not
-    // force a trigger on every page just because the prop exists.
-    const page = read("app/chat/page.tsx");
-    assert.match(page, /<AdPopunder enabled=\{appConfig\?\.adsEnabled !== false\} showTrigger \/>/);
-  });
-
-  await test("the CSP derives the popunder origin rather than wildcarding", () => {
-    const config = read("next.config.mjs");
-    assert.match(config, /NEXT_PUBLIC_ADSTERRA_POPUNDER_SRC/);
-    assert.match(config, /const adScripts = \[\.\.\.adScriptOrigins/);
-    assert.match(config, /script-src[^\n]*\$\{adScripts\.join/);
+    for (const file of [
+      "components/AdPopunder.tsx",
+    ]) {
+      assert.throws(() => read(file), `${file} must be deleted, not left dead in the tree`);
+    }
   });
 
   console.log("\nthe policy");
@@ -273,8 +222,6 @@ async function main(): Promise<void> {
   await test("there is a privacy page that names the ad settings and deletion", () => {
     const page = read("app/privacy/page.tsx");
     assert.match(page, /AdSense/);
-    assert.match(page, /Adsterra/);
-    assert.match(page, /popunder/i);
     assert.match(page, /adssettings\.google\.com/);
     assert.match(page, /Your rights and controls/);
     assert.match(page, /Settings → Your data/);

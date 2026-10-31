@@ -43,33 +43,12 @@ const adImageOrigins = [
   "https://*.googlesyndication.com",
 ];
 
-// ── Adsterra popunder ───────────────────────────────────────────────────────
-// The popunder's host is assigned per zone by the network, so it cannot be one
-// of the names above: the operator pastes the exact tag URL into
-// NEXT_PUBLIC_ADSTERRA_POPUNDER_SRC and this file reads its origin at build
-// time. Only a .js URL counts, and only the origin is allowed — never a
-// wildcard, and never the whole path.
-//
-// An unset or malformed value contributes nothing, which is the same state as a
-// deployment with no popunder: the policy does not widen for a tag that will
-// not load.
-function popunderScriptOrigin() {
-  const raw = (process.env.NEXT_PUBLIC_ADSTERRA_POPUNDER_SRC ?? "").trim();
-  if (!raw) return null;
-  try {
-    const url = new URL(raw.startsWith("//") ? `https:${raw}` : raw);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    if (!/\.js$/i.test(url.pathname)) return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
-const popunderOrigin = popunderScriptOrigin();
+// One network, so the list above is the whole allowance. A second network would
+// have to be named here before its script could load, which is the point of the
+// boundary: widening it is a code change someone reviews, not a config value.
 // Everything the page may load as script, in one list, so script-src and
 // connect-src cannot drift apart.
-const adScripts = [...adScriptOrigins, ...(popunderOrigin ? [popunderOrigin] : [])];
+const adScripts = [...adScriptOrigins];
 
 const contentSecurityPolicy = [
   "default-src 'self'",

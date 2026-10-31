@@ -240,7 +240,7 @@ export default function PrivacyPage() {
                   </>,
                   "Your messages are sent to the AI model provider serving the model you chose, so it can answer.",
                   "If you connect GitHub, an access token is stored encrypted and is never shown back to your browser. The agent can read repositories and propose changes; nothing is written to GitHub unless you approve it.",
-                  "One small Google AdSense banner appears above the chat composer, except on the sign-in screen, in temporary chats and on the Focus home. If the operator has configured Adsterra, a popunder script may also open an advertisement in a background window. Both use cookies or device identifiers.",
+                  "One small Google AdSense banner appears above the chat composer, except on the sign-in screen, in temporary chats and on the Focus home. It uses cookies or device identifiers.",
                   "We do not sell your data. There is no analytics product and no advertising identifier of our own in this app.",
                   "You can export a backup, erase your synced data, revoke share links, disconnect GitHub and remove stored API keys at any time.",
                 ]}
@@ -334,19 +334,15 @@ export default function PrivacyPage() {
 
               <SubHeading>Advertising</SubHeading>
               <p>
-                Two networks can serve this deployment, and which one is live is the operator’s
-                choice. The banner above the composer is{" "}
+                One network serves this deployment. The banner above the composer is{" "}
                 <span className="text-text-hi">Google AdSense</span>; Google and its partners may
                 collect cookies, device identifiers, IP address, approximate location and ad
                 interaction data under{" "}
                 <Outbound href="https://policies.google.com/technologies/partner-sites">
                   Google’s partner-sites policy
                 </Outbound>
-                . The <span className="text-text-hi">Adsterra popunder</span>, when configured, is
-                one script that may open an advertisement in a new window or a background tab,
-                usually after a click; Adsterra and its partners may collect the same categories
-                of ad data under their own privacy policy. We do not receive your conversation,
-                and we do not pass conversation content to either network for advertising.
+                . We do not receive your conversation, and we do not pass conversation content
+                to Google for advertising.
               </p>
 
               <SubHeading>Error reports, only if configured</SubHeading>
@@ -438,11 +434,6 @@ export default function PrivacyPage() {
                     "The ad slot",
                   ],
                   [
-                    "Adsterra",
-                    "The same categories: page URL, IP address, device and cookie identifiers, ad interactions",
-                    "The popunder, when configured",
-                  ],
-                  [
                     "Sentry, if configured",
                     "Error, stack trace, route, stripped of conversation content",
                     "Crash diagnosis",
@@ -525,13 +516,6 @@ export default function PrivacyPage() {
                   <>
                     <span className="text-text-hi">No ad</span> is requested on the sign-in screen,
                     in a temporary chat, or on the Focus home.
-                  </>,
-                  <>
-                    <span className="text-text-hi">Popunder:</span> where the operator has
-                    configured Adsterra, one script may open an advertisement in a background
-                    window or tab. Most ad blockers stop it, and blocking it does not affect the
-                    app. The Google Ad Settings link above covers AdSense only; Adsterra’s own
-                    privacy policy covers its cookies.
                   </>,
                   "The operator can switch advertising off for the whole deployment without a release.",
                 ]}
