@@ -81,6 +81,22 @@ async function main(): Promise<void> {
     assert.match(filter, /m\.documents\?\.length/, "a document-only question is filtered out of the thread");
   });
 
+  await test("a first agent turn gets a real chat, not the placeholder id", () => {
+    // Both send paths start from the same placeholder id when no chat exists.
+    // The chat path turned it into a row; the agent path did not, so it wrote
+    // the question and the answer under an id the thread never read — the send
+    // looked accepted and no bubble appeared.
+    const page = read("app/chat/page.tsx");
+    const start = page.indexOf("const sendAgentMessage");
+    assert.ok(start > 0, "the agent send path moved; this contract needs rewriting");
+    const branch = page.slice(start, page.indexOf("setStreamingId(assistantId)", start));
+    assert.match(
+      branch,
+      /chatId === DRAFT_CHAT_ID/,
+      "a first agent turn is still written under the placeholder id"
+    );
+  });
+
   await test("a dismissed proposal can be opened again", () => {
     const review = read("components/ChangeReview.tsx");
     assert.match(review, /Show the proposed change again/, "dismissing the review is a dead end");

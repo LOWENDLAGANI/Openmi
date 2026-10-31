@@ -1309,7 +1309,12 @@ export default function HomePage() {
         });
         assistantId = assistant.id;          if (!draftId) setActiveChatId(chatId);
       } else {
-        if (!chatId) {
+        // A turn sent before a real chat exists gets its own row now, exactly as
+        // the chat path below does it. Without this the agent wrote its question
+        // and answer under the placeholder id while `activeChatId` stayed null,
+        // so the thread read nothing back: the message looked sent, the send
+        // button turned into Stop, and no bubble ever appeared.
+        if (!chatId || chatId === DRAFT_CHAT_ID) {
           const chat = await createChat();
           chatId = chat.id;
           setActiveChatId(chatId);
